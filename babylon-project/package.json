@@ -1,0 +1,53 @@
+{
+  "name": "babylon-project",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  },
+  "scripts": {
+    "build": "tsc -p backend/tsconfig.json",
+    "check": "tsc -p backend/tsconfig.json --noEmit",
+    "check:test": "tsc -p backend/test/tsconfig.json --noEmit",
+    "dev": "tsx watch backend/src/main.ts",
+    "format": "prettier --write \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
+    "format:check": "prettier --check \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
+    "lint": "eslint backend/src backend/test",
+    "migrate": "tsx backend/src/migrate-cli.ts",
+    "start": "node backend/dist/main.js",
+    "test": "vitest run --coverage",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cors": "11.3.0",
+    "@fastify/helmet": "13.1.0",
+    "@fastify/rate-limit": "11.2.0",
+    "@simplewebauthn/server": "13.3.2",
+    "fastify": "5.11.3",
+    "nodemailer": "9.0.5",
+    "pg": "8.23.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "@types/node": "24.13.3",
+    "@types/nodemailer": "8.0.1",
+    "@types/pg": "8.16.0",
+    "@types/smtp-server": "3.5.12",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "9.39.2",
+    "esbuild": "0.28.1",
+    "pg-mem": "3.0.5",
+    "playwright": "1.62.1",
+    "prettier": "3.8.1",
+    "smtp-server": "3.19.3",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.54.0",
+    "vitest": "4.1.10"
+  }
+}

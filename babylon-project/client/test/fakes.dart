@@ -1,0 +1,124 @@
+import 'dart:async';
+
+import 'package:babylon_client/src/api_client.dart';
+import 'package:babylon_client/src/native_auth.dart';
+import 'package:babylon_client/src/token_store.dart';
+
+class MemoryStore implements SecureValueStore {
+  final values = <String, String>{};
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+  @override
+  Future<String?> read(String key) async => values[key];
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+}
+
+class FakeBrowser implements BrowserLauncher {
+  bool result = true;
+  Uri? opened;
+  @override
+  Future<bool> open(Uri uri) async {
+    opened = uri;
+    return result;
+  }
+}
+
+class FakeCallback implements CallbackReceiver {
+  final completer = Completer<NativeCallback>();
+  bool closed = false;
+  @override
+  Future<void> close() async => closed = true;
+  @override
+  Future<NativeCallback> start() => completer.future;
+}
+
+class FakeGateway implements BabylonGateway {
+  bool healthy = true;
+  bool authenticated = false;
+  int exchanges = 0;
+  int resendCalls = 0;
+  int acceptCalls = 0;
+  bool failAccept = false;
+  final deviceRows = <Map<String, dynamic>>[
+    {
+      'id': 'device-1',
+      'name': 'Teszt eszköz',
+      'platform': 'windows',
+      'current': true,
+    },
+  ];
+
+  @override
+  Future<void> acceptInvitation({
+    required String email,
+    required String invitationCode,
+    required String transactionToken,
+    required String state,
+  }) async {
+    acceptCalls += 1;
+    if (failAccept) {
+      throw BabylonApiException(401, 'UNAUTHORIZED', 'Hibás meghívó');
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> devices() async => List.of(deviceRows);
+  @override
+  Future<void> exchange({
+    required String returnCode,
+    required String pkceVerifier,
+    required String state,
+    required String deviceName,
+    required String platform,
+    required String clientDeviceKey,
+  }) async {
+    exchanges += 1;
+    authenticated = true;
+  }
+
+  @override
+  Future<bool> health() async => healthy;
+  @override
+  Future<void> logout() async => authenticated = false;
+  @override
+  Future<Map<String, dynamic>> me() async {
+    if (!authenticated) {
+      throw BabylonApiException(401, 'UNAUTHORIZED', 'Nincs munkamenet');
+    }
+    return {
+      'id': 'user-1',
+      'email': 'user@example.test',
+      'deviceId': 'device-1',
+    };
+  }
+
+  @override
+  Future<void> renameDevice(String id, String name) async =>
+      deviceRows.firstWhere((row) => row['id'] == id)['name'] = name;
+  @override
+  Future<void> resendVerification({
+    required String email,
+    required String transactionToken,
+    required String state,
+  }) async => resendCalls += 1;
+  @override
+  Future<void> resumeOnboarding({
+    required String email,
+    required String transactionToken,
+    required String state,
+  }) async {}
+  @override
+  Future<void> revokeDevice(String id) async =>
+      deviceRows.removeWhere((row) => row['id'] == id);
+  @override
+  Future<Map<String, dynamic>> startNativeAuth({
+    required String operation,
+    required String pkceChallenge,
+    required String state,
+  }) async => {
+    'transactionToken': ''.padRight(43, 't'),
+    'browserUrl':
+        'http://localhost:3000/auth/$operation#transaction=${''.padRight(43, 't')}&state=$state',
+  };
+}

@@ -1,0 +1,13 @@
+.env
+.dart_tool/
+.flutter-plugins*
+.packages
+build/
+coverage/
+dist/
+node_modules/
+*.log
+*.iml
+.idea/
+.vscode/
+.tooling/

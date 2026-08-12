@@ -1,0 +1,489 @@
+openapi: 3.1.0
+info:
+  title: Babylon Authentication API
+  version: 0.1.0
+  description: Meghívásos, WebAuthn passkey- és natív PKCE-hitelesítési API.
+servers:
+  - url: http://localhost:3000
+    description: Kizárólag loopback fejlesztői környezet
+tags:
+  - name: health
+  - name: onboarding
+  - name: passkeys
+  - name: sessions
+  - name: devices
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      operationId: healthLive
+      responses:
+        '200':
+          description: A folyamat él.
+          content: { application/json: { schema: { $ref: '#/components/schemas/LiveResponse' } } }
+  /health/ready:
+    get:
+      tags: [health]
+      operationId: healthReady
+      responses:
+        '200':
+          description: A backend és PostgreSQL kész.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ReadyResponse' } } }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/admin/invitations:
+    post:
+      tags: [onboarding]
+      operationId: createInvitation
+      security: [{ adminBearer: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Email' }
+      responses:
+        '201':
+          description: Meghívó létrejött; a nyers kód csak itt látható.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/DataEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [invitationCode, expiresAt]
+                        properties:
+                          invitationCode: { type: string }
+                          expiresAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/onboarding/accept-invitation:
+    post:
+      tags: [onboarding]
+      operationId: acceptInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, invitationCode, transactionToken, state]
+              properties:
+                email: { $ref: '#/components/schemas/Email' }
+                invitationCode: { $ref: '#/components/schemas/OpaqueToken' }
+                transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+                state: { $ref: '#/components/schemas/State' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/email-verification/resend:
+    post:
+      tags: [onboarding]
+      operationId: resendEmailVerification
+      requestBody: { $ref: '#/components/requestBodies/Resume' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/onboarding/resume:
+    post:
+      tags: [onboarding]
+      operationId: resumeOnboarding
+      requestBody: { $ref: '#/components/requestBodies/Resume' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/email-verification/confirm:
+    post:
+      tags: [onboarding]
+      operationId: confirmEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, transactionToken, state]
+              properties:
+                token: { $ref: '#/components/schemas/OpaqueToken' }
+                transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+                state: { $ref: '#/components/schemas/State' }
+      responses:
+        '200':
+          description: E-mail megerősítve, egyszer használható enrollment token kiadva.
+          content: { application/json: { schema: { $ref: '#/components/schemas/TokenEnvelope' } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/native-auth/start:
+    post:
+      tags: [sessions]
+      operationId: startNativeAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [clientId, returnProfile, pkceChallenge, state, operation]
+              properties:
+                clientId: { type: string, maxLength: 80 }
+                returnProfile: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,63}$' }
+                pkceChallenge: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+                state: { $ref: '#/components/schemas/State' }
+                operation: { type: string, enum: [register, authenticate] }
+      responses:
+        '201':
+          description: Szerveroldali auth tranzakció és fix böngésző URL.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/DataEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [transactionToken, browserUrl, expiresAt]
+                        properties:
+                          transactionToken: { type: string }
+                          browserUrl: { type: string, format: uri }
+                          expiresAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys/registration/options:
+    post:
+      tags: [passkeys]
+      operationId: registrationOptions
+      requestBody: { $ref: '#/components/requestBodies/RegistrationCapability' }
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys/registration/verify:
+    post:
+      tags: [passkeys]
+      operationId: verifyRegistration
+      requestBody: { $ref: '#/components/requestBodies/WebAuthnCeremony' }
+      responses:
+        '200': { $ref: '#/components/responses/ReturnCode' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys/authentication/options:
+    post:
+      tags: [passkeys]
+      operationId: authenticationOptions
+      requestBody: { $ref: '#/components/requestBodies/Transaction' }
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys/authentication/verify:
+    post:
+      tags: [passkeys]
+      operationId: verifyAuthentication
+      requestBody: { $ref: '#/components/requestBodies/WebAuthnCeremony' }
+      responses:
+        '200': { $ref: '#/components/responses/ReturnCode' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/native-auth/exchange:
+    post:
+      tags: [sessions]
+      operationId: exchangeNativeCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                [returnCode, clientId, pkceVerifier, state, deviceName, platform, clientDeviceKey]
+              properties:
+                returnCode: { $ref: '#/components/schemas/OpaqueToken' }
+                clientId: { type: string, maxLength: 80 }
+                pkceVerifier: { type: string, minLength: 43, maxLength: 128 }
+                state: { $ref: '#/components/schemas/State' }
+                deviceName: { type: string, minLength: 1, maxLength: 80 }
+                platform: { type: string, minLength: 1, maxLength: 32 }
+                clientDeviceKey: { type: string, minLength: 32, maxLength: 512 }
+      responses:
+        '200': { $ref: '#/components/responses/TokenPair' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions/refresh:
+    post:
+      tags: [sessions]
+      operationId: refreshSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties: { refreshToken: { $ref: '#/components/schemas/OpaqueToken' } }
+      responses:
+        '200': { $ref: '#/components/responses/TokenPair' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions/logout:
+    post:
+      tags: [sessions]
+      operationId: logout
+      security: [{ accessBearer: [] }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '204': { description: Munkamenet azonnal visszavonva. }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/me:
+    get:
+      tags: [sessions]
+      operationId: getMe
+      security: [{ accessBearer: [] }]
+      responses:
+        '200':
+          description: Aktuális felhasználó és eszköz.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/DataEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [id, email, deviceId]
+                        properties:
+                          id: { type: string, format: uuid }
+                          email: { $ref: '#/components/schemas/Email' }
+                          deviceId: { type: string, format: uuid }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/devices:
+    get:
+      tags: [devices]
+      operationId: listDevices
+      security: [{ accessBearer: [] }]
+      responses:
+        '200':
+          description: Saját eszközök.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/DataEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items: { type: array, items: { $ref: '#/components/schemas/Device' } }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/devices/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [devices]
+      operationId: renameDevice
+      security: [{ accessBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties: { name: { type: string, minLength: 1, maxLength: 80 } }
+      responses:
+        '200':
+          description: Átnevezett eszköz.
+          content: { application/json: { schema: { $ref: '#/components/schemas/DataEnvelope' } } }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [devices]
+      operationId: revokeDevice
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { description: Az aktuális eszköz visszavonva; a kliens kijelentkezik. }
+        '204': { description: Másik saját eszköz visszavonva. }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    adminBearer: { type: http, scheme: bearer, bearerFormat: opaque-bootstrap-token }
+    accessBearer: { type: http, scheme: bearer, bearerFormat: opaque-access-token }
+  schemas:
+    DataEnvelope:
+      type: object
+      required: [data]
+      properties: { data: {} }
+    Email: { type: string, format: email, maxLength: 254 }
+    OpaqueToken: { type: string, minLength: 32, maxLength: 512 }
+    State: { type: string, pattern: '^[A-Za-z0-9_-]{32,256}$' }
+    LiveResponse:
+      type: object
+      required: [data]
+      properties:
+        { data: { type: object, required: [status], properties: { status: { const: live } } } }
+    ReadyResponse:
+      type: object
+      required: [data]
+      properties:
+        { data: { type: object, required: [status], properties: { status: { const: ready } } } }
+    TokenEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/DataEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [enrollmentToken, expiresAt]
+              properties:
+                enrollmentToken: { type: string }
+                expiresAt: { type: string, format: date-time }
+    Device:
+      type: object
+      required: [id, name, platform, createdAt, lastUsedAt, revoked]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        platform: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+        revoked: { type: boolean }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+  requestBodies:
+    Email:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [email]
+            properties: { email: { $ref: '#/components/schemas/Email' } }
+    Resume:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [email, transactionToken, state]
+            properties:
+              email: { $ref: '#/components/schemas/Email' }
+              transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+              state: { $ref: '#/components/schemas/State' }
+    Transaction:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [transactionToken, state]
+            properties:
+              transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+              state: { $ref: '#/components/schemas/State' }
+    RegistrationCapability:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [enrollmentToken, transactionToken, state]
+            properties:
+              enrollmentToken: { $ref: '#/components/schemas/OpaqueToken' }
+              transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+              state: { $ref: '#/components/schemas/State' }
+    WebAuthnCeremony:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ceremonyToken, transactionToken, state, response]
+            properties:
+              ceremonyToken: { $ref: '#/components/schemas/OpaqueToken' }
+              transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+              state: { $ref: '#/components/schemas/State' }
+              response:
+                {
+                  type: object,
+                  description: WebAuthn RegistrationResponseJSON vagy AuthenticationResponseJSON.,
+                }
+  responses:
+    Error:
+      description: Konzekvens, belső részletet nem tartalmazó hiba.
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Accepted:
+      description: Általános, fióklétezést nem felfedő válasz.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/DataEnvelope'
+              - type: object
+                properties: { data: { type: object, properties: { status: { const: accepted } } } }
+    WebAuthnOptions:
+      description: Ceremony token és a szabványos JSON WebAuthn options.
+      content: { application/json: { schema: { $ref: '#/components/schemas/DataEnvelope' } } }
+    ReturnCode:
+      description: Egyszer használható kód és fix visszatérési URL; token nincs az URL-ben.
+      content: { application/json: { schema: { $ref: '#/components/schemas/DataEnvelope' } } }
+    TokenPair:
+      description: Rövid életű access és forgatott refresh token.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/DataEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: object
+                    required: [accessToken, refreshToken, expiresIn]
+                    properties:
+                      accessToken: { type: string }
+                      refreshToken: { type: string }
+                      expiresIn:
+                        {
+                          type: integer,
+                          minimum: 1,
+                          description: Access-token élettartama másodpercben.,
+                        }

@@ -1,0 +1,11 @@
+.git
+.env
+.tooling
+node_modules
+coverage
+backend/dist
+client/.dart_tool
+client/build
+client/.pub-cache
+*.log
+
