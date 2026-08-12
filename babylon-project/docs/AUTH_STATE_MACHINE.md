@@ -9,9 +9,9 @@ Ez a dokumentum a hitelesítési protokoll normatív szerződése. Bejelentkezé
 `INVITED` → `INVITATION_CONSUMED` → `EMAIL_PENDING` → `EMAIL_VERIFIED`
 
 - `INVITED`: csak a kivonatolt, le nem járt és fel nem használt meghívó létezik.
-- `INVITATION_CONSUMED`: tranzakcióban létrejött a `pending_email` felhasználó; a meghívó felhasznált.
+- `INVITATION_CONSUMED`: tranzakcióban létrejött a `pending_verification` felhasználó és email identity; a meghívó felhasznált.
 - `EMAIL_PENDING`: aktív, kivonatolt e-mail-token létezik. Újraküldés minden korábbi aktív tokent érvénytelenít.
-- `EMAIL_VERIFIED`: az e-mail-token felhasznált, a felhasználó `email_verified`; egyszer használható beiratkozási jogosultság jött létre.
+- `EMAIL_VERIFIED`: az e-mail-token felhasznált, az identity ellenőrzött; a user a passkey létrehozásáig `pending_verification`, és egyszer használható enrollment grant jött létre.
 
 `onboarding/resume` általános választ ad. Csak érvényes meghívási előzményű, ellenőrzött, passkey nélküli fiókhoz hoz létre új beiratkozási jogosultságot, és azt e-mailben kézbesíti. SMTP-hiba nem törli a felhasználót; újraküldés/resume később megismételhető.
 
@@ -63,6 +63,20 @@ Ez a dokumentum a hitelesítési protokoll normatív szerződése. Bejelentkezé
 | `sessions/refresh`                | aktív current refresh token                                               | új refresh/access hash                         | előző refresh token            |
 | `sessions/logout`                 | aktív access token                                                        | audit event                                    | session                        |
 | `devices/:id` műveletek           | aktív access token + tulajdonjog                                          | névváltozás/audit                              | visszavonáskor device sessions |
+
+## Lifecycle, step-up és recovery
+
+- Az `active` állapotból suspend/lock/disable/pending deletion adminisztratív átmenet minden
+  sessiont visszavon és növeli a user security versiont. A korábbi tokenek visszaállítás után sem
+  élednek fel.
+- Minden passkey session AAL2 és friss WebAuthn-időbélyeggel indul. Passkey-visszavonás,
+  recovery-code regenerálás és tömeges session-revoke csak a konfigurált frissességi ablakban
+  hajtható végre.
+- Recovery: `RECOVERY_REQUESTED` → `EMAIL_FACTOR_ISSUED` + `RECOVERY_CODE_PRESENTED` →
+  `RECOVERY_CONSUMED` → `ENROLLMENT_GRANTED`. Mindkét faktor egyszer használható; siker esetén
+  minden session visszavonódik és csak passkey enrollment capability keletkezik.
+- Session: az abszolút lejárat mellett inactivity expiry és user/session security-version egyezés is
+  kötelező. Refresh mindkét activity időbélyeget frissíti; replay a teljes token familyt visszavonja.
 
 ## Tiltott átmenetek
 

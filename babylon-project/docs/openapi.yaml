@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Babylon Authentication API
-  version: 0.1.0
-  description: Meghívásos, WebAuthn passkey- és natív PKCE-hitelesítési API.
+  version: 0.2.0
+  description: Meghívásos WebAuthn, PKCE, recovery, session-, device- és security-event API.
 servers:
   - url: http://localhost:3000
     description: Kizárólag loopback fejlesztői környezet
@@ -12,6 +12,9 @@ tags:
   - name: passkeys
   - name: sessions
   - name: devices
+  - name: recovery
+  - name: security
+  - name: administration
 paths:
   /health/live:
     get:
@@ -331,6 +334,169 @@ paths:
         '204': { description: Másik saját eszköz visszavonva. }
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions:
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Collection' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions/{id}:
+    delete:
+      tags: [sessions]
+      operationId: revokeSession
+      security: [{ accessBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { $ref: '#/components/responses/Data' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions/revoke-others:
+    post:
+      tags: [sessions]
+      operationId: revokeOtherSessions
+      description: Friss AAL2 hitelesítést igényel.
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Data' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/v1/sessions/revoke-all:
+    post:
+      tags: [sessions]
+      operationId: revokeAllSessions
+      description: Friss AAL2 hitelesítést igényel, az aktuális sessiont is visszavonja.
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Data' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys:
+    get:
+      tags: [passkeys]
+      operationId: listPasskeys
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Collection' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys/add:
+    post:
+      tags: [passkeys]
+      operationId: authorizePasskeyAddition
+      description: Friss AAL2 sessiont enrollment capabilityvé köt egy register tranzakcióhoz.
+      security: [{ accessBearer: [] }]
+      requestBody: { $ref: '#/components/requestBodies/Transaction' }
+      responses:
+        '200': { $ref: '#/components/responses/Data' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/v1/passkeys/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [passkeys]
+      operationId: renamePasskey
+      security: [{ accessBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties: { name: { type: string, minLength: 1, maxLength: 80 } }
+      responses:
+        '204': { description: Átnevezve. }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [passkeys]
+      operationId: revokePasskey
+      description: Friss AAL2-t igényel; az utolsó aktív passkey nem vonható vissza.
+      security: [{ accessBearer: [] }]
+      responses:
+        '204': { description: Visszavonva. }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/recovery/codes/regenerate:
+    post:
+      tags: [recovery]
+      operationId: regenerateRecoveryCodes
+      description: Friss AAL2 session szükséges; a korábbi készlet atomikusan érvénytelen lesz.
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Data' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /api/v1/recovery/start:
+    post:
+      tags: [recovery]
+      operationId: startRecovery
+      description: Fióklétezést nem felfedő, account- és IP-limitált válasz.
+      requestBody: { $ref: '#/components/requestBodies/Email' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/recovery/complete:
+    post:
+      tags: [recovery]
+      operationId: completeRecovery
+      description: E-mailes recovery token és egyszer használható recovery code együttesen szükséges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, recoveryToken, recoveryCode, transactionToken, state]
+              properties:
+                email: { $ref: '#/components/schemas/Email' }
+                recoveryToken: { $ref: '#/components/schemas/OpaqueToken' }
+                recoveryCode: { $ref: '#/components/schemas/OpaqueToken' }
+                transactionToken: { $ref: '#/components/schemas/OpaqueToken' }
+                state: { $ref: '#/components/schemas/State' }
+      responses:
+        '200': { $ref: '#/components/responses/Data' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /api/v1/security-events:
+    get:
+      tags: [security]
+      operationId: listOwnSecurityEvents
+      security: [{ accessBearer: [] }]
+      responses:
+        '200': { $ref: '#/components/responses/Collection' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/admin/users/{id}/status:
+    post:
+      tags: [administration]
+      operationId: transitionUserStatus
+      security: [{ adminBearer: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, reason]
+              properties:
+                status:
+                  type: string
+                  enum: [active, suspended, locked, disabled, pending_deletion, tombstoned]
+                reason: { type: string, minLength: 3, maxLength: 240 }
+      responses:
+        '204': { description: Állapotváltás és globális session-invalidálás megtörtént. }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     adminBearer: { type: http, scheme: bearer, bearerFormat: opaque-bootstrap-token }
@@ -448,6 +614,12 @@ components:
                   description: WebAuthn RegistrationResponseJSON vagy AuthenticationResponseJSON.,
                 }
   responses:
+    Data:
+      description: Általános data envelope.
+      content: { application/json: { schema: { $ref: '#/components/schemas/DataEnvelope' } } }
+    Collection:
+      description: Lapozás nélküli, korlátozott saját erőforráslista.
+      content: { application/json: { schema: { $ref: '#/components/schemas/DataEnvelope' } } }
     Error:
       description: Konzekvens, belső részletet nem tartalmazó hiba.
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }

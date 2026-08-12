@@ -49,6 +49,15 @@ abstract interface class BabylonGateway {
   });
   Future<Map<String, dynamic>> me();
   Future<List<Map<String, dynamic>>> devices();
+  Future<List<Map<String, dynamic>>> sessions();
+  Future<void> revokeSession(String id);
+  Future<int> revokeOtherSessions();
+  Future<List<Map<String, dynamic>>> passkeys();
+  Future<void> renamePasskey(String id, String name);
+  Future<void> revokePasskey(String id);
+  Future<List<Map<String, dynamic>>> securityEvents();
+  Future<List<String>> regenerateRecoveryCodes();
+  Future<void> startRecovery(String email);
   Future<void> renameDevice(String id, String name);
   Future<void> revokeDevice(String id);
   Future<void> logout();
@@ -273,6 +282,79 @@ class BabylonApiClient implements BabylonGateway {
   Future<void> revokeDevice(String id) async {
     final response = await _authorizedRequest('DELETE', '/api/v1/devices/$id');
     if (response.statusCode != 204) _decode(response);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> sessions() async {
+    final data = _decode(await _authorizedRequest('GET', '/api/v1/sessions'));
+    return (data['items'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<void> revokeSession(String id) async {
+    _decode(await _authorizedRequest('DELETE', '/api/v1/sessions/$id'));
+  }
+
+  @override
+  Future<int> revokeOtherSessions() async {
+    final data = _decode(
+      await _authorizedRequest(
+        'POST',
+        '/api/v1/sessions/revoke-others',
+        body: const {},
+      ),
+    );
+    return data['revoked'] as int? ?? 0;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> passkeys() async {
+    final data = _decode(await _authorizedRequest('GET', '/api/v1/passkeys'));
+    return (data['items'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<void> renamePasskey(String id, String name) async {
+    final response = await _authorizedRequest(
+      'PATCH',
+      '/api/v1/passkeys/$id',
+      body: {'name': name},
+    );
+    if (response.statusCode != 204) _decode(response);
+  }
+
+  @override
+  Future<void> revokePasskey(String id) async {
+    final response = await _authorizedRequest('DELETE', '/api/v1/passkeys/$id');
+    if (response.statusCode != 204) _decode(response);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> securityEvents() async {
+    final data = _decode(
+      await _authorizedRequest('GET', '/api/v1/security-events'),
+    );
+    return (data['items'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<List<String>> regenerateRecoveryCodes() async {
+    final data = _decode(
+      await _authorizedRequest(
+        'POST',
+        '/api/v1/recovery/codes/regenerate',
+        body: const {},
+      ),
+    );
+    return (data['codes'] as List<dynamic>? ?? const []).cast<String>();
+  }
+
+  @override
+  Future<void> startRecovery(String email) async {
+    await _post('/api/v1/recovery/start', {'email': email});
   }
 
   @override

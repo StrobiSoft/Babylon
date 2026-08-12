@@ -65,6 +65,24 @@ class FakeGateway implements BabylonGateway {
   @override
   Future<List<Map<String, dynamic>>> devices() async => List.of(deviceRows);
   @override
+  Future<List<Map<String, dynamic>>> sessions() async => const [];
+  @override
+  Future<void> revokeSession(String id) async {}
+  @override
+  Future<int> revokeOtherSessions() async => 0;
+  @override
+  Future<List<Map<String, dynamic>>> passkeys() async => const [];
+  @override
+  Future<void> renamePasskey(String id, String name) async {}
+  @override
+  Future<void> revokePasskey(String id) async {}
+  @override
+  Future<List<Map<String, dynamic>>> securityEvents() async => const [];
+  @override
+  Future<List<String>> regenerateRecoveryCodes() async => const [];
+  @override
+  Future<void> startRecovery(String email) async {}
+  @override
   Future<void> exchange({
     required String returnCode,
     required String pkceVerifier,

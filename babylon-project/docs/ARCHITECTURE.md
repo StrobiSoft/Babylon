@@ -1,5 +1,8 @@
 # Architektúra és biztonsági döntések
 
+A részletes threat model, domain-, token-, session-, recovery-, assurance- és security-event
+szemantika a `SECURITY_ARCHITECTURE.md` dokumentumban található.
+
 ## Határok
 
 A backend verziózott JSON REST API-t és három statikus, tokenmentes böngészőoldalt szolgál ki. PostgreSQL az egyetlen tartós állapotforrás. A Flutter kliens rendszerböngészőben végzi a WebAuthn-szertartást, majd localhost vagy későbbi HTTPS alkalmazáshivatkozáson kap vissza egy egyszer használható kódot.
