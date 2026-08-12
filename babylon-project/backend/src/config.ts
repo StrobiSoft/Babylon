@@ -21,6 +21,10 @@ const environmentSchema = z
     CHALLENGE_TTL_SECONDS: positiveInteger.default(300),
     NATIVE_TRANSACTION_TTL_SECONDS: positiveInteger.default(600),
     RETURN_CODE_TTL_SECONDS: positiveInteger.default(120),
+    SESSION_INACTIVITY_TTL_SECONDS: positiveInteger.default(604_800),
+    FRESH_AUTH_TTL_SECONDS: positiveInteger.default(600),
+    RECOVERY_TTL_SECONDS: positiveInteger.default(900),
+    RECOVERY_COOLDOWN_SECONDS: positiveInteger.default(300),
     ADMIN_BOOTSTRAP_TOKEN: z.string().min(32).max(512),
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().min(1).max(65_535),
@@ -66,6 +70,10 @@ export interface Config {
   challengeTtlSeconds: number;
   nativeTransactionTtlSeconds: number;
   returnCodeTtlSeconds: number;
+  sessionInactivityTtlSeconds: number;
+  freshAuthTtlSeconds: number;
+  recoveryTtlSeconds: number;
+  recoveryCooldownSeconds: number;
   adminBootstrapToken: string;
   smtpHost: string;
   smtpPort: number;
@@ -177,6 +185,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv): Config {
     challengeTtlSeconds: parsed.data.CHALLENGE_TTL_SECONDS,
     nativeTransactionTtlSeconds: parsed.data.NATIVE_TRANSACTION_TTL_SECONDS,
     returnCodeTtlSeconds: parsed.data.RETURN_CODE_TTL_SECONDS,
+    sessionInactivityTtlSeconds: parsed.data.SESSION_INACTIVITY_TTL_SECONDS,
+    freshAuthTtlSeconds: parsed.data.FRESH_AUTH_TTL_SECONDS,
+    recoveryTtlSeconds: parsed.data.RECOVERY_TTL_SECONDS,
+    recoveryCooldownSeconds: parsed.data.RECOVERY_COOLDOWN_SECONDS,
     adminBootstrapToken: parsed.data.ADMIN_BOOTSTRAP_TOKEN,
     smtpHost: parsed.data.SMTP_HOST,
     smtpPort: parsed.data.SMTP_PORT,

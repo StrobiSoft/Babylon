@@ -8,7 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { z, ZodError, type ZodType } from 'zod';
 import type { AuthenticatedSession, AuthService } from './auth-service.js';
 import type { Config } from './config.js';
-import { constantTimeEqual } from './crypto.js';
+import { constantTimeEqual, hash } from './crypto.js';
 import { ApiError, unauthorized } from './errors.js';
 import type { Database } from './types.js';
 
@@ -81,6 +81,27 @@ function authPage(title: string, operation: 'register' | 'authenticate' | 'verif
   return `<!doctype html><html lang="hu"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/assets/auth.css"></head><body data-operation="${operation}"><main><h1>${title}</h1><p id="status" role="status" aria-live="polite">Előkészítés…</p><button id="action" type="button">Folytatás</button></main><script src="/assets/auth.js" defer></script></body></html>`;
 }
 
+function requestContext(request: FastifyRequest) {
+  const forwardedCorrelation = request.headers['x-correlation-id'];
+  const correlationId =
+    typeof forwardedCorrelation === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(forwardedCorrelation)
+      ? forwardedCorrelation
+      : request.id;
+  const ip = request.ip;
+  const minimizedIp = ip.includes(':')
+    ? ip.split(':').slice(0, 4).join(':')
+    : ip.split('.').slice(0, 3).join('.');
+  const userAgent = request.headers['user-agent'];
+  const clientVersion = request.headers['x-client-version'];
+  return {
+    requestId: request.id,
+    correlationId,
+    sourceIpHash: hash(`ip-prefix:${minimizedIp}`),
+    userAgentFamily: typeof userAgent === 'string' ? userAgent.slice(0, 120) : undefined,
+    clientVersion: typeof clientVersion === 'string' ? clientVersion.slice(0, 40) : undefined,
+  };
+}
+
 export async function buildServer(input: {
   config: Config;
   database: Database;
@@ -128,7 +149,13 @@ export async function buildServer(input: {
       else callback(new Error('Origin not allowed'), false);
     },
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    allowedHeaders: ['authorization', 'content-type', 'x-request-id'],
+    allowedHeaders: [
+      'authorization',
+      'content-type',
+      'x-request-id',
+      'x-correlation-id',
+      'x-client-version',
+    ],
     maxAge: 600,
   });
   await app.register(helmet, {
@@ -148,6 +175,11 @@ export async function buildServer(input: {
     crossOriginOpenerPolicy: { policy: 'same-origin' },
   });
   await app.register(rateLimit, { global: false, keyGenerator: (request) => request.ip });
+  app.addHook('onSend', async (request, reply, payload) => {
+    reply.header('x-request-id', request.id);
+    reply.header('x-correlation-id', requestContext(request).correlationId);
+    return payload;
+  });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
@@ -217,7 +249,7 @@ export async function buildServer(input: {
     const adminToken = bearer(request);
     if (!constantTimeEqual(adminToken, config.adminBootstrapToken)) throw unauthorized();
     const body = parse(z.object({ email }).strict(), request.body);
-    const result = await service.createInvitation(body.email, { requestId: request.id });
+    const result = await service.createInvitation(body.email, requestContext(request));
     return reply.code(201).send(envelope(result));
   });
 
@@ -231,33 +263,42 @@ export async function buildServer(input: {
       body.email,
       body.transactionToken,
       body.state,
-      { requestId: request.id },
+      requestContext(request),
     );
     return reply.code(202).send(envelope(result));
   });
 
   app.post('/api/v1/email-verification/resend', sensitiveRate, async (request, reply) => {
     const body = parse(z.object({ email, transactionToken: token, state }).strict(), request.body);
-    await service.resendVerification(body.email, body.transactionToken, body.state, {
-      requestId: request.id,
-    });
+    await service.resendVerification(
+      body.email,
+      body.transactionToken,
+      body.state,
+      requestContext(request),
+    );
     return reply.code(202).send(envelope(genericResponse));
   });
 
   app.post('/api/v1/onboarding/resume', sensitiveRate, async (request, reply) => {
     const body = parse(z.object({ email, transactionToken: token, state }).strict(), request.body);
-    await service.resumeOnboarding(body.email, body.transactionToken, body.state, {
-      requestId: request.id,
-    });
+    await service.resumeOnboarding(
+      body.email,
+      body.transactionToken,
+      body.state,
+      requestContext(request),
+    );
     return reply.code(202).send(envelope(genericResponse));
   });
 
   app.post('/api/v1/email-verification/confirm', sensitiveRate, async (request) => {
     const body = parse(z.object({ token, transactionToken: token, state }).strict(), request.body);
     return envelope(
-      await service.confirmEmail(body.token, body.transactionToken, body.state, {
-        requestId: request.id,
-      }),
+      await service.confirmEmail(
+        body.token,
+        body.transactionToken,
+        body.state,
+        requestContext(request),
+      ),
     );
   });
 
@@ -300,7 +341,7 @@ export async function buildServer(input: {
     return envelope(
       await service.verifyRegistration(
         { ...body, response: body.response as RegistrationResponseJSON },
-        { requestId: request.id },
+        requestContext(request),
       ),
     );
   });
@@ -325,7 +366,7 @@ export async function buildServer(input: {
     return envelope(
       await service.verifyAuthentication(
         { ...body, response: body.response as AuthenticationResponseJSON },
-        { requestId: request.id },
+        requestContext(request),
       ),
     );
   });
@@ -345,18 +386,18 @@ export async function buildServer(input: {
         .strict(),
       request.body,
     );
-    return envelope(await service.exchangeReturnCode(body, { requestId: request.id }));
+    return envelope(await service.exchangeReturnCode(body, requestContext(request)));
   });
 
   app.post('/api/v1/sessions/refresh', sensitiveRate, async (request) => {
     const body = parse(z.object({ refreshToken: token }).strict(), request.body);
-    return envelope(await service.refresh(body.refreshToken, { requestId: request.id }));
+    return envelope(await service.refresh(body.refreshToken, requestContext(request)));
   });
 
   app.post('/api/v1/sessions/logout', async (request, reply) => {
     const session = await authenticated(service, request);
     parse(z.object({}).strict(), request.body ?? {});
-    await service.logout(session, { requestId: request.id });
+    await service.logout(session, requestContext(request));
     return reply.code(204).send();
   });
 
@@ -375,17 +416,148 @@ export async function buildServer(input: {
     const params = parse(z.object({ id: z.uuid() }).strict(), request.params);
     const body = parse(z.object({ name: z.string().trim().min(1).max(80) }).strict(), request.body);
     return envelope(
-      await service.renameDevice(session, params.id, body.name, { requestId: request.id }),
+      await service.renameDevice(session, params.id, body.name, requestContext(request)),
     );
   });
 
   app.delete('/api/v1/devices/:id', async (request, reply) => {
     const session = await authenticated(service, request);
     const params = parse(z.object({ id: z.uuid() }).strict(), request.params);
-    const result = await service.revokeDevice(session, params.id, { requestId: request.id });
+    const result = await service.revokeDevice(session, params.id, requestContext(request));
     return reply
       .code(result.currentDevice ? 200 : 204)
       .send(result.currentDevice ? envelope(result) : undefined);
+  });
+
+  app.get('/api/v1/sessions', async (request) => {
+    const session = await authenticated(service, request);
+    return envelope({
+      currentSessionId: session.sessionId,
+      items: await service.listSessions(session),
+    });
+  });
+
+  app.delete('/api/v1/sessions/:id', async (request) => {
+    const session = await authenticated(service, request);
+    const params = parse(z.object({ id: z.uuid() }).strict(), request.params);
+    return envelope(await service.revokeSession(session, params.id, requestContext(request)));
+  });
+
+  app.post('/api/v1/sessions/revoke-others', async (request) => {
+    const session = await authenticated(service, request);
+    parse(z.object({}).strict(), request.body ?? {});
+    return envelope(await service.revokeSessions(session, 'others', requestContext(request)));
+  });
+
+  app.post('/api/v1/sessions/revoke-all', async (request) => {
+    const session = await authenticated(service, request);
+    parse(z.object({}).strict(), request.body ?? {});
+    return envelope(await service.revokeSessions(session, 'all', requestContext(request)));
+  });
+
+  app.get('/api/v1/passkeys', async (request) => {
+    const session = await authenticated(service, request);
+    return envelope({ items: await service.listPasskeys(session) });
+  });
+
+  app.post('/api/v1/passkeys/add', sensitiveRate, async (request) => {
+    const session = await authenticated(service, request);
+    const body = parse(z.object({ transactionToken: token, state }).strict(), request.body);
+    return envelope(
+      await service.preparePasskeyAddition(
+        session,
+        body.transactionToken,
+        body.state,
+        requestContext(request),
+      ),
+    );
+  });
+
+  app.patch('/api/v1/passkeys/:id', async (request, reply) => {
+    const session = await authenticated(service, request);
+    const params = parse(z.object({ id: z.uuid() }).strict(), request.params);
+    const body = parse(z.object({ name: z.string().trim().min(1).max(80) }).strict(), request.body);
+    await service.renamePasskey(session, params.id, body.name, requestContext(request));
+    return reply.code(204).send();
+  });
+
+  app.delete('/api/v1/passkeys/:id', async (request, reply) => {
+    const session = await authenticated(service, request);
+    const params = parse(z.object({ id: z.uuid() }).strict(), request.params);
+    await service.revokePasskey(session, params.id, requestContext(request));
+    return reply.code(204).send();
+  });
+
+  app.post('/api/v1/recovery/codes/regenerate', sensitiveRate, async (request) => {
+    const session = await authenticated(service, request);
+    parse(z.object({}).strict(), request.body ?? {});
+    return envelope(await service.regenerateRecoveryCodes(session, requestContext(request)));
+  });
+
+  app.post('/api/v1/recovery/start', sensitiveRate, async (request, reply) => {
+    const body = parse(z.object({ email }).strict(), request.body);
+    await service.checkAbuse('recovery-email', body.email.toLowerCase(), {
+      max: 3,
+      windowSeconds: 900,
+      cooldownSeconds: 300,
+    });
+    await service.startRecovery(body.email, requestContext(request));
+    return reply.code(202).send(envelope(genericResponse));
+  });
+
+  app.post('/api/v1/recovery/complete', sensitiveRate, async (request) => {
+    const body = parse(
+      z
+        .object({
+          email,
+          recoveryToken: token,
+          recoveryCode: token,
+          transactionToken: token,
+          state,
+        })
+        .strict(),
+      request.body,
+    );
+    await service.checkAbuse('recovery-complete', body.email.toLowerCase(), {
+      max: 5,
+      windowSeconds: 900,
+      cooldownSeconds: 300,
+    });
+    return envelope(await service.completeRecovery(body, requestContext(request)));
+  });
+
+  app.get('/api/v1/security-events', async (request) => {
+    const session = await authenticated(service, request);
+    return envelope({ items: await service.listSecurityEvents(session) });
+  });
+
+  app.post('/api/v1/admin/users/:id/status', sensitiveRate, async (request, reply) => {
+    const adminToken = bearer(request);
+    if (!constantTimeEqual(adminToken, config.adminBootstrapToken)) throw unauthorized();
+    const params = parse(z.object({ id: z.uuid() }).strict(), request.params);
+    const body = parse(
+      z
+        .object({
+          status: z.enum([
+            'active',
+            'suspended',
+            'locked',
+            'disabled',
+            'pending_deletion',
+            'tombstoned',
+          ]),
+          reason: z.string().trim().min(3).max(240),
+        })
+        .strict(),
+      request.body,
+    );
+    await service.transitionUserStatus(
+      params.id,
+      body.status,
+      body.reason,
+      requestContext(request),
+    );
+    return reply.code(204).send();
   });
 
   const [authScript, authStyles] = await Promise.all([

@@ -7,12 +7,13 @@ import { PostgresDatabase } from './database.js';
 import { SmtpMailer } from './mailer.js';
 import { runMigrations } from './migrations.js';
 import { buildServer } from './server.js';
+import { resolveSecretEnvironment } from './secrets.js';
 import { SimpleWebAuthnProvider } from './webauthn.js';
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 
 async function main(): Promise<void> {
-  const config = loadConfig(process.env);
+  const config = loadConfig(await resolveSecretEnvironment(process.env));
   const database = new PostgresDatabase(config.databaseUrl);
   await runMigrations(database, resolve(currentDirectory, '../migrations'));
   const service = new AuthService(

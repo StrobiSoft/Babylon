@@ -1,11 +1,15 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './config.js';
 import { PostgresDatabase } from './database.js';
 import { runMigrations } from './migrations.js';
+import { resolveSecretEnvironment } from './secrets.js';
 
-const config = loadConfig(process.env);
-const database = new PostgresDatabase(config.databaseUrl);
+const environment = await resolveSecretEnvironment(process.env);
+const databaseUrl = environment['DATABASE_URL'];
+if (!databaseUrl?.startsWith('postgresql://')) {
+  throw new Error('DATABASE_URL must be a postgresql:// URL');
+}
+const database = new PostgresDatabase(databaseUrl);
 try {
   await runMigrations(database, resolve(dirname(fileURLToPath(import.meta.url)), '../migrations'));
   process.stdout.write('Migrations applied successfully.\n');
