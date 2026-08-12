@@ -15,7 +15,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // Stable development application ID; changing it later creates a distinct Android app.
         applicationId = "com.babylonproject.babylon_client"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -27,8 +27,8 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Development-only fallback. Production releases require an externally supplied
+            // signing key and must replace this configuration before distribution.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
