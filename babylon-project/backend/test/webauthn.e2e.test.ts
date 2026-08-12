@@ -55,7 +55,7 @@ describeE2E('real browser WebAuthn vertical slice', () => {
   const callbacks: ((value: { code: string; state: string }) => void)[] = [];
 
   beforeAll(async () => {
-    backendPort = await freePort('::1');
+    backendPort = await freePort('::');
     const smtpPort = await freePort();
     baseUrl = `http://localhost:${backendPort}`;
     database = new PostgresDatabase(databaseUrl ?? 'postgresql://unused');
@@ -90,7 +90,7 @@ describeE2E('real browser WebAuthn vertical slice', () => {
       new SimpleWebAuthnProvider(config),
     );
     app = await buildServer({ config, database, service });
-    await app.listen({ host: '::1', port: backendPort });
+    await app.listen({ host: '::', port: backendPort });
 
     callbackServer = createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1:43821');
@@ -175,7 +175,7 @@ describeE2E('real browser WebAuthn vertical slice', () => {
       new SimpleWebAuthnProvider(config),
     );
     app = await buildServer({ config, database, service });
-    await app.listen({ host: '::1', port: backendPort });
+    await app.listen({ host: '::', port: backendPort });
   }
 
   async function start(
