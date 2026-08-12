@@ -1,0 +1,30 @@
+{
+  "check_interval_seconds": 30,
+  "timeout_seconds": 3,
+  "listen_host": "0.0.0.0",
+  "listen_port": 8090,
+  "database_path": "../data/zoolab-monitor.db",
+  "services": [
+    {
+      "id": "zoolab-monitor",
+      "name": "ZooLab Monitor",
+      "type": "http",
+      "url": "http://127.0.0.1:8090/health",
+      "expected_status": 200
+    },
+    {
+      "id": "babylon-status",
+      "name": "Babylon Status",
+      "type": "http",
+      "url": "http://127.0.0.1:8080/health",
+      "expected_status": 200
+    },
+    {
+      "id": "pepper-proxmox",
+      "name": "Pepper Proxmox",
+      "type": "tcp",
+      "host": "192.168.1.83",
+      "port": 8006
+    }
+  ]
+}
