@@ -35,7 +35,9 @@ describeDatabase('advanced authentication foundation', () => {
   });
 
   beforeEach(async () => {
-    await database.query('TRUNCATE users,invitations,audit_log RESTART IDENTITY CASCADE');
+    await database.query(
+      'TRUNCATE abuse_counters,users,invitations,audit_log RESTART IDENTITY CASCADE',
+    );
     clock = new FakeClock();
     random = new DeterministicRandom();
     mailer = new MemoryMailer();

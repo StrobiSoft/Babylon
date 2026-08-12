@@ -19,7 +19,13 @@ export async function resolveSecretEnvironment(
       : undefined;
     const path = explicitFile ?? credentialFile;
     if (!path) continue;
-    const value = (await readFile(path, { encoding: 'utf8', flag: 'r' })).trimEnd();
+    let value: string;
+    try {
+      value = (await readFile(path, { encoding: 'utf8', flag: 'r' })).trimEnd();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !explicitFile) continue;
+      throw error;
+    }
     if (!value) throw new Error(`Secret file for ${name} is empty`);
     resolved[name] = value;
   }

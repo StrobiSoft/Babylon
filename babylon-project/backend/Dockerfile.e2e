@@ -1,0 +1,10 @@
+FROM mcr.microsoft.com/playwright:v1.62.1-noble
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY backend ./backend
+COPY vitest.config.ts ./
+
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE=/ms-playwright/chromium-1234/chrome-linux64/chrome
+CMD ["npx", "vitest", "run", "backend/test/webauthn.e2e.test.ts", "--reporter=verbose"]

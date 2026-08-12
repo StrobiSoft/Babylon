@@ -1833,7 +1833,10 @@ export class AuthService {
            OR (revoked_at IS NOT NULL AND revoked_at < $1 - interval '7 days')`,
         ],
         ['authTransactions', 'DELETE FROM auth_transactions WHERE expires_at < $1'],
-        ['abuseCounters', `DELETE FROM abuse_counters WHERE updated_at < $1 - interval '7 days'`],
+        [
+          'abuseCounters',
+          `DELETE FROM abuse_counters WHERE updated_at < $1::timestamptz - interval '7 days'`,
+        ],
         ['nativeTransactions', 'DELETE FROM native_auth_transactions WHERE expires_at < $1'],
         ['invitations', 'DELETE FROM invitations WHERE expires_at < $1 AND consumed_at IS NULL'],
       ] as const;
