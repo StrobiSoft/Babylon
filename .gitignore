@@ -1,0 +1,39 @@
+# Protected sibling service: never publish it from this repository.
+/services/babylon-status/
+
+# Secrets and local environment overrides (examples remain trackable).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Dependencies, caches, reports, and generated output.
+node_modules/
+.dart_tool/
+.pub-cache/
+.gradle/
+.tooling/
+coverage/
+dist/
+build/
+*.apk
+*.aab
+*.log
+
+# Local IDE and platform configuration.
+.idea/
+.vscode/
+*.iml
+local.properties
+
+# Local databases and dumps.
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
