@@ -1,21 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
+import 'app_localizations.dart';
 import 'auth_controller.dart';
 
 class BabylonApp extends StatefulWidget {
-  const BabylonApp({required this.controller, super.key});
+  const BabylonApp({required this.controller, this.versionLoader, super.key});
+
   final AuthController controller;
+  final Future<String> Function()? versionLoader;
 
   @override
   State<BabylonApp> createState() => _BabylonAppState();
 }
 
 class _BabylonAppState extends State<BabylonApp> {
+  var _authVisible = false;
+  var _version = '';
+
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_changed);
     widget.controller.initialize();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final version =
+        await (widget.versionLoader?.call() ??
+            PackageInfo.fromPlatform().then((info) => info.version));
+    if (mounted) setState(() => _version = version);
   }
 
   @override
@@ -29,17 +45,198 @@ class _BabylonAppState extends State<BabylonApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Babylon',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Babylon')),
-        body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 620),
+      onGenerateTitle: (_) => 'Babylon',
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xffd77b39),
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      home: Builder(
+        builder: (context) => _LandingPage(
+          controller: widget.controller,
+          authVisible: _authVisible,
+          version: _version,
+          onShowAuth: () => setState(() => _authVisible = true),
+          onHideAuth: () => setState(() => _authVisible = false),
+        ),
+      ),
+    );
+  }
+}
+
+class _LandingPage extends StatelessWidget {
+  const _LandingPage({
+    required this.controller,
+    required this.authVisible,
+    required this.version,
+    required this.onShowAuth,
+    required this.onHideAuth,
+  });
+
+  final AuthController controller;
+  final bool authVisible;
+  final String version;
+  final VoidCallback onShowAuth;
+  final VoidCallback onHideAuth;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    final isNarrow = MediaQuery.sizeOf(context).width < 420;
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/babel-tower.png',
+            fit: BoxFit.cover,
+            alignment: _backgroundAlignment(MediaQuery.sizeOf(context).width),
+          ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.center,
+                colors: [Color(0x66000000), Color(0x00000000)],
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                isNarrow ? 12 : 20,
+                16,
+                isNarrow ? 12 : 20,
+                14,
+              ),
+              child: Stack(
+                children: [
+                  Align(
+                    alignment: Alignment.topLeft,
+                    child: Text(
+                      'BABYLON',
+                      key: const Key('brand'),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontSize: _brandSize(MediaQuery.sizeOf(context).width),
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: isNarrow ? 2 : 5,
+                        height: 1,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: FilledButton(
+                      key: const Key('show-auth'),
+                      onPressed: onShowAuth,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xffc96d32),
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(0, 48),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isNarrow ? 16 : 24,
+                        ),
+                        shape: const StadiumBorder(),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      child: Text(strings.signIn.toUpperCase()),
+                    ),
+                  ),
+                  if (version.isNotEmpty)
+                    Align(
+                      alignment: Alignment.bottomRight,
+                      child: Text(
+                        'an StZoo Project v.$version',
+                        key: const Key('app-version'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 5)],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (authVisible)
+            _AuthOverlay(controller: controller, onClose: onHideAuth),
+        ],
+      ),
+    );
+  }
+
+  Alignment _backgroundAlignment(double width) {
+    if (width < 600) return const Alignment(-0.24, 0);
+    if (width < 900) return const Alignment(-0.08, 0);
+    return const Alignment(0.28, 0);
+  }
+
+  double _brandSize(double width) {
+    if (width < 420) return 16;
+    if (width < 900) return 48;
+    return 68;
+  }
+}
+
+class _AuthOverlay extends StatelessWidget {
+  const _AuthOverlay({required this.controller, required this.onClose});
+
+  final AuthController controller;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    return ColoredBox(
+      color: Colors.black54,
+      child: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620, maxHeight: 720),
+            child: Card(
+              margin: const EdgeInsets.all(20),
+              color: const Color(0xff211b17).withValues(alpha: 0.96),
               child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: _content(),
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                child: Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: IconButton(
+                        key: const Key('close-auth'),
+                        tooltip: strings.close,
+                        onPressed: onClose,
+                        icon: const Icon(Icons.close),
+                      ),
+                    ),
+                    if (controller.error != null)
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          controller.error!,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
+                    Expanded(child: _AuthContent(controller: controller)),
+                  ],
+                ),
               ),
             ),
           ),
@@ -47,62 +244,42 @@ class _BabylonAppState extends State<BabylonApp> {
       ),
     );
   }
-
-  Widget _content() {
-    final controller = widget.controller;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (controller.error != null)
-          Semantics(
-            liveRegion: true,
-            child: Text(
-              controller.error!,
-              style: const TextStyle(color: Colors.red),
-            ),
-          ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: switch (controller.stage) {
-            AuthStage.checkingBackend => const Center(
-              child: CircularProgressIndicator(),
-            ),
-            AuthStage.unavailable => _Unavailable(controller: controller),
-            AuthStage.signedOut => _SignedOut(controller: controller),
-            AuthStage.waitingForEmail => _WaitingForEmail(
-              controller: controller,
-            ),
-            AuthStage.authenticating => const Center(
-              child: Text('Biztonságos belépés folyamatban…'),
-            ),
-            AuthStage.signedIn => _SignedIn(controller: controller),
-          },
-        ),
-      ],
-    );
-  }
 }
 
-class _Unavailable extends StatelessWidget {
-  const _Unavailable({required this.controller});
+class _AuthContent extends StatelessWidget {
+  const _AuthContent({required this.controller});
   final AuthController controller;
+
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      const Text('A Babylon backend nem érhető el.'),
-      const SizedBox(height: 16),
-      FilledButton(
-        onPressed: controller.initialize,
-        child: const Text('Újrapróbálás'),
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    return switch (controller.stage) {
+      AuthStage.checkingBackend => const Center(
+        child: CircularProgressIndicator(),
       ),
-    ],
-  );
+      AuthStage.unavailable => Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(strings.unavailable),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: controller.initialize,
+            child: Text(strings.retry),
+          ),
+        ],
+      ),
+      AuthStage.signedOut => _SignedOut(controller: controller),
+      AuthStage.waitingForEmail => _WaitingForEmail(controller: controller),
+      AuthStage.authenticating => Center(child: Text(strings.secureSignIn)),
+      AuthStage.signedIn => _SignedIn(controller: controller),
+    };
+  }
 }
 
 class _SignedOut extends StatefulWidget {
   const _SignedOut({required this.controller});
   final AuthController controller;
+
   @override
   State<_SignedOut> createState() => _SignedOutState();
 }
@@ -119,58 +296,66 @@ class _SignedOutState extends State<_SignedOut> {
   }
 
   @override
-  Widget build(BuildContext context) => ListView(
-    children: [
-      const Text('Meghívásos regisztráció', style: TextStyle(fontSize: 24)),
-      TextField(
-        controller: email,
-        keyboardType: TextInputType.emailAddress,
-        autofillHints: const [AutofillHints.email],
-        decoration: const InputDecoration(labelText: 'E-mail-cím'),
-      ),
-      TextField(
-        controller: invitation,
-        decoration: const InputDecoration(labelText: 'Meghívókód'),
-      ),
-      const SizedBox(height: 16),
-      FilledButton(
-        onPressed: () =>
-            widget.controller.acceptInvitation(email.text, invitation.text),
-        child: const Text('Meghívó elfogadása'),
-      ),
-      TextButton(
-        onPressed: () => widget.controller.resume(email.text),
-        child: const Text('Megszakadt regisztráció folytatása'),
-      ),
-      const Divider(height: 40),
-      OutlinedButton(
-        onPressed: widget.controller.signIn,
-        child: const Text('Belépés passkeyjel'),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    return ListView(
+      children: [
+        Text(
+          strings.invitationRegistration,
+          style: const TextStyle(fontSize: 24),
+        ),
+        TextField(
+          controller: email,
+          keyboardType: TextInputType.emailAddress,
+          autofillHints: const [AutofillHints.email],
+          decoration: InputDecoration(labelText: strings.email),
+        ),
+        TextField(
+          controller: invitation,
+          decoration: InputDecoration(labelText: strings.invitationCode),
+        ),
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: () =>
+              widget.controller.acceptInvitation(email.text, invitation.text),
+          child: Text(strings.acceptInvitation),
+        ),
+        TextButton(
+          onPressed: () => widget.controller.resume(email.text),
+          child: Text(strings.resumeRegistration),
+        ),
+        const Divider(height: 40),
+        OutlinedButton(
+          onPressed: widget.controller.signIn,
+          child: Text(strings.signInWithPasskey),
+        ),
+      ],
+    );
+  }
 }
 
 class _WaitingForEmail extends StatelessWidget {
   const _WaitingForEmail({required this.controller});
   final AuthController controller;
+
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      const Icon(Icons.mark_email_unread_outlined, size: 64),
-      const SizedBox(height: 16),
-      const Text('Ellenőrizd az e-mailedet', style: TextStyle(fontSize: 24)),
-      const Text(
-        'Nyisd meg a helyi próbalevelet ezen az eszközön. A passkey-folyamat automatikusan folytatódik.',
-      ),
-      const SizedBox(height: 16),
-      OutlinedButton(
-        onPressed: controller.resendEmail,
-        child: const Text('Levél újraküldése'),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.mark_email_unread_outlined, size: 64),
+        const SizedBox(height: 16),
+        Text(strings.checkEmail, style: const TextStyle(fontSize: 24)),
+        Text(strings.checkEmailBody),
+        const SizedBox(height: 16),
+        OutlinedButton(
+          onPressed: controller.resendEmail,
+          child: Text(strings.resendEmail),
+        ),
+      ],
+    );
+  }
 }
 
 class _SignedIn extends StatelessWidget {
@@ -178,64 +363,68 @@ class _SignedIn extends StatelessWidget {
   final AuthController controller;
 
   @override
-  Widget build(BuildContext context) => ListView(
-    children: [
-      Text(
-        'Bejelentkezve: ${controller.profile?['email'] ?? ''}',
-        style: const TextStyle(fontSize: 20),
-      ),
-      const SizedBox(height: 20),
-      const Text('Regisztrált eszközök', style: TextStyle(fontSize: 18)),
-      for (final device in controller.deviceList)
-        ListTile(
-          title: Text(device['name'] as String? ?? 'Eszköz'),
-          subtitle: Text(device['platform'] as String? ?? ''),
-          trailing: Wrap(
-            children: [
-              IconButton(
-                tooltip: 'Átnevezés',
-                onPressed: () => _rename(context, device),
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              IconButton(
-                tooltip: 'Visszavonás',
-                onPressed: () =>
-                    controller.revokeDevice(device['id'] as String),
-                icon: const Icon(Icons.delete_outline),
-              ),
-            ],
-          ),
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    return ListView(
+      children: [
+        Text(
+          strings.signedInAs(controller.profile?['email'] ?? ''),
+          style: const TextStyle(fontSize: 20),
         ),
-      const SizedBox(height: 16),
-      OutlinedButton(
-        onPressed: controller.logout,
-        child: const Text('Kijelentkezés'),
-      ),
-    ],
-  );
+        const SizedBox(height: 20),
+        Text(strings.registeredDevices, style: const TextStyle(fontSize: 18)),
+        for (final device in controller.deviceList)
+          ListTile(
+            title: Text(device['name'] as String? ?? strings.device),
+            subtitle: Text(device['platform'] as String? ?? ''),
+            trailing: Wrap(
+              children: [
+                IconButton(
+                  tooltip: strings.rename,
+                  onPressed: () => _rename(context, device),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: strings.revoke,
+                  onPressed: () =>
+                      controller.revokeDevice(device['id'] as String),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 16),
+        OutlinedButton(
+          onPressed: controller.logout,
+          child: Text(strings.logout),
+        ),
+      ],
+    );
+  }
 
   Future<void> _rename(
     BuildContext context,
     Map<String, dynamic> device,
   ) async {
+    final strings = AppLocalizations.of(context);
     final field = TextEditingController(text: device['name'] as String?);
     final name = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Eszköz átnevezése'),
+        title: Text(strings.renameDevice),
         content: TextField(
           controller: field,
           autofocus: true,
-          decoration: const InputDecoration(labelText: 'Eszköznév'),
+          decoration: InputDecoration(labelText: strings.deviceName),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Mégse'),
+            child: Text(strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, field.text),
-            child: const Text('Mentés'),
+            child: Text(strings.save),
           ),
         ],
       ),
