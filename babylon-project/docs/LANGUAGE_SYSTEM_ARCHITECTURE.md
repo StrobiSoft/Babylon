@@ -66,8 +66,9 @@ its own output, and a model assertion that its output is valid is not evidence o
 
 ## Language principles
 
-- The initial supported languages are English (`en`), Hungarian (`hu`) and Belarusian (`be`), as
-  previously selected for Babylon's first real communication needs.
+- The initial supported languages, as previously selected and documented, are English (`en`),
+  Hungarian (`hu`) and Belarusian (`be`). The original product rationale remains authoritative; this
+  architecture document does not replace or reinterpret it.
 - The system detects the source language automatically.
 - The recipient's delivery language comes from the recipient profile.
 - A sender cannot change the recipient's delivery language.
