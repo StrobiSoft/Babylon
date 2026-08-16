@@ -17,8 +17,13 @@ import { state, testConfig, verifier } from './helpers.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
-const enabled = Boolean(databaseUrl && executablePath && process.env.RUN_WEBAUTHN_E2E === '1');
+const enabled = process.env.RUN_WEBAUTHN_E2E === '1';
 const describeE2E = enabled ? describe : describe.skip;
+
+function requiredE2EEnvironment(name: string, value: string | undefined): string {
+  if (!value) throw new Error(`${name} is required when RUN_WEBAUTHN_E2E=1`);
+  return value;
+}
 
 async function freePort(host = '127.0.0.1'): Promise<number> {
   return new Promise((resolvePort, reject) => {
@@ -55,10 +60,15 @@ describeE2E('real browser WebAuthn vertical slice', () => {
   const callbacks: ((value: { code: string; state: string }) => void)[] = [];
 
   beforeAll(async () => {
+    const configuredDatabaseUrl = requiredE2EEnvironment('TEST_DATABASE_URL', databaseUrl);
+    const configuredExecutablePath = requiredE2EEnvironment(
+      'PLAYWRIGHT_CHROMIUM_EXECUTABLE',
+      executablePath,
+    );
     backendPort = await freePort('::');
     const smtpPort = await freePort();
     baseUrl = `http://localhost:${backendPort}`;
-    database = new PostgresDatabase(databaseUrl ?? 'postgresql://unused');
+    database = new PostgresDatabase(configuredDatabaseUrl);
     await runMigrations(
       database,
       resolve(dirname(fileURLToPath(import.meta.url)), '../migrations'),
@@ -77,7 +87,7 @@ describeE2E('real browser WebAuthn vertical slice', () => {
       smtp.once('error', reject);
       smtp.listen(smtpPort, '127.0.0.1', resolveListen);
     });
-    config = testConfig(databaseUrl ?? 'postgresql://unused');
+    config = testConfig(configuredDatabaseUrl);
     config.publicBackendUrl = baseUrl;
     config.webauthnOrigins = [baseUrl];
     config.smtpPort = smtpPort;
@@ -105,7 +115,7 @@ describeE2E('real browser WebAuthn vertical slice', () => {
       callbackServer.once('error', reject);
       callbackServer.listen(43821, '127.0.0.1', resolveListen);
     });
-    browser = await chromium.launch({ executablePath: executablePath ?? '', headless: true });
+    browser = await chromium.launch({ executablePath: configuredExecutablePath, headless: true });
     context = await browser.newContext();
     page = await context.newPage();
     const cdp = await context.newCDPSession(page);
@@ -124,8 +134,10 @@ describeE2E('real browser WebAuthn vertical slice', () => {
 
   afterAll(async () => {
     await browser?.close();
-    await new Promise<void>((resolveClose) => callbackServer?.close(() => resolveClose()));
-    await new Promise<void>((resolveClose) => smtp?.close(() => resolveClose()));
+    if (callbackServer) {
+      await new Promise<void>((resolveClose) => callbackServer.close(() => resolveClose()));
+    }
+    if (smtp) await new Promise<void>((resolveClose) => smtp.close(() => resolveClose()));
     await app?.close();
     await database?.close();
   });
