@@ -8,6 +8,8 @@ szemantika a `SECURITY_ARCHITECTURE.md` dokumentumban található.
 A backend verziózott JSON REST API-t és három statikus, tokenmentes böngészőoldalt szolgál ki. PostgreSQL az egyetlen tartós állapotforrás. A Flutter kliens rendszerböngészőben végzi a WebAuthn-szertartást, majd localhost vagy későbbi HTTPS alkalmazáshivatkozáson kap vissza egy egyszer használható kódot.
 
 Az állapotátmenetek részletes szerződése: `AUTH_STATE_MACHINE.md`. Az API szerződése: `openapi.yaml`.
+A tervezett helyi nyelvi rendszer részletes határai:
+[`LANGUAGE_SYSTEM_ARCHITECTURE.md`](LANGUAGE_SYSTEM_ARCHITECTURE.md).
 
 ## Biztonsági döntések
 
