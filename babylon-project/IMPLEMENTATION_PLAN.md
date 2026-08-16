@@ -13,6 +13,29 @@ Kiindulási állapot: nem volt Babylon-alkalmazáskód, architektúra- vagy terv
 5. **Működési próba:** helyi PostgreSQL + SMTP + backend, teljes meghívás–passkey–munkamenet–visszavonás folyamat, újraindítás és adatmegmaradás.
 6. **Átadás:** OpenAPI, reprodukálható README, biztonsági döntések és igazolt környezeti korlátok dokumentálása.
 
+## Igazolt állapot – 2026-08-16
+
+### 1. A teljes hitelesítési függőleges metszet működik
+
+A valódi Playwright Chromium és CDP virtuális WebAuthn-hitelesítő használatával futó E2E-próba sikeresen végigment: **1 passed, 0 skipped (2,39 s)**. A próba valódi PostgreSQL-sémával és helyi SMTP-kézbesítéssel ellenőrizte a meghívást, az e-mailes lépést, a `navigator.credentials.create/get` műveleteket, a passkey-regisztrációt és -belépést, a PKCE-kódcserét, a tokenforgatást, a backend újraindítását és adatmegmaradását, valamint az eszköz-visszavonást.
+
+A korábbi csendes kihagyás megszűnt: `RUN_WEBAUTHN_E2E=1` mellett a hiányzó `TEST_DATABASE_URL` vagy `PLAYWRIGHT_CHROMIUM_EXECUTABLE` többé nem eredményezhet sikeresnek látszó `skipped` futást, hanem egyértelmű konfigurációs hibát ad. A javítás a `main` és az `origin/main` ág része:
+
+- commit: `a6dc3b524193e93b4f4d1f28bf82c5d9c8241c0d`
+- commitüzenet: `test: prevent silent WebAuthn E2E skips`
+
+Ez igazolja a terv 2., 4. és 5. mérföldkövének hitelesítési magját; a teljes projektátadás és a produkciós környezet kialakítása ettől még külön feladat.
+
+### 2. A közvetlen távoli fejlesztési munkafolyamat használható
+
+A Babylon VM már meglévő `babylon-codex` SSH-kapcsolata és a `/srv/babylon/babylon-project` távoli projekt a ChatGPT/Codex asztali alkalmazásban működőképesnek bizonyult. A távoli Codex parancs a bejelentkezési környezetben a `/home/codex/.local/bin/codex` útvonalon érhető el.
+
+A rendes fejlesztési útvonal ezért közvetlenül a Babylon VM-re vezet: a forrásmódosítás, a célhoz kötött tesztelés, a commit és a push a távoli projektben történik. A Pepper konzolja nem része a szokásos fejlesztési folyamatnak; csak tényleges hozzáférési vagy infrastruktúrahiba esetén szükséges.
+
+### Munkaszabály
+
+A tervezett módosítás után az elfogadási feltételt igazoló eredményt ellenőrizzük. További hibakeresési vagy diagnosztikai kör csak akkor indul, ha az eredmény hibás, hiányos vagy gyanús. Az ellenőrzések számának csökkentése nem csökkenti a dokumentáció részletességét: minden érdemi munkafázisnál rögzíteni kell a változtatásokat, a tényleges teszteredményt, a commitot, a push állapotát és az esetleges fennmaradó valódi problémákat.
+
 ## Döntések
 
 - A Babylon Project izolált monorepója a `babylon-project/`; az infrastruktúra-szolgáltatásokat nem importálja és nem módosítja.
