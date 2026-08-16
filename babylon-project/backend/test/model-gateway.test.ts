@@ -3,8 +3,10 @@ import type { ModelGenerationRequest } from '../src/language/contracts.js';
 import {
   ModelGateway,
   ModelGatewayError,
+  ModelOperationError,
   ModelRegistry,
   type ModelEngine,
+  type ModelGatewayPolicy,
 } from '../src/language/model-gateway.js';
 
 const request = {
@@ -13,13 +15,22 @@ const request = {
   targetLanguage: 'hu',
 } as const;
 
-function gateway(engine: ModelEngine, timeoutMs = 100): ModelGateway {
+function policy(overrides: Partial<ModelGatewayPolicy> = {}): ModelGatewayPolicy {
+  return {
+    attemptTimeoutMs: 100,
+    operationDeadlineMs: 1_000,
+    attemptRoles: ['primary'],
+    ...overrides,
+  };
+}
+
+function gateway(engine: ModelEngine, overrides: Partial<ModelGatewayPolicy> = {}): ModelGateway {
   return new ModelGateway(
     new ModelRegistry([
       { role: 'primary', modelId: 'gpt-oss:20b', enabled: true, engine },
       { role: 'reserve', modelId: 'reserve:test', enabled: false, engine },
     ]),
-    timeoutMs,
+    policy(overrides),
   );
 }
 
@@ -68,7 +79,9 @@ describe('fake-first model gateway', () => {
       },
     };
 
-    await expect(gateway(engine, 5).generate('primary', request)).rejects.toMatchObject({
+    await expect(
+      gateway(engine, { attemptTimeoutMs: 5 }).generate('primary', request),
+    ).rejects.toMatchObject({
       code: 'MODEL_TIMEOUT',
       message: 'The model attempt timed out.',
       modelRole: 'primary',
@@ -98,5 +111,138 @@ describe('fake-first model gateway', () => {
     });
     expect(String(failure)).not.toContain(secretMessage);
     expect(failure).not.toHaveProperty('cause');
+  });
+
+  it('uses the explicit finite role sequence and stops on the first success', async () => {
+    let primaryCalls = 0;
+    let secondaryCalls = 0;
+    const primary: ModelEngine = {
+      generate() {
+        primaryCalls += 1;
+        return Promise.reject(new Error('controlled fake failure'));
+      },
+    };
+    const secondary: ModelEngine = {
+      generate() {
+        secondaryCalls += 1;
+        return Promise.resolve({ text: 'Másodlagos eredmény' });
+      },
+    };
+    const modelGateway = new ModelGateway(
+      new ModelRegistry([
+        { role: 'primary', modelId: 'primary:test', enabled: true, engine: primary },
+        { role: 'secondary', modelId: 'secondary:test', enabled: true, engine: secondary },
+      ]),
+      policy({ attemptRoles: ['primary', 'primary', 'secondary', 'reserve'] }),
+    );
+
+    await expect(modelGateway.generateWithRetry(request)).resolves.toEqual({
+      text: 'Másodlagos eredmény',
+      provenance: { modelRole: 'secondary', modelId: 'secondary:test' },
+    });
+    expect(primaryCalls).toBe(2);
+    expect(secondaryCalls).toBe(1);
+  });
+
+  it('exhausts only the configured attempts and records a disabled reserve safely', async () => {
+    let calls = 0;
+    const failing: ModelEngine = {
+      generate() {
+        calls += 1;
+        return Promise.reject(new Error('upstream detail must remain internal'));
+      },
+    };
+    const modelGateway = new ModelGateway(
+      new ModelRegistry([
+        { role: 'primary', modelId: 'primary:test', enabled: true, engine: failing },
+        { role: 'secondary', modelId: 'secondary:test', enabled: true, engine: failing },
+        { role: 'reserve', modelId: 'reserve:test', enabled: false, engine: failing },
+      ]),
+      policy({ attemptRoles: ['primary', 'primary', 'secondary', 'reserve'] }),
+    );
+
+    let failure: unknown;
+    try {
+      await modelGateway.generateWithRetry(request);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(ModelOperationError);
+    expect(failure).toMatchObject({
+      code: 'MODEL_ATTEMPTS_EXHAUSTED',
+      attempts: [
+        { attemptNumber: 1, modelRole: 'primary', code: 'MODEL_ENGINE_FAILURE' },
+        { attemptNumber: 2, modelRole: 'primary', code: 'MODEL_ENGINE_FAILURE' },
+        { attemptNumber: 3, modelRole: 'secondary', code: 'MODEL_ENGINE_FAILURE' },
+        { attemptNumber: 4, modelRole: 'reserve', code: 'MODEL_ROLE_DISABLED' },
+      ],
+    });
+    expect(String(failure)).not.toContain('upstream detail');
+    expect(calls).toBe(3);
+  });
+
+  it('records an unconfigured reserve as a controlled exhausted attempt', async () => {
+    const failing: ModelEngine = {
+      generate: () => Promise.reject(new Error('primary unavailable')),
+    };
+    const modelGateway = new ModelGateway(
+      new ModelRegistry([
+        { role: 'primary', modelId: 'primary:test', enabled: true, engine: failing },
+      ]),
+      policy({ attemptRoles: ['primary', 'reserve'] }),
+    );
+
+    await expect(modelGateway.generateWithRetry(request)).rejects.toMatchObject({
+      code: 'MODEL_ATTEMPTS_EXHAUSTED',
+      attempts: [
+        {
+          attemptNumber: 1,
+          modelRole: 'primary',
+          modelId: 'primary:test',
+          code: 'MODEL_ENGINE_FAILURE',
+        },
+        {
+          attemptNumber: 2,
+          modelRole: 'reserve',
+          modelId: null,
+          code: 'MODEL_ROLE_NOT_ALLOWED',
+        },
+      ],
+    });
+  });
+
+  it('caps the active attempt by the total operation deadline', async () => {
+    let primarySignal: AbortSignal | undefined;
+    let secondaryCalls = 0;
+    const primary: ModelEngine = {
+      generate(_input, options) {
+        primarySignal = options.signal;
+        return new Promise(() => undefined);
+      },
+    };
+    const secondary: ModelEngine = {
+      generate() {
+        secondaryCalls += 1;
+        return Promise.resolve({ text: 'must not run' });
+      },
+    };
+    const modelGateway = new ModelGateway(
+      new ModelRegistry([
+        { role: 'primary', modelId: 'primary:test', enabled: true, engine: primary },
+        { role: 'secondary', modelId: 'secondary:test', enabled: true, engine: secondary },
+      ]),
+      policy({
+        attemptTimeoutMs: 100,
+        operationDeadlineMs: 5,
+        attemptRoles: ['primary', 'secondary'],
+      }),
+    );
+
+    await expect(modelGateway.generateWithRetry(request)).rejects.toMatchObject({
+      code: 'MODEL_OPERATION_DEADLINE_EXCEEDED',
+      attempts: [{ attemptNumber: 1, modelRole: 'primary', code: 'MODEL_TIMEOUT' }],
+    });
+    expect(primarySignal?.aborted).toBe(true);
+    expect(secondaryCalls).toBe(0);
   });
 });
