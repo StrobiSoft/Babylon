@@ -36,6 +36,38 @@ A rendes fejlesztési útvonal ezért közvetlenül a Babylon VM-re vezet: a for
 
 A tervezett módosítás után az elfogadási feltételt igazoló eredményt ellenőrizzük. További hibakeresési vagy diagnosztikai kör csak akkor indul, ha az eredmény hibás, hiányos vagy gyanús. Az ellenőrzések számának csökkentése nem csökkenti a dokumentáció részletességét: minden érdemi munkafázisnál rögzíteni kell a változtatásokat, a tényleges teszteredményt, a commitot, a push állapotát és az esetleges fennmaradó valódi problémákat.
 
+## Eseti végrehajtási megbízás – reverse proxy és saját GPT
+
+Ez a megbízás kizárólag a reverse proxy és a saját GPT következő munkacsomagjára érvényes. Nem általános felhatalmazás, és későbbi munkacsomagra csak Zoltán újabb, legalább ilyen egyértelmű kérése terjesztheti ki.
+
+### Kötelező végrehajtás
+
+Ha a kijelölt feladatok megkezdéséhez vagy folytatásához olyan, előre külön meg nem nevezett műszaki előfeltétel szükséges, amely nélkül a munka ténylegesen nem végezhető el, akkor a részt vevő agenteknek:
+
+1. egymás között tisztázniuk kell az okot, a legkisebb szükséges megoldást és annak következményeit;
+2. dokumentálniuk kell a szükségességet, az érintett komponenseket és a tervezett eredményt;
+3. külön felhasználói visszakérdezés nélkül el kell végezniük és be kell fejezniük az előfeltételt;
+4. az igazolt eredmény után vissza kell térniük a reverse proxy, illetve a saját GPT jóváhagyott feladatához.
+
+Ez nem puszta lehetőség, hanem kifejezett végrehajtási kérés. Az „előfeltétel” fogalmát szűken kell értelmezni: csak olyan blokkoló feladat tartozik ide, amely nélkül a kijelölt munka nem indítható vagy nem folytatható. Kényelmi fejlesztés, önkéntes termékbővítés vagy később hasznosnak ítélt extra funkció nem minősül előfeltételnek.
+
+### Kötelező beszámolási kapu
+
+A következő munkaszakasz vagy következő alkalom elején a projekt addig nem folytatódhat, amíg Zoltán tételes beszámolót nem kapott minden olyan elvégzett feladatról, amelyet előzetesen nem ő határozott meg. A beszámolónak legalább ezt kell tartalmaznia:
+
+- mi vált szükségessé és miért blokkolta a kijelölt munkát;
+- mit hoztak létre vagy módosítottak;
+- milyen alternatívát mérlegeltek, és miért a választott megoldás készült el;
+- milyen eredmény vagy célzott teszt igazolja a működést;
+- mely fájlok, szolgáltatások, konfigurációk és commitok érintettek;
+- maradt-e fenn valódi probléma, kockázat vagy későbbi döntési pont.
+
+A beszámoló átadásáig új projektfeladat nem kezdhető el. A megbízás a jelen munkacsomag lezárásával és a beszámoló átadásával automatikusan lejár.
+
+### Változatlan külső határok
+
+A megbízás nem engedélyez új fizetős szolgáltatást, külső fiók vagy jogosultság létrehozását, titok vagy hitelesítő adat áthelyezését, visszafordíthatatlan vagy adatvesztéssel járó műveletet, illetve a jóváhagyott termékviselkedés önálló bővítését. Ilyen esetben továbbra is Zoltán döntése szükséges.
+
 ## Döntések
 
 - A Babylon Project izolált monorepója a `babylon-project/`; az infrastruktúra-szolgáltatásokat nem importálja és nem módosítja.
