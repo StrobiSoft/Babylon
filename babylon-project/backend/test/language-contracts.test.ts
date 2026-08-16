@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   modelGenerationRequestSchema,
   modelRoleSchema,
+  supportedLanguages,
+  translationPendingReasons,
   translationResultSchema,
+  translationStyles,
   translationStatusSchema,
   translationStatuses,
 } from '../src/language/contracts.js';
@@ -50,6 +53,51 @@ describe('language system contracts', () => {
       modelGenerationRequestSchema.safeParse({ ...request, modelId: 'arbitrary/client-model' })
         .success,
     ).toBe(false);
+  });
+
+  it('fixes the initial languages and active wording styles', () => {
+    expect(supportedLanguages).toEqual(['en', 'hu', 'be']);
+    expect(translationStyles).toEqual(['formal', 'everyday', 'casual']);
+    expect(
+      modelGenerationRequestSchema.safeParse({
+        requestId: '00000000-0000-4000-8000-000000000001',
+        sourceText: 'Hello',
+        targetLanguage: 'de',
+      }).success,
+    ).toBe(false);
+    expect(
+      modelGenerationRequestSchema.safeParse({
+        requestId: '00000000-0000-4000-8000-000000000001',
+        sourceText: 'Hello',
+        targetLanguage: 'hu',
+        style: 'slang',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps truthful non-translation and pending reasons machine-readable', () => {
+    expect(translationPendingReasons).toEqual([
+      'poor_network_coverage',
+      'model_unavailable',
+      'processing_timeout',
+      'technical_failure',
+      'other',
+    ]);
+    expect(
+      translationResultSchema.parse({
+        status: 'delivered_unchanged',
+        deliveredText: 'https://example.com',
+        reason: 'language_neutral',
+      }),
+    ).toMatchObject({ reason: 'language_neutral' });
+    expect(
+      translationResultSchema.parse({
+        status: 'translation_pending',
+        requestId: '00000000-0000-4000-8000-000000000001',
+        reason: 'poor_network_coverage',
+        presentation: 'sad',
+      }),
+    ).toMatchObject({ reason: 'poor_network_coverage', presentation: 'sad' });
   });
 
   it('records the approved configurable candidate ordering without enabling reserve', () => {

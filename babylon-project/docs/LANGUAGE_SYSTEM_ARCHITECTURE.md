@@ -66,11 +66,17 @@ its own output, and a model assertion that its output is valid is not evidence o
 
 ## Language principles
 
+- The initial supported languages are English (`en`), Hungarian (`hu`) and Belarusian (`be`), as
+  previously selected for Babylon's first real communication needs.
 - The system detects the source language automatically.
 - The recipient's delivery language comes from the recipient profile.
 - A sender cannot change the recipient's delivery language.
 - A user's own interface language is a separate preference from any recipient delivery language.
+- The initial wording styles are formal, everyday and casual. Slang remains a later extension.
 - The style selector changes wording style only; it cannot change the target language.
+
+Predictive input similar to T9 is a planned later client feature. It may reduce typing errors, but
+it is not part of the current language-agent implementation and cannot replace input validation.
 
 ## Input classification and invalid input
 
@@ -117,8 +123,23 @@ The following statuses are a planned contract. They do not yet amend the OpenAPI
 | `delivered`              | The primary translation passed independent validation and was delivered.              |
 | `delivered_after_repair` | A constrained repair passed validation and was delivered.                             |
 | `delivered_via_fallback` | A secondary or enabled fallback model produced the validated delivered result.        |
+| `delivered_unchanged`    | Translation was unnecessary because the languages matched or the content was neutral. |
 | `translation_pending`    | No validated result is currently available; bounded deferred processing may continue. |
 | `invalid_input`          | Text-like input could not be interpreted reliably, so nothing was delivered.          |
+
+Every non-translation result records a truthful machine-readable reason. Unchanged delivery uses
+`same_language` or `language_neutral`. Pending processing uses the most specific safe reason known:
+`poor_network_coverage`, `model_unavailable`, `processing_timeout`, `technical_failure` or `other`.
+Clients localize these codes into understandable text. A pending or generalized failure may be
+shown with a sad emoji (`😔`); presentation must never replace the machine-readable reason.
+
+Unintelligible text or voice input returns `unintelligible_text` or
+`unintelligible_voice_input` together with the required action `correct_and_retry`. It is not merely
+marked as failed: the sender is explicitly asked to correct the input before trying again.
+
+Security work has priority. When a security control depends on a lower-level capability, that
+capability is implemented first as a prerequisite; this ordering supports the security work and is
+not a reason to omit or weaken the control.
 
 ## Model roles and provenance
 
