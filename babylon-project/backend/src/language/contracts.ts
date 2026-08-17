@@ -46,10 +46,10 @@ export const messageTextSchema = z.string().min(1).max(65_536);
 
 export const modelGenerationRequestSchema = z
   .object({
-    requestId: z.uuid(),
-    sourceText: messageTextSchema,
-    targetLanguage: supportedLanguageSchema,
-    style: translationStyleSchema.optional(),
+    requestId: z.string().trim().min(1).max(128),
+    modelRole: modelRoleSchema,
+    systemInstructions: z.string().min(1).max(16_384),
+    inputText: messageTextSchema,
   })
   .strict();
 export type ModelGenerationRequest = z.infer<typeof modelGenerationRequestSchema>;
@@ -58,6 +58,7 @@ export const translationProvenanceSchema = z
   .object({
     modelRole: modelRoleSchema,
     modelId: z.string().trim().min(1).max(160),
+    attemptCount: z.number().int().positive().max(10),
   })
   .strict();
 export type TranslationProvenance = z.infer<typeof translationProvenanceSchema>;
