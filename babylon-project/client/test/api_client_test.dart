@@ -120,4 +120,59 @@ void main() {
       expect(store.values, isEmpty);
     },
   );
+
+  test(
+    'transient refresh failure preserves the refresh token and reports the network state',
+    () async {
+      final store = MemoryStore()
+        ..values['babylon.refresh_token'] = 'keep-refresh';
+      final api = BabylonApiClient(
+        baseUri: Uri.parse('http://localhost:3000'),
+        tokenStore: store,
+        httpClient: MockClient((request) async {
+          if (request.url.path.endsWith('/sessions/refresh')) {
+            throw http.ClientException('offline');
+          }
+          return response(401, {
+            'error': {'code': 'UNAUTHORIZED', 'message': 'Lejárt'},
+          });
+        }),
+      );
+
+      await expectLater(
+        api.me(),
+        throwsA(
+          isA<BabylonApiException>()
+              .having((error) => error.code, 'code', 'NETWORK_UNAVAILABLE')
+              .having((error) => error.message, 'message', isNot(contains('offline'))),
+        ),
+      );
+      expect(store.values['babylon.refresh_token'], 'keep-refresh');
+    },
+  );
+
+  test('times out a stalled request without retrying it', () async {
+    var calls = 0;
+    final api = BabylonApiClient(
+      baseUri: Uri.parse('http://localhost:3000'),
+      tokenStore: MemoryStore(),
+      requestTimeout: Duration.zero,
+      httpClient: MockClient((_) {
+        calls += 1;
+        return Completer<http.Response>().future;
+      }),
+    );
+
+    await expectLater(
+      api.startRecovery('user@example.test'),
+      throwsA(
+        isA<BabylonApiException>().having(
+          (error) => error.code,
+          'code',
+          'NETWORK_TIMEOUT',
+        ),
+      ),
+    );
+    expect(calls, 1);
+  });
 }
