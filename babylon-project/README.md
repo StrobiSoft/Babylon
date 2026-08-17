@@ -10,6 +10,7 @@ Ez a könyvtár önálló Babylon-alkalmazás. Nem része és nem függ a szomsz
 - `backend/migrations/`: verziózott, ellenőrzőösszeggel védett, tranzakciós migrációk.
 - `backend/public/`: minimális rendszerböngészős WebAuthn-oldalak.
 - `client/`: Flutter kliens Android és Windows célplatformmal; elkülönített API-, állapot- és UI-réteg.
+- [`docs/MASTER_PLAN.md`](docs/MASTER_PLAN.md): az aktuális, prioritásos projekt-mesterterv; csak a hátralévő munkát tartalmazza, tetején a becsült készültségi szinttel.
 - `docs/AUTH_STATE_MACHINE.md`: a normatív hitelesítési állapotgép.
 - `docs/ARCHITECTURE.md`: architekturális és biztonsági döntések.
 - `docs/SECURITY_ARCHITECTURE.md`: threat model, lifecycle-ok, recovery és adatminimalizálás.
