@@ -26,12 +26,12 @@ describe('language system contracts', () => {
       translationResultSchema.parse({
         status: 'delivered_via_fallback',
         translatedText: 'Jó reggelt!',
-        provenance: { modelRole: 'secondary', modelId: 'qwen3:8b' },
+        provenance: { modelRole: 'secondary', modelId: 'qwen3:8b', attemptCount: 1 },
       }),
     ).toEqual({
       status: 'delivered_via_fallback',
       translatedText: 'Jó reggelt!',
-      provenance: { modelRole: 'secondary', modelId: 'qwen3:8b' },
+      provenance: { modelRole: 'secondary', modelId: 'qwen3:8b', attemptCount: 1 },
     });
     expect(
       translationResultSchema.safeParse({
@@ -44,9 +44,10 @@ describe('language system contracts', () => {
 
   it('keeps model identifiers out of generation requests', () => {
     const request = {
-      requestId: '00000000-0000-4000-8000-000000000001',
-      sourceText: 'Good morning!',
-      targetLanguage: 'hu',
+      requestId: 'request-1',
+      modelRole: 'primary',
+      systemInstructions: 'Translate into Hungarian.',
+      inputText: 'Good morning!',
     };
     expect(modelGenerationRequestSchema.safeParse(request).success).toBe(true);
     expect(
@@ -58,21 +59,6 @@ describe('language system contracts', () => {
   it('fixes the initial languages and active wording styles', () => {
     expect(supportedLanguages).toEqual(['en', 'hu', 'be']);
     expect(translationStyles).toEqual(['formal', 'everyday', 'casual']);
-    expect(
-      modelGenerationRequestSchema.safeParse({
-        requestId: '00000000-0000-4000-8000-000000000001',
-        sourceText: 'Hello',
-        targetLanguage: 'de',
-      }).success,
-    ).toBe(false);
-    expect(
-      modelGenerationRequestSchema.safeParse({
-        requestId: '00000000-0000-4000-8000-000000000001',
-        sourceText: 'Hello',
-        targetLanguage: 'hu',
-        style: 'slang',
-      }).success,
-    ).toBe(false);
   });
 
   it('keeps truthful non-translation and pending reasons machine-readable', () => {
