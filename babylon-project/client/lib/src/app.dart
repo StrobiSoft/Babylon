@@ -15,13 +15,15 @@ class BabylonApp extends StatefulWidget {
   State<BabylonApp> createState() => _BabylonAppState();
 }
 
-class _BabylonAppState extends State<BabylonApp> {
+class _BabylonAppState extends State<BabylonApp> with WidgetsBindingObserver {
   var _authVisible = false;
+  var _privacyShieldVisible = false;
   var _version = '';
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.controller.addListener(_changed);
     widget.controller.initialize();
     _loadVersion();
@@ -36,8 +38,17 @@ class _BabylonAppState extends State<BabylonApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_changed);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final shield = state != AppLifecycleState.resumed;
+    if (shield != _privacyShieldVisible && mounted) {
+      setState(() => _privacyShieldVisible = shield);
+    }
   }
 
   void _changed() => setState(() {});
@@ -60,14 +71,37 @@ class _BabylonAppState extends State<BabylonApp> {
         ),
         useMaterial3: true,
       ),
-      home: Builder(
-        builder: (context) => _LandingPage(
-          controller: widget.controller,
-          authVisible: _authVisible,
-          version: _version,
-          onShowAuth: () => setState(() => _authVisible = true),
-          onHideAuth: () => setState(() => _authVisible = false),
-        ),
+      home: Stack(
+        children: [
+          Builder(
+            builder: (context) => _LandingPage(
+              controller: widget.controller,
+              authVisible: _authVisible,
+              version: _version,
+              onShowAuth: () => setState(() => _authVisible = true),
+              onHideAuth: () => setState(() => _authVisible = false),
+            ),
+          ),
+          if (_privacyShieldVisible)
+            const Positioned.fill(
+              child: ColoredBox(
+                key: Key('privacy-shield'),
+                color: Color(0xff120f0d),
+                child: Center(
+                  child: Text(
+                    'BABYLON',
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 4,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -222,7 +256,10 @@ class _AuthOverlay extends StatelessWidget {
                       child: IconButton(
                         key: const Key('close-auth'),
                         tooltip: strings.close,
-                        onPressed: onClose,
+                        onPressed: () async {
+                          await controller.cancelAuthenticationFlow();
+                          onClose();
+                        },
                         icon: const Icon(Icons.close),
                       ),
                     ),
