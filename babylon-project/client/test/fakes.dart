@@ -30,6 +30,13 @@ class FakeCallback implements CallbackReceiver {
   @override
   Future<void> close() async => closed = true;
   @override
+  Future<void> cancel() async {
+    closed = true;
+    if (!completer.isCompleted) {
+      completer.completeError(StateError('cancelled'));
+    }
+  }
+  @override
   Future<NativeCallback> start() => completer.future;
 }
 
@@ -37,9 +44,16 @@ class FakeGateway implements BabylonGateway {
   bool healthy = true;
   bool authenticated = false;
   int exchanges = 0;
+  int logoutCalls = 0;
   int resendCalls = 0;
   int acceptCalls = 0;
   bool failAccept = false;
+  BabylonApiException? meFailure;
+  String? lastState;
+  Completer<void>? exchangeGate;
+  final exchangeStarted = Completer<void>();
+  Completer<void>? acceptGate;
+  final acceptStarted = Completer<void>();
   final deviceRows = <Map<String, dynamic>>[
     {
       'id': 'device-1',
@@ -57,6 +71,8 @@ class FakeGateway implements BabylonGateway {
     required String state,
   }) async {
     acceptCalls += 1;
+    if (!acceptStarted.isCompleted) acceptStarted.complete();
+    await acceptGate?.future;
     if (failAccept) {
       throw BabylonApiException(401, 'UNAUTHORIZED', 'Hibás meghívó');
     }
@@ -92,15 +108,22 @@ class FakeGateway implements BabylonGateway {
     required String clientDeviceKey,
   }) async {
     exchanges += 1;
+    if (!exchangeStarted.isCompleted) exchangeStarted.complete();
+    await exchangeGate?.future;
     authenticated = true;
   }
 
   @override
   Future<bool> health() async => healthy;
   @override
-  Future<void> logout() async => authenticated = false;
+  Future<void> logout() async {
+    logoutCalls += 1;
+    authenticated = false;
+  }
   @override
   Future<Map<String, dynamic>> me() async {
+    final failure = meFailure;
+    if (failure != null) throw failure;
     if (!authenticated) {
       throw BabylonApiException(401, 'UNAUTHORIZED', 'Nincs munkamenet');
     }
@@ -134,9 +157,12 @@ class FakeGateway implements BabylonGateway {
     required String operation,
     required String pkceChallenge,
     required String state,
-  }) async => {
-    'transactionToken': ''.padRight(43, 't'),
-    'browserUrl':
-        'http://localhost:3000/auth/$operation#transaction=${''.padRight(43, 't')}&state=$state',
-  };
+  }) async {
+    lastState = state;
+    return {
+      'transactionToken': ''.padRight(43, 't'),
+      'browserUrl':
+          'http://localhost:3000/auth/$operation#transaction=${''.padRight(43, 't')}&state=$state',
+    };
+  }
 }

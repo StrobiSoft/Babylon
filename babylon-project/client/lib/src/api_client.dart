@@ -68,16 +68,36 @@ class BabylonApiClient implements BabylonGateway {
     required this.baseUri,
     required this.tokenStore,
     http.Client? httpClient,
+    this.requestTimeout = const Duration(seconds: 15),
   }) : _http = httpClient ?? http.Client();
 
   static const _refreshKey = 'babylon.refresh_token';
   final Uri baseUri;
   final SecureValueStore tokenStore;
+  final Duration requestTimeout;
   final http.Client _http;
   String? _accessToken;
   Future<bool>? _refreshInFlight;
 
   Uri _uri(String path) => baseUri.resolve(path);
+
+  Future<T> _bounded<T>(Future<T> Function() request) async {
+    try {
+      return await request().timeout(requestTimeout);
+    } on TimeoutException {
+      throw BabylonApiException(
+        0,
+        'NETWORK_TIMEOUT',
+        'A szerver nem válaszolt időben. A művelet eredménye bizonytalan; ellenőrizd az állapotot, mielőtt újra próbálod.',
+      );
+    } on http.ClientException {
+      throw BabylonApiException(
+        0,
+        'NETWORK_UNAVAILABLE',
+        'A hálózati kapcsolat megszakadt. A művelet eredménye bizonytalan; ellenőrizd az állapotot, mielőtt újra próbálod.',
+      );
+    }
+  }
 
   Map<String, dynamic> _decode(http.Response response) {
     Map<String, dynamic> payload;
@@ -105,10 +125,12 @@ class BabylonApiClient implements BabylonGateway {
     String path,
     Map<String, dynamic> body,
   ) async {
-    final response = await _http.post(
-      _uri(path),
-      headers: const {'content-type': 'application/json'},
-      body: jsonEncode(body),
+    final response = await _bounded(
+      () => _http.post(
+        _uri(path),
+        headers: const {'content-type': 'application/json'},
+        body: jsonEncode(body),
+      ),
     );
     return _decode(response);
   }
@@ -125,7 +147,9 @@ class BabylonApiClient implements BabylonGateway {
       if (body != null) {
         request.body = jsonEncode(body);
       }
-      return _http.send(request).then(http.Response.fromStream);
+      return _bounded(
+        () => _http.send(request).then(http.Response.fromStream),
+      );
     }
 
     var response = await send();
@@ -156,9 +180,12 @@ class BabylonApiClient implements BabylonGateway {
       _accessToken = data['accessToken'] as String;
       await tokenStore.write(_refreshKey, data['refreshToken'] as String);
       return true;
-    } on BabylonApiException {
-      await clearSession();
-      return false;
+    } on BabylonApiException catch (failure) {
+      if (failure.statusCode == 401 || failure.statusCode == 403) {
+        await clearSession();
+        return false;
+      }
+      rethrow;
     }
   }
 
@@ -170,9 +197,9 @@ class BabylonApiClient implements BabylonGateway {
   @override
   Future<bool> health() async {
     try {
-      final response = await _http.get(_uri('/health/ready'));
+      final response = await _bounded(() => _http.get(_uri('/health/ready')));
       return response.statusCode == 200;
-    } on http.ClientException {
+    } on BabylonApiException {
       return false;
     }
   }

@@ -36,6 +36,7 @@ class NativeCallback {
 abstract interface class CallbackReceiver {
   Future<NativeCallback> start();
   Future<void> close();
+  Future<void> cancel();
 }
 
 class LoopbackCallbackServer implements CallbackReceiver {
@@ -81,4 +82,12 @@ class LoopbackCallbackServer implements CallbackReceiver {
 
   @override
   Future<void> close() async => _server?.close(force: true);
+
+  @override
+  Future<void> cancel() async {
+    if (!_result.isCompleted) {
+      _result.completeError(StateError('A böngészős belépést megszakították.'));
+    }
+    await close();
+  }
 }

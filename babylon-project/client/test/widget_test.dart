@@ -79,6 +79,33 @@ void main() {
     expect(find.text('Meghívásos regisztráció'), findsOneWidget);
   });
 
+  testWidgets('covers sensitive content while the application is inactive', (
+    tester,
+  ) async {
+    final gateway = FakeGateway()..authenticated = true;
+    final controller = AuthController(
+      api: gateway,
+      browser: FakeBrowser(),
+      callbackFactory: FakeCallback.new,
+      secureValues: MemoryStore(),
+    );
+    await tester.pumpWidget(
+      BabylonApp(controller: controller, versionLoader: () async => '1.0.0'),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('show-auth')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('user@example.test'), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(find.byKey(const Key('privacy-shield')), findsOneWidget);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.byKey(const Key('privacy-shield')), findsNothing);
+  });
+
   for (final size in const [Size(320, 568), Size(412, 915), Size(1440, 900)]) {
     testWidgets(
       'landing page has no overflow at ${size.width}x${size.height}',
