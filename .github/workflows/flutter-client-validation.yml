@@ -1,6 +1,6 @@
 name: Flutter client validation
 
-# PR #6 validation workflow; this comment also forces a PR synchronize event.
+# PR #6 validation workflow; Actions enabled, forcing a fresh PR synchronize event.
 on:
   push:
     branches:
