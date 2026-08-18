@@ -16,6 +16,12 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
+// Hide the Babylon window from supported Windows capture APIs and task-switcher
+// thumbnails. This is a privacy boundary, not a replacement for data encryption.
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
+
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 /// Registry key for app theme preference.
@@ -145,6 +151,14 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+  if (!SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE)) {
+    OutputDebugStringW(
+        L"Babylon: WDA_EXCLUDEFROMCAPTURE unavailable; using WDA_MONITOR.\n");
+    if (!SetWindowDisplayAffinity(window, WDA_MONITOR)) {
+      OutputDebugStringW(
+          L"Babylon: Windows display-affinity privacy protection failed.\n");
+    }
+  }
 
   return OnCreate();
 }
