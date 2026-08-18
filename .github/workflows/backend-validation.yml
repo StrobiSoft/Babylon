@@ -1,0 +1,42 @@
+name: Backend validation
+
+on:
+  pull_request:
+    paths:
+      - 'babylon-project/backend/**'
+      - 'babylon-project/package.json'
+      - 'babylon-project/package-lock.json'
+      - 'babylon-project/eslint.config.js'
+      - 'babylon-project/vitest.config.ts'
+      - '.github/workflows/backend-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  validate-backend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: babylon-project
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: babylon-project/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript source check
+        run: npm run check
+      - name: TypeScript test check
+        run: npm run check:test
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Backend build
+        run: npm run build
