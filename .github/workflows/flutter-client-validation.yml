@@ -1,0 +1,65 @@
+name: Flutter client validation
+
+on:
+  push:
+    branches:
+      - hardening/viber-lessons
+  pull_request:
+    paths:
+      - 'babylon-project/client/**'
+      - '.github/workflows/flutter-client-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  flutter-android:
+    name: Flutter analyze, test, Android build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: babylon-project/client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter version
+        run: flutter --version
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Test
+        run: flutter test
+      - name: Build Android APK
+        run: flutter build apk --debug
+
+  flutter-windows:
+    name: Flutter Windows build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: babylon-project/client
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter version
+        run: flutter --version
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Build Windows
+        run: flutter build windows --debug
