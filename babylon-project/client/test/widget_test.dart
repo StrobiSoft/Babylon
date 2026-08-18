@@ -97,11 +97,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('user@example.test'), findsOneWidget);
 
-    await tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
     expect(find.byKey(const Key('privacy-shield')), findsOneWidget);
 
-    await tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(find.byKey(const Key('privacy-shield')), findsNothing);
   });
