@@ -385,7 +385,7 @@ class AuthController extends ChangeNotifier {
 
   Future<void> _enqueueInitialFlow(Future<void> Function() action) {
     final result = _initialFlowQueue.then((_) => action());
-    _initialFlowQueue = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _initialFlowQueue = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
   }
 
@@ -399,7 +399,7 @@ class AuthController extends ChangeNotifier {
   ) async {
     final observed = future.then<void>(
       (_) {},
-      onError: (Object _, StackTrace __) {},
+      onError: (Object _, StackTrace _) {},
     );
     try {
       await callback.cancel();
