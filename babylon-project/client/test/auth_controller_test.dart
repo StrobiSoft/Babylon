@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:babylon_client/src/api_client.dart';
 import 'package:babylon_client/src/auth_controller.dart';
 import 'package:babylon_client/src/native_auth.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -63,7 +64,6 @@ void main() {
           as String,
     ).fragment;
     expect(expectedState, isNotEmpty);
-    // The controller validates a generated state; retrieve it from the transaction URL held by the fake callback path is intentionally opaque.
     callback.completer.complete(
       const NativeCallback(code: 'code', state: 'wrong'),
     );
