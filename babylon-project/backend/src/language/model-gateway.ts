@@ -18,98 +18,97 @@ export const modelGatewayErrorCodes = [
   'INVALID_MODEL_REQUEST',
   'MODEL_ROLE_NOT_ALLOWED',
   'MODEL_ROLE_DISABLED',
-  'MODEL_TIMEOUT',
-  'MODEL_ENGINE_FAILURE',
+  'MODEL_ATTEMPT_TIMEOUT',
+  'MODEL_ENGINE_UNAVAILABLE',
+  'MODEL_ENGINE_RETRYABLE_FAILURE',
+  'MODEL_ENGINE_NON_RETRYABLE_FAILURE',
+  'MODEL_OPERATION_DEADLINE_EXCEEDED',
+  'MODEL_CALLER_CANCELLED',
 ] as const;
 export type ModelGatewayErrorCode = (typeof modelGatewayErrorCodes)[number];
-
-export const modelOperationErrorCodes = [
-  'MODEL_OPERATION_DEADLINE_EXCEEDED',
-  'MODEL_ATTEMPTS_EXHAUSTED',
-] as const;
-export type ModelOperationErrorCode = (typeof modelOperationErrorCodes)[number];
 
 const errorMessages: Record<ModelGatewayErrorCode, string> = {
   INVALID_MODEL_REQUEST: 'The model request is invalid.',
   MODEL_ROLE_NOT_ALLOWED: 'The requested model role is not allowed.',
   MODEL_ROLE_DISABLED: 'The requested model role is disabled.',
-  MODEL_TIMEOUT: 'The model attempt timed out.',
-  MODEL_ENGINE_FAILURE: 'The model engine failed.',
+  MODEL_ATTEMPT_TIMEOUT: 'The model attempt timed out.',
+  MODEL_ENGINE_UNAVAILABLE: 'The model engine is unavailable.',
+  MODEL_ENGINE_RETRYABLE_FAILURE: 'The model engine failed temporarily.',
+  MODEL_ENGINE_NON_RETRYABLE_FAILURE: 'The model engine failed.',
+  MODEL_OPERATION_DEADLINE_EXCEEDED: 'The model operation deadline was exceeded.',
+  MODEL_CALLER_CANCELLED: 'The model operation was cancelled.',
 };
 
-class ModelAttemptTimeout extends Error {}
+const retryableGatewayCodes = new Set<ModelGatewayErrorCode>([
+  'MODEL_ATTEMPT_TIMEOUT',
+  'MODEL_ENGINE_UNAVAILABLE',
+  'MODEL_ENGINE_RETRYABLE_FAILURE',
+]);
 
 export interface ModelGatewayPolicy {
   attemptTimeoutMs: number;
   operationDeadlineMs: number;
-  attemptRoles: readonly ModelRole[];
+  maxAttempts: number;
 }
 
-export interface ModelAttemptFailure {
-  attemptNumber: number;
-  modelRole: ModelRole;
-  modelId: string | null;
-  code: ModelGatewayErrorCode;
-}
+export const defaultModelGatewayPolicy: Readonly<ModelGatewayPolicy> = Object.freeze({
+  attemptTimeoutMs: 30_000,
+  operationDeadlineMs: 60_000,
+  maxAttempts: 2,
+});
 
-export class ModelGatewayError extends Error {
-  constructor(
-    readonly code: ModelGatewayErrorCode,
-    readonly modelRole: ModelRole | null = null,
-    readonly modelId: string | null = null,
-  ) {
-    super(errorMessages[code]);
-    this.name = 'ModelGatewayError';
-  }
-}
-
-export class ModelOperationError extends Error {
-  readonly attempts: readonly ModelAttemptFailure[];
-
-  constructor(
-    readonly code: ModelOperationErrorCode,
-    attempts: readonly ModelAttemptFailure[],
-  ) {
-    super(
-      code === 'MODEL_OPERATION_DEADLINE_EXCEEDED'
-        ? 'The model operation deadline was exceeded.'
-        : 'The configured model attempts were exhausted.',
-    );
-    this.name = 'ModelOperationError';
-    this.attempts = Object.freeze([...attempts]);
-  }
+export interface ModelEngineRequest {
+  modelId: string;
+  systemInstructions: string;
+  inputText: string;
 }
 
 export interface ModelEngine {
   generate(
-    request: Readonly<ModelGenerationRequest>,
+    request: Readonly<ModelEngineRequest>,
     options: Readonly<{ signal: AbortSignal }>,
   ): Promise<Readonly<{ text: string }>>;
+}
+
+export type ModelEngineFailureKind = 'unavailable' | 'failure';
+
+export class ModelEngineError extends Error {
+  constructor(
+    readonly kind: ModelEngineFailureKind,
+    readonly retryable: boolean,
+  ) {
+    super('The model engine reported a controlled failure.');
+    this.name = 'ModelEngineError';
+  }
 }
 
 export interface ModelRegistration {
   role: ModelRole;
   modelId: string;
   enabled: boolean;
-  engine: ModelEngine;
 }
 
-type RegisteredModel = ModelRegistration;
+type RegisteredModel = Readonly<ModelRegistration>;
 
+const modelIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(160)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/);
 const registrationMetadataSchema = z
   .object({
     role: modelRoleSchema,
-    modelId: z.string().trim().min(1).max(160),
+    modelId: modelIdSchema,
     enabled: z.boolean(),
   })
   .strict();
-
 const timeoutMillisecondsSchema = z.number().int().positive().max(2_147_483_647);
 const modelGatewayPolicySchema = z
   .object({
     attemptTimeoutMs: timeoutMillisecondsSchema,
     operationDeadlineMs: timeoutMillisecondsSchema,
-    attemptRoles: z.array(modelRoleSchema).min(1),
+    maxAttempts: z.number().int().min(1).max(10),
   })
   .strict();
 
@@ -118,19 +117,15 @@ export class ModelRegistry {
 
   constructor(registrations: readonly ModelRegistration[]) {
     for (const registration of registrations) {
-      const metadata = registrationMetadataSchema.safeParse({
-        role: registration.role,
-        modelId: registration.modelId,
-        enabled: registration.enabled,
-      });
-      if (!metadata.success) throw new Error('Invalid model registry configuration.');
-      if (this.#models.has(metadata.data.role)) {
-        throw new Error(`Duplicate model role in registry: ${metadata.data.role}`);
+      const parsed = registrationMetadataSchema.safeParse(registration);
+      if (!parsed.success) throw new Error('Invalid model registry configuration.');
+      if (this.#models.has(parsed.data.role)) {
+        throw new Error('Invalid model registry configuration.');
       }
-      this.#models.set(metadata.data.role, {
-        ...metadata.data,
-        engine: registration.engine,
-      });
+      this.#models.set(parsed.data.role, Object.freeze({ ...parsed.data }));
+    }
+    if (this.#models.size !== modelRoleSchema.options.length) {
+      throw new Error('Invalid model registry configuration.');
     }
   }
 
@@ -146,97 +141,191 @@ export class ModelRegistry {
   }
 }
 
+export function createPlannedLocalModelRegistry(): ModelRegistry {
+  return new ModelRegistry(
+    modelRoleSchema.options.map((role) => ({ role, ...plannedLocalModels[role] })),
+  );
+}
+
+export class ModelGatewayError extends Error {
+  constructor(
+    readonly code: ModelGatewayErrorCode,
+    readonly modelRole: ModelRole | null = null,
+    readonly modelId: string | null = null,
+    readonly attemptCount = 0,
+  ) {
+    super(errorMessages[code]);
+    this.name = 'ModelGatewayError';
+  }
+}
+
+type AttemptEnd = 'timeout' | 'deadline' | 'caller';
+
+class ModelAttemptEnded extends Error {
+  constructor(readonly reason: AttemptEnd) {
+    super('The model attempt ended.');
+  }
+}
+
 export class ModelGateway {
   readonly #registry: ModelRegistry;
-  readonly #policy: ModelGatewayPolicy;
+  readonly #engine: ModelEngine;
+  readonly #policy: Readonly<ModelGatewayPolicy>;
 
-  constructor(registry: ModelRegistry, policy: ModelGatewayPolicy) {
+  constructor(
+    registry: ModelRegistry,
+    engine: ModelEngine,
+    policy: ModelGatewayPolicy = defaultModelGatewayPolicy,
+  ) {
     const parsedPolicy = modelGatewayPolicySchema.safeParse(policy);
-    if (!parsedPolicy.success) {
-      throw new Error('Invalid model gateway policy.');
+    if (!parsedPolicy.success || typeof engine.generate !== 'function') {
+      throw new Error('Invalid model gateway configuration.');
     }
     this.#registry = registry;
-    this.#policy = {
-      ...parsedPolicy.data,
-      attemptRoles: Object.freeze([...parsedPolicy.data.attemptRoles]),
-    };
+    this.#engine = engine;
+    this.#policy = Object.freeze({ ...parsedPolicy.data });
   }
 
-  async generate(role: unknown, request: unknown): Promise<ModelCandidate> {
+  async generate(
+    request: unknown,
+    options: Readonly<{ signal?: AbortSignal }> = {},
+  ): Promise<ModelCandidate> {
     const parsedRequest = modelGenerationRequestSchema.safeParse(request);
     if (!parsedRequest.success) {
+      const requestedRole =
+        typeof request === 'object' && request !== null && 'modelRole' in request
+          ? request.modelRole
+          : undefined;
+      if (requestedRole !== undefined && !modelRoleSchema.safeParse(requestedRole).success) {
+        throw new ModelGatewayError('MODEL_ROLE_NOT_ALLOWED');
+      }
       throw new ModelGatewayError('INVALID_MODEL_REQUEST');
     }
-    return this.#generateAttempt(role, parsedRequest.data, this.#policy.attemptTimeoutMs);
-  }
 
-  async generateWithRetry(request: unknown): Promise<ModelCandidate> {
-    const parsedRequest = modelGenerationRequestSchema.safeParse(request);
-    if (!parsedRequest.success) throw new ModelGatewayError('INVALID_MODEL_REQUEST');
-
+    const model = this.#registry.resolve(parsedRequest.data.modelRole);
     const deadlineAt = Date.now() + this.#policy.operationDeadlineMs;
-    const failures: ModelAttemptFailure[] = [];
-    for (const [index, role] of this.#policy.attemptRoles.entries()) {
+
+    for (let attemptCount = 1; attemptCount <= this.#policy.maxAttempts; attemptCount += 1) {
+      if (options.signal?.aborted) {
+        throw new ModelGatewayError(
+          'MODEL_CALLER_CANCELLED',
+          model.role,
+          model.modelId,
+          attemptCount - 1,
+        );
+      }
+
       const remainingMs = deadlineAt - Date.now();
       if (remainingMs <= 0) {
-        throw new ModelOperationError('MODEL_OPERATION_DEADLINE_EXCEEDED', failures);
+        throw new ModelGatewayError(
+          'MODEL_OPERATION_DEADLINE_EXCEEDED',
+          model.role,
+          model.modelId,
+          attemptCount - 1,
+        );
       }
+
       try {
-        return await this.#generateAttempt(
-          role,
+        return await this.#runAttempt(
+          model,
           parsedRequest.data,
-          Math.min(this.#policy.attemptTimeoutMs, remainingMs),
+          attemptCount,
+          remainingMs,
+          options.signal,
         );
       } catch (error) {
         if (!(error instanceof ModelGatewayError)) throw error;
-        failures.push({
-          attemptNumber: index + 1,
-          modelRole: role,
-          modelId: error.modelId,
-          code: error.code,
-        });
-        if (Date.now() >= deadlineAt) {
-          throw new ModelOperationError('MODEL_OPERATION_DEADLINE_EXCEEDED', failures);
+        if (!retryableGatewayCodes.has(error.code) || attemptCount >= this.#policy.maxAttempts) {
+          throw error;
         }
       }
     }
-    throw new ModelOperationError('MODEL_ATTEMPTS_EXHAUSTED', failures);
+
+    throw new ModelGatewayError(
+      'MODEL_ENGINE_NON_RETRYABLE_FAILURE',
+      model.role,
+      model.modelId,
+      this.#policy.maxAttempts,
+    );
   }
 
-  async #generateAttempt(
-    role: unknown,
+  async #runAttempt(
+    model: RegisteredModel,
     request: ModelGenerationRequest,
-    timeoutMs: number,
+    attemptCount: number,
+    remainingMs: number,
+    callerSignal?: AbortSignal,
   ): Promise<ModelCandidate> {
-    const model = this.#registry.resolve(role);
-
     const controller = new AbortController();
-    let rejectTimeout: (error: Error) => void = () => undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      rejectTimeout = reject;
+    const boundedByDeadline = remainingMs <= this.#policy.attemptTimeoutMs;
+    const timeoutMs = Math.min(this.#policy.attemptTimeoutMs, remainingMs);
+    let rejectAttempt: (error: ModelAttemptEnded) => void = () => undefined;
+    const attemptEnd = new Promise<never>((_resolve, reject) => {
+      rejectAttempt = reject;
     });
+    const endForCaller = () => {
+      rejectAttempt(new ModelAttemptEnded('caller'));
+      controller.abort();
+    };
+    callerSignal?.addEventListener('abort', endForCaller, { once: true });
     const timer = setTimeout(() => {
-      rejectTimeout(new ModelAttemptTimeout());
+      rejectAttempt(new ModelAttemptEnded(boundedByDeadline ? 'deadline' : 'timeout'));
       controller.abort();
     }, timeoutMs);
 
     try {
       const response = await Promise.race([
-        model.engine.generate(request, { signal: controller.signal }),
-        timeout,
+        this.#engine.generate(
+          {
+            modelId: model.modelId,
+            systemInstructions: request.systemInstructions,
+            inputText: request.inputText,
+          },
+          { signal: controller.signal },
+        ),
+        attemptEnd,
       ]);
-      return modelCandidateSchema.parse({
+      const candidate = modelCandidateSchema.safeParse({
         text: response.text,
-        provenance: { modelRole: model.role, modelId: model.modelId },
+        provenance: { modelRole: model.role, modelId: model.modelId, attemptCount },
       });
+      if (!candidate.success) {
+        throw new ModelGatewayError(
+          'MODEL_ENGINE_NON_RETRYABLE_FAILURE',
+          model.role,
+          model.modelId,
+          attemptCount,
+        );
+      }
+      return candidate.data;
     } catch (error) {
-      if (error instanceof ModelAttemptTimeout) {
-        throw new ModelGatewayError('MODEL_TIMEOUT', model.role, model.modelId);
+      if (error instanceof ModelAttemptEnded) {
+        const code: ModelGatewayErrorCode =
+          error.reason === 'caller'
+            ? 'MODEL_CALLER_CANCELLED'
+            : error.reason === 'deadline'
+              ? 'MODEL_OPERATION_DEADLINE_EXCEEDED'
+              : 'MODEL_ATTEMPT_TIMEOUT';
+        throw new ModelGatewayError(code, model.role, model.modelId, attemptCount);
       }
       if (error instanceof ModelGatewayError) throw error;
-      throw new ModelGatewayError('MODEL_ENGINE_FAILURE', model.role, model.modelId);
+      if (error instanceof ModelEngineError) {
+        const code: ModelGatewayErrorCode = !error.retryable
+          ? 'MODEL_ENGINE_NON_RETRYABLE_FAILURE'
+          : error.kind === 'unavailable'
+            ? 'MODEL_ENGINE_UNAVAILABLE'
+            : 'MODEL_ENGINE_RETRYABLE_FAILURE';
+        throw new ModelGatewayError(code, model.role, model.modelId, attemptCount);
+      }
+      throw new ModelGatewayError(
+        'MODEL_ENGINE_NON_RETRYABLE_FAILURE',
+        model.role,
+        model.modelId,
+        attemptCount,
+      );
     } finally {
       clearTimeout(timer);
+      callerSignal?.removeEventListener('abort', endForCaller);
     }
   }
 }

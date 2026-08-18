@@ -27,7 +27,7 @@ const policy: LanguageAgentPolicy = {
 };
 
 function candidate(text: string, modelRole: 'primary' | 'secondary' | 'reserve'): ModelCandidate {
-  return { text, provenance: { modelRole, modelId: `${modelRole}:test` } };
+  return { text, provenance: { modelRole, modelId: `${modelRole}:test`, attemptCount: 1 } };
 }
 
 function agent(options: {
@@ -125,7 +125,7 @@ describe('language agent', () => {
     expect(result).toEqual({
       status: 'delivered_after_repair',
       translatedText: 'Javított fordítás',
-      provenance: { modelRole: 'primary', modelId: 'primary:test' },
+      provenance: { modelRole: 'primary', modelId: 'primary:test', attemptCount: 1 },
     });
     expect(generated[1]).toMatchObject({
       phase: 'repair',
@@ -148,7 +148,7 @@ describe('language agent', () => {
 
     expect(result).toMatchObject({
       status: 'delivered_via_fallback',
-      provenance: { modelRole: 'secondary', modelId: 'secondary:test' },
+      provenance: { modelRole: 'secondary', modelId: 'secondary:test', attemptCount: 1 },
     });
     expect(generated[2]).toMatchObject({
       phase: 'translate',
