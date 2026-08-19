@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranslationResult } from '../src/language/contracts.js';
 import type {
-  ClaimPendingTranslationJobInput,
-  CreatePendingTranslationJobInput,
   MarkPendingTranslationReadyInput,
   PendingTranslationJob,
   PendingTranslationJobRepository,
@@ -47,15 +45,15 @@ class FakeRepository implements PendingTranslationJobRepository {
   readyInput: MarkPendingTranslationReadyInput | null = null;
   expiredJobId: string | null = null;
 
-  createOrGetByRequestId(_input: Readonly<CreatePendingTranslationJobInput>): Promise<PendingTranslationJob> {
+  createOrGetByRequestId(): Promise<PendingTranslationJob> {
     throw new Error('Not used in this test.');
   }
 
-  findByRequestId(_requestId: string): Promise<PendingTranslationJob | null> {
+  findByRequestId(): Promise<PendingTranslationJob | null> {
     throw new Error('Not used in this test.');
   }
 
-  claimNext(_input: Readonly<ClaimPendingTranslationJobInput>): Promise<PendingTranslationJob | null> {
+  claimNext(): Promise<PendingTranslationJob | null> {
     return Promise.resolve(this.claimed);
   }
 
@@ -69,7 +67,7 @@ class FakeRepository implements PendingTranslationJobRepository {
     return Promise.resolve({ ...(this.claimed ?? makeJob()), state: 'ready_for_delivery' });
   }
 
-  expireProcessing(jobId: string, _expiredAt: string): Promise<PendingTranslationJob> {
+  expireProcessing(jobId: string): Promise<PendingTranslationJob> {
     this.expiredJobId = jobId;
     return Promise.resolve({
       ...(this.claimed ?? makeJob()),
@@ -80,15 +78,15 @@ class FakeRepository implements PendingTranslationJobRepository {
     });
   }
 
-  acknowledgeDelivery(_jobId: string, _acknowledgedAt: string): Promise<PendingTranslationJob> {
+  acknowledgeDelivery(): Promise<PendingTranslationJob> {
     throw new Error('Not used in this test.');
   }
 
-  expireDue(_now: string, _limit: number): Promise<number> {
+  expireDue(): Promise<number> {
     return Promise.resolve(0);
   }
 
-  releaseExpiredLeases(_now: string, _limit: number): Promise<number> {
+  releaseExpiredLeases(): Promise<number> {
     return Promise.resolve(0);
   }
 }
