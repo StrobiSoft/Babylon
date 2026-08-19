@@ -16,13 +16,15 @@ import {
   type ModelRegistry,
 } from './model-gateway.js';
 
+const defaultLanguageAgentAttempts: LanguageAgentPolicy['attempts'] = [
+  { phase: 'translate', modelRole: 'primary' },
+  { phase: 'repair', modelRole: 'primary' },
+  { phase: 'translate', modelRole: 'secondary' },
+  { phase: 'translate', modelRole: 'reserve' },
+];
+
 export const defaultLanguageAgentPolicy: Readonly<LanguageAgentPolicy> = Object.freeze({
-  attempts: Object.freeze([
-    { phase: 'translate', modelRole: 'primary' },
-    { phase: 'repair', modelRole: 'primary' },
-    { phase: 'translate', modelRole: 'secondary' },
-    { phase: 'translate', modelRole: 'reserve' },
-  ]),
+  attempts: Object.freeze([...defaultLanguageAgentAttempts]),
 });
 
 function languageName(language: 'en' | 'hu' | 'be'): string {
