@@ -26,7 +26,11 @@ export interface PendingTranslationWorkerPolicy {
   retryMaximumSeconds: number;
 }
 
-export type PendingTranslationWorkerResult = 'idle' | 'ready' | 'retry_scheduled' | 'expired';
+export type PendingTranslationWorkerResult =
+  | 'idle'
+  | 'ready'
+  | 'retry_scheduled'
+  | 'expired';
 
 export class PendingTranslationWorker {
   readonly #repository: PendingTranslationJobRepository;
@@ -42,10 +46,18 @@ export class PendingTranslationWorker {
     clock: Clock,
     policy: PendingTranslationWorkerPolicy,
   ) {
-    if (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1 || policy.maxAttempts > 100) {
+    if (
+      !Number.isInteger(policy.maxAttempts) ||
+      policy.maxAttempts < 1 ||
+      policy.maxAttempts > 100
+    ) {
       throw new Error('Invalid maximum pending translation attempts.');
     }
-    for (const value of [policy.leaseSeconds, policy.retryBaseSeconds, policy.retryMaximumSeconds]) {
+    for (const value of [
+      policy.leaseSeconds,
+      policy.retryBaseSeconds,
+      policy.retryMaximumSeconds,
+    ]) {
       if (!Number.isInteger(value) || value < 1) {
         throw new Error('Invalid pending translation timing policy.');
       }
@@ -95,7 +107,9 @@ export class PendingTranslationWorker {
   }
 
   async #processJob(job: PendingTranslationJob): Promise<TranslationResult> {
-    if (job.encryptedPayload === null) throw new Error('Pending translation payload is missing.');
+    if (job.encryptedPayload === null) {
+      throw new Error('Pending translation payload is missing.');
+    }
     const sourcePayload = sourcePayloadSchema.parse(
       JSON.parse(this.#cipher.decrypt(job.encryptedPayload, job.requestId)),
     );
@@ -115,7 +129,10 @@ export class PendingTranslationWorker {
     now: Date,
   ): Promise<PendingTranslationWorkerResult> {
     const nowIso = now.toISOString();
-    if (job.attemptCount >= this.#policy.maxAttempts || now.getTime() >= Date.parse(job.expiresAt)) {
+    if (
+      job.attemptCount >= this.#policy.maxAttempts ||
+      now.getTime() >= Date.parse(job.expiresAt)
+    ) {
       await this.#repository.expireProcessing(job.id, nowIso);
       return 'expired';
     }
