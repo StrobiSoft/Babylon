@@ -73,10 +73,7 @@ export interface TranslationCandidateGenerator {
 }
 
 export interface PendingTranslationJobSink {
-  enqueue(
-    payload: LanguageAgentRequest,
-    reason: TranslationPendingReason,
-  ): Promise<void>;
+  enqueue(payload: LanguageAgentRequest, reason: TranslationPendingReason): Promise<void>;
 }
 
 const languageAgentPolicySchema = z
