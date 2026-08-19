@@ -24,10 +24,7 @@ function makeJob(attemptCount = 1): PendingTranslationJob {
     requestId,
     requestFingerprint: 'b'.repeat(64),
     state: 'processing',
-    encryptedPayload: cipher.encrypt(
-      JSON.stringify({ sourceText: 'Szia világ' }),
-      requestId,
-    ),
+    encryptedPayload: cipher.encrypt(JSON.stringify({ sourceText: 'Szia világ' }), requestId),
     sourceLanguage: null,
     targetLanguage: 'en',
     inputMode: 'text',
