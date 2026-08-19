@@ -74,11 +74,7 @@ export class PendingTranslationWorker {
       await this.#store.complete(job.payload.requestId);
       return 'completed';
     } catch {
-      await this.#store.reschedule(
-        job.payload.requestId,
-        'technical_failure',
-        job.attemptCount,
-      );
+      await this.#store.reschedule(job.payload.requestId, 'technical_failure', job.attemptCount);
       return 'rescheduled';
     }
   }
