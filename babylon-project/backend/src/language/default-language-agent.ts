@@ -1,3 +1,4 @@
+import type { TranslationPendingReason } from './contracts.js';
 import { ConservativeInputClassifier, ConservativeOutputLanguageValidator } from './default-guards.js';
 import {
   CandidateGenerationError,
@@ -14,7 +15,6 @@ import {
   type ModelGatewayPolicy,
   type ModelRegistry,
 } from './model-gateway.js';
-import type { TranslationPendingReason } from './contracts.js';
 
 export const defaultLanguageAgentPolicy: Readonly<LanguageAgentPolicy> = Object.freeze({
   attempts: Object.freeze([
@@ -45,7 +45,10 @@ function pendingReason(error: ModelGatewayError): TranslationPendingReason {
   if (error.code === 'MODEL_ENGINE_UNAVAILABLE' || error.code === 'MODEL_ROLE_DISABLED') {
     return 'model_unavailable';
   }
-  if (error.code === 'MODEL_ATTEMPT_TIMEOUT' || error.code === 'MODEL_OPERATION_DEADLINE_EXCEEDED') {
+  if (
+    error.code === 'MODEL_ATTEMPT_TIMEOUT' ||
+    error.code === 'MODEL_OPERATION_DEADLINE_EXCEEDED'
+  ) {
     return 'processing_timeout';
   }
   return 'technical_failure';
@@ -85,11 +88,11 @@ export function createDefaultLanguageAgent(
   engine: ModelEngine,
   options: Readonly<DefaultLanguageAgentOptions> = {},
 ): LanguageAgent {
-  const gateway = new ModelGateway(
-    options.registry ?? createPlannedLocalModelRegistry(),
-    engine,
-    options.gatewayPolicy,
-  );
+  const registry = options.registry ?? createPlannedLocalModelRegistry();
+  const gateway =
+    options.gatewayPolicy === undefined
+      ? new ModelGateway(registry, engine)
+      : new ModelGateway(registry, engine, options.gatewayPolicy);
 
   return new LanguageAgent(
     new ConservativeInputClassifier(),
