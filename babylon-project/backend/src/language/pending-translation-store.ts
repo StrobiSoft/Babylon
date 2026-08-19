@@ -41,7 +41,10 @@ interface PendingRow {
 
 export interface PendingTranslationStoreOptions {
   ttlSeconds?: number;
-  retryDelaySeconds?: number;
+  baseRetryDelaySeconds?: number;
+  maxRetryDelaySeconds?: number;
+  maxAttempts?: number;
+  leaseSeconds?: number;
   clock?: Clock;
 }
 
@@ -49,7 +52,10 @@ export class PendingTranslationStore {
   readonly #database: Database;
   readonly #key: Buffer;
   readonly #ttlSeconds: number;
-  readonly #retryDelaySeconds: number;
+  readonly #baseRetryDelaySeconds: number;
+  readonly #maxRetryDelaySeconds: number;
+  readonly #maxAttempts: number;
+  readonly #leaseSeconds: number;
   readonly #clock: Clock;
 
   constructor(
@@ -63,10 +69,26 @@ export class PendingTranslationStore {
     this.#database = database;
     this.#key = Buffer.from(encryptionKey);
     this.#ttlSeconds = options.ttlSeconds ?? 3600;
-    this.#retryDelaySeconds = options.retryDelaySeconds ?? 30;
+    this.#baseRetryDelaySeconds = options.baseRetryDelaySeconds ?? 30;
+    this.#maxRetryDelaySeconds = options.maxRetryDelaySeconds ?? 300;
+    this.#maxAttempts = options.maxAttempts ?? 5;
+    this.#leaseSeconds = options.leaseSeconds ?? 90;
     this.#clock = options.clock ?? systemClock;
-    if (this.#ttlSeconds <= 0 || this.#retryDelaySeconds <= 0) {
-      throw new Error('Pending translation timing values must be positive.');
+
+    if (
+      !Number.isInteger(this.#ttlSeconds) ||
+      this.#ttlSeconds <= 0 ||
+      !Number.isInteger(this.#baseRetryDelaySeconds) ||
+      this.#baseRetryDelaySeconds <= 0 ||
+      !Number.isInteger(this.#maxRetryDelaySeconds) ||
+      this.#maxRetryDelaySeconds < this.#baseRetryDelaySeconds ||
+      !Number.isInteger(this.#maxAttempts) ||
+      this.#maxAttempts < 1 ||
+      this.#maxAttempts > 100 ||
+      !Number.isInteger(this.#leaseSeconds) ||
+      this.#leaseSeconds <= 0
+    ) {
+      throw new Error('Invalid pending translation retry policy.');
     }
   }
 
@@ -78,7 +100,7 @@ export class PendingTranslationStore {
     const parsedReason = translationPendingReasonSchema.parse(reason);
     const now = this.#clock.now();
     const expiresAt = addSeconds(now, this.#ttlSeconds);
-    const nextAttemptAt = addSeconds(now, this.#retryDelaySeconds);
+    const nextAttemptAt = addSeconds(now, this.#baseRetryDelaySeconds);
     const encrypted = encryptPayload(parsedPayload, this.#key);
 
     await this.#database.query(
@@ -91,6 +113,7 @@ export class PendingTranslationStore {
          iv = EXCLUDED.iv,
          auth_tag = EXCLUDED.auth_tag,
          reason = EXCLUDED.reason,
+         attempt_count = 0,
          next_attempt_at = EXCLUDED.next_attempt_at,
          expires_at = EXCLUDED.expires_at,
          updated_at = EXCLUDED.updated_at`,
@@ -112,27 +135,29 @@ export class PendingTranslationStore {
       throw new Error('Pending translation claim limit must be between 1 and 100.');
     }
     const now = this.#clock.now();
-    const leaseUntil = addSeconds(now, this.#retryDelaySeconds);
+    const leaseUntil = addSeconds(now, this.#leaseSeconds);
 
     const rows = await this.#database.transaction(async (client) => {
       const result = await client.query<PendingRow>(
         `WITH due AS (
            SELECT request_id
            FROM translation_pending_jobs
-           WHERE next_attempt_at <= $1 AND expires_at > $1
+           WHERE next_attempt_at <= $1
+             AND expires_at > $1
+             AND attempt_count < $3
            ORDER BY next_attempt_at, created_at
            FOR UPDATE SKIP LOCKED
            LIMIT $2
          )
          UPDATE translation_pending_jobs AS jobs
          SET attempt_count = jobs.attempt_count + 1,
-             next_attempt_at = $3,
+             next_attempt_at = $4,
              updated_at = $1
          FROM due
          WHERE jobs.request_id = due.request_id
          RETURNING jobs.request_id, jobs.encrypted_payload, jobs.iv, jobs.auth_tag,
                    jobs.reason, jobs.attempt_count, jobs.expires_at`,
-        [now, limit, leaseUntil],
+        [now, limit, this.#maxAttempts, leaseUntil],
       );
       return result.rows;
     });
@@ -145,14 +170,28 @@ export class PendingTranslationStore {
     }));
   }
 
-  async reschedule(requestId: string, reason: TranslationPendingReason): Promise<void> {
+  async reschedule(
+    requestId: string,
+    reason: TranslationPendingReason,
+    attemptCount: number,
+  ): Promise<void> {
     const parsedReason = translationPendingReasonSchema.parse(reason);
+    if (!Number.isInteger(attemptCount) || attemptCount < 1 || attemptCount > this.#maxAttempts) {
+      throw new Error('Invalid pending translation attempt count.');
+    }
+
     const now = this.#clock.now();
+    const delaySeconds = Math.min(
+      this.#baseRetryDelaySeconds * 2 ** (attemptCount - 1),
+      this.#maxRetryDelaySeconds,
+    );
     await this.#database.query(
       `UPDATE translation_pending_jobs
-       SET reason = $2, next_attempt_at = $3, updated_at = $1
+       SET reason = $2,
+           next_attempt_at = LEAST(expires_at, $3),
+           updated_at = $1
        WHERE request_id = $4 AND expires_at > $1`,
-      [now, parsedReason, addSeconds(now, this.#retryDelaySeconds), requestId],
+      [now, parsedReason, addSeconds(now, delaySeconds), requestId],
     );
   }
 
