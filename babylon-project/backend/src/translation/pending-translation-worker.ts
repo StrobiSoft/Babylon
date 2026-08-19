@@ -1,9 +1,16 @@
 import { z } from 'zod';
 import { addSeconds } from '../crypto.js';
-import { messageTextSchema, translationResultSchema, type TranslationResult } from '../language/contracts.js';
+import {
+  messageTextSchema,
+  translationResultSchema,
+  type TranslationResult,
+} from '../language/contracts.js';
 import type { LanguageAgentRequest } from '../language/language-agent.js';
 import type { Clock } from '../types.js';
-import type { PendingTranslationJob, PendingTranslationJobRepository } from './pending-translation-job.js';
+import type {
+  PendingTranslationJob,
+  PendingTranslationJobRepository,
+} from './pending-translation-job.js';
 import type { TransientPayloadCipher } from './transient-payload-cipher.js';
 
 const sourcePayloadSchema = z.object({ sourceText: messageTextSchema }).strict();
@@ -39,7 +46,9 @@ export class PendingTranslationWorker {
       throw new Error('Invalid maximum pending translation attempts.');
     }
     for (const value of [policy.leaseSeconds, policy.retryBaseSeconds, policy.retryMaximumSeconds]) {
-      if (!Number.isInteger(value) || value < 1) throw new Error('Invalid pending translation timing policy.');
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error('Invalid pending translation timing policy.');
+      }
     }
     if (policy.retryMaximumSeconds < policy.retryBaseSeconds) {
       throw new Error('Pending translation retry maximum must not be below the base delay.');
@@ -64,10 +73,10 @@ export class PendingTranslationWorker {
     try {
       const result = await this.#processJob(job);
       if (result.status === 'translation_pending') {
-        return this.#retryOrExpire(job, result.reason, now);
+        return await this.#retryOrExpire(job, result.reason, now);
       }
       if (result.status === 'invalid_input') {
-        return this.#retryOrExpire(job, 'technical_failure', now);
+        return await this.#retryOrExpire(job, 'technical_failure', now);
       }
 
       const deliveryEnvelope = this.#cipher.encrypt(
@@ -81,7 +90,7 @@ export class PendingTranslationWorker {
       });
       return 'ready';
     } catch {
-      return this.#retryOrExpire(job, 'technical_failure', now);
+      return await this.#retryOrExpire(job, 'technical_failure', now);
     }
   }
 
