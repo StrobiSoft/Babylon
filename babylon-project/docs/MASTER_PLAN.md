@@ -1,6 +1,6 @@
 # Babylon Project — Master Plan
 
-> **Estimated project completion: 30%**
+> **Estimated project completion: 38%**
 >
 > **Definition of 100%:** all function-affecting development is complete; the Android release build has been repeatedly tested and verified; no known release-blocking functional or security defect remains; the package is ready to enter the Google Play publication process. Google Play Console administration, store listing preparation and publication itself are outside this 100% definition.
 
@@ -35,23 +35,9 @@ The master plan and the repository therefore have different roles:
 
 **Approximate project range: 30% → 40%**
 
-1. **Implement the conservative input classifier.**
-   - Distinguish translatable natural-language text from invalid/unreliable text and language-neutral content.
-   - Do not reject ordinary misspellings, names, slang or mixed-language text merely for being unusual.
+1. Integrate the completed conservative input classifier, automatic source-language detection, language-neutral pass-through and independent output-language validator with the existing primary → repair → secondary → reserve recovery flow.
 
-2. **Implement automatic source-language detection.**
-   - The sender must not be authoritative for source-language selection.
-
-3. **Implement language-neutral pass-through.**
-   - Emoji-only content, URLs, telephone numbers, identifiers and code-only content must be handled without false translation errors.
-
-4. **Implement the output-language validator.**
-   - Verify the locked target language independently of the model.
-   - Tolerate names, brands, links, code and intentional quoted foreign text.
-
-5. Integrate these components with the existing primary → repair → secondary → reserve recovery flow.
-
-6. Add unit and component tests for the complete language-processing chain.
+2. Add unit and component tests for the complete language-processing chain.
 
 **Stage exit criterion:** Babylon can safely execute the full text → classification → source detection → translation → independent validation path.
 
@@ -213,7 +199,7 @@ No new foundational feature should normally enter this stage. The focus is provi
 
 | Estimated completion | Meaning                                                                   |
 | -------------------: | ------------------------------------------------------------------------- |
-|                  30% | Current baseline when this master plan was created                        |
+|                  30% | Baseline when this master plan was created                                |
 |                  40% | Language engine complete                                                  |
 |                  50% | Guaranteed delivery/pending processing complete                           |
 |                  60% | Real Pepper-hosted local AI integrated                                    |
@@ -224,4 +210,4 @@ No new foundational feature should normally enter this stage. The focus is provi
 
 ## Current next task
 
-**Stage I / Item 1 — Implement the conservative input classifier.**
+**Stage I / Item 1 — Integrate the completed language guards with the primary → repair → secondary → reserve recovery flow.**
