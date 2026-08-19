@@ -9,6 +9,7 @@ import 'src/auth_controller.dart';
 import 'src/file_message_outbox_store.dart';
 import 'src/message_outbox.dart';
 import 'src/native_auth.dart';
+import 'src/outbox_scope.dart';
 import 'src/token_store.dart';
 
 Future<void> main() async {
@@ -36,5 +37,10 @@ Future<void> main() async {
     callbackFactory: () => LoopbackCallbackServer(),
     secureValues: tokenStore,
   );
-  runApp(BabylonApp(controller: controller, outbox: outbox));
+  runApp(
+    OutboxScope(
+      outbox: outbox,
+      child: BabylonApp(controller: controller),
+    ),
+  );
 }
