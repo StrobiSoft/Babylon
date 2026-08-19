@@ -42,9 +42,10 @@ enforcement point and does not delegate recipient or target-language authority t
 
 ### Language agent
 
-The language agent detects the source language, applies the selected wording style, coordinates
-translation, validates the result and runs the bounded repair and fallback flow. It operates within
-the target language fixed by the Babylon API.
+The language agent detects the source language, receives the user's selected wording style as a
+separate output parameter, coordinates translation and AI-assisted style realization, validates the
+result and runs the bounded repair and fallback flow. It operates within the target language fixed
+by the Babylon API.
 
 ### Model gateway
 
@@ -54,9 +55,9 @@ role and the exact model identifier, including when repair or fallback changes t
 
 ### Models
 
-Models produce candidate translations only. They do not authenticate users, choose recipients,
-select the delivery language, authorize delivery, approve their own output or establish system
-policy.
+Models produce candidate translations and, when requested by policy, realize the user-selected
+wording style. They do not authenticate users, choose recipients, select the delivery language,
+authorize delivery, approve their own output or establish system policy.
 
 ### Input and output guards
 
@@ -74,7 +75,24 @@ its own output, and a model assertion that its output is valid is not evidence o
 - A sender cannot change the recipient's delivery language.
 - A user's own interface language is a separate preference from any recipient delivery language.
 - The initial wording styles are formal, everyday and casual. Slang remains a later extension.
+- Wording style is a separate output dimension from translation semantics and target-language
+  selection.
+- The user selects the wording style. The AI language layer interprets and realizes that choice; it
+  does not choose the style on the user's behalf.
+- Style transformation may change register, phrasing, idiom and degree of formality only. It must
+  preserve the source meaning and cannot change the recipient, locked target language, delivery
+  intent or product/security policy.
 - The style selector changes wording style only; it cannot change the target language.
+- Same-language communication normally bypasses translation. If the user explicitly selects a mode
+  that requires wording transformation, the AI style layer may still run without performing a
+  language translation.
+
+Conceptually, the text path is:
+
+`source text → semantic interpretation/translation → user-selected AI wording style → independent validation → delivery`
+
+The implementation may combine translation and style realization in one approved model call for
+performance, but the policy dimensions remain logically separate and must be independently testable.
 
 Predictive input similar to T9 is a planned later client feature. It may reduce typing errors, but
 it is not part of the current language-agent implementation and cannot replace input validation.
@@ -101,10 +119,12 @@ unusual wording do not by themselves make input invalid.
 ## Translation validation and recovery
 
 A model response that does not match the locked target language is a rejected translation attempt.
-The recipient never receives a rejected candidate. Recovery follows this bounded order:
+A result that materially changes the source meaning or violates the selected wording-style boundary
+is likewise invalid for delivery. The recipient never receives a rejected candidate. Recovery
+follows this bounded order:
 
-1. Translate with the primary model.
-2. Perform an independent target-language check.
+1. Translate with the primary model using the locked target language and selected wording style.
+2. Perform independent target-language and output-policy checks.
 3. If validation fails, make one constrained repair attempt with the same model.
 4. If repair fails, translate again from the original source text with the secondary model.
 5. Use the fallback model if needed and enabled.
