@@ -93,7 +93,10 @@ describe('pending translation worker', () => {
         }),
     });
 
-    await expect(worker.runOnce()).resolves.toMatchObject({ completed: 0, rescheduled: 1 });
+    await expect(worker.runOnce()).resolves.toMatchObject({
+      completed: 0,
+      rescheduled: 1,
+    });
     expect(state.completed).toEqual([]);
     expect(state.rescheduled).toEqual([
       { requestId: payload.requestId, reason: 'processing_timeout' },
@@ -106,7 +109,10 @@ describe('pending translation worker', () => {
       process: () => Promise.reject(new Error('model connection failed')),
     });
 
-    await expect(worker.runOnce()).resolves.toMatchObject({ completed: 0, rescheduled: 1 });
+    await expect(worker.runOnce()).resolves.toMatchObject({
+      completed: 0,
+      rescheduled: 1,
+    });
     expect(state.rescheduled).toEqual([
       { requestId: payload.requestId, reason: 'technical_failure' },
     ]);
@@ -130,7 +136,11 @@ describe('pending translation worker', () => {
     const state = queue([]);
     const processor = { process: () => Promise.reject(new Error('unused')) };
 
-    expect(() => new PendingTranslationWorker(state.store, processor, { batchSize: 0 })).toThrow();
-    expect(() => new PendingTranslationWorker(state.store, processor, { batchSize: 101 })).toThrow();
+    expect(
+      () => new PendingTranslationWorker(state.store, processor, { batchSize: 0 }),
+    ).toThrow();
+    expect(
+      () => new PendingTranslationWorker(state.store, processor, { batchSize: 101 }),
+    ).toThrow();
   });
 });
