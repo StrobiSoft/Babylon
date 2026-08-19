@@ -8,6 +8,7 @@ import {
   LanguageAgent,
   type CandidateGenerationRequest,
   type LanguageAgentPolicy,
+  type PendingTranslationJobSink,
   type TranslationCandidateGenerator,
 } from './language-agent.js';
 import {
@@ -85,6 +86,7 @@ export interface DefaultLanguageAgentOptions {
   registry?: ModelRegistry;
   gatewayPolicy?: ModelGatewayPolicy;
   agentPolicy?: LanguageAgentPolicy;
+  pendingSink?: PendingTranslationJobSink;
 }
 
 export function createDefaultLanguageAgent(
@@ -102,5 +104,6 @@ export function createDefaultLanguageAgent(
     new GatewayTranslationCandidateGenerator(gateway),
     new ConservativeOutputLanguageValidator(),
     options.agentPolicy ?? defaultLanguageAgentPolicy,
+    options.pendingSink,
   );
 }
