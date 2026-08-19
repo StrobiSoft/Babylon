@@ -1,6 +1,6 @@
 # Babylon Project — Master Plan
 
-> **Estimated project completion: 38%**
+> **Estimated project completion: 40%**
 >
 > **Definition of 100%:** all function-affecting development is complete; the Android release build has been repeatedly tested and verified; no known release-blocking functional or security defect remains; the package is ready to enter the Google Play publication process. Google Play Console administration, store listing preparation and publication itself are outside this 100% definition.
 
@@ -28,18 +28,6 @@ The master plan and the repository therefore have different roles:
 - [Authentication state machine](AUTH_STATE_MACHINE.md)
 - [Language system architecture](LANGUAGE_SYSTEM_ARCHITECTURE.md)
 - [Language-system implementation roadmap — GitHub Issue #1](https://github.com/StrobiSoft/Babylon/issues/1)
-
----
-
-# Stage I — Complete the language engine
-
-**Approximate project range: 30% → 40%**
-
-1. Integrate the completed conservative input classifier, automatic source-language detection, language-neutral pass-through and independent output-language validator with the existing primary → repair → secondary → reserve recovery flow.
-
-2. Add unit and component tests for the complete language-processing chain.
-
-**Stage exit criterion:** Babylon can safely execute the full text → classification → source detection → translation → independent validation path.
 
 ---
 
@@ -210,4 +198,4 @@ No new foundational feature should normally enter this stage. The focus is provi
 
 ## Current next task
 
-**Stage I / Item 1 — Integrate the completed language guards with the primary → repair → secondary → reserve recovery flow.**
+**Stage II / Item 1 — Implement `translation_pending` end-to-end.**
