@@ -1,5 +1,8 @@
 import type { TranslationPendingReason } from './contracts.js';
-import { ConservativeInputClassifier, ConservativeOutputLanguageValidator } from './default-guards.js';
+import {
+  ConservativeInputClassifier,
+  ConservativeOutputLanguageValidator,
+} from './default-guards.js';
 import {
   CandidateGenerationError,
   LanguageAgent,
@@ -16,15 +19,13 @@ import {
   type ModelRegistry,
 } from './model-gateway.js';
 
-const defaultLanguageAgentAttempts: LanguageAgentPolicy['attempts'] = [
-  { phase: 'translate', modelRole: 'primary' },
-  { phase: 'repair', modelRole: 'primary' },
-  { phase: 'translate', modelRole: 'secondary' },
-  { phase: 'translate', modelRole: 'reserve' },
-];
-
 export const defaultLanguageAgentPolicy: Readonly<LanguageAgentPolicy> = Object.freeze({
-  attempts: Object.freeze([...defaultLanguageAgentAttempts]),
+  attempts: Object.freeze([
+    { phase: 'translate', modelRole: 'primary' },
+    { phase: 'repair', modelRole: 'primary' },
+    { phase: 'translate', modelRole: 'secondary' },
+    { phase: 'translate', modelRole: 'reserve' },
+  ]),
 });
 
 function languageName(language: 'en' | 'hu' | 'be'): string {
