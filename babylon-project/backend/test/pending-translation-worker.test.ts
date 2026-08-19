@@ -30,11 +30,19 @@ function job(overrides: Partial<PendingTranslationJob> = {}): PendingTranslation
 function queue(jobs: PendingTranslationJob[] = [job()]): {
   store: PendingTranslationQueue;
   completed: string[];
-  rescheduled: { requestId: string; reason: TranslationPendingReason }[];
+  rescheduled: {
+    requestId: string;
+    reason: TranslationPendingReason;
+    attemptCount: number;
+  }[];
   claimLimits: number[];
 } {
   const completed: string[] = [];
-  const rescheduled: { requestId: string; reason: TranslationPendingReason }[] = [];
+  const rescheduled: {
+    requestId: string;
+    reason: TranslationPendingReason;
+    attemptCount: number;
+  }[] = [];
   const claimLimits: number[] = [];
 
   return {
@@ -51,8 +59,8 @@ function queue(jobs: PendingTranslationJob[] = [job()]): {
         completed.push(requestId);
         return Promise.resolve();
       },
-      reschedule: (requestId, reason) => {
-        rescheduled.push({ requestId, reason });
+      reschedule: (requestId, reason, attemptCount) => {
+        rescheduled.push({ requestId, reason, attemptCount });
         return Promise.resolve();
       },
     },
@@ -81,8 +89,8 @@ describe('pending translation worker', () => {
     expect(state.rescheduled).toEqual([]);
   });
 
-  it('reschedules a job when translation remains pending', async () => {
-    const state = queue();
+  it('reschedules a job with its current attempt count when translation remains pending', async () => {
+    const state = queue([job({ attemptCount: 3 })]);
     const worker = new PendingTranslationWorker(state.store, {
       process: () =>
         Promise.resolve({
@@ -99,12 +107,12 @@ describe('pending translation worker', () => {
     });
     expect(state.completed).toEqual([]);
     expect(state.rescheduled).toEqual([
-      { requestId: payload.requestId, reason: 'processing_timeout' },
+      { requestId: payload.requestId, reason: 'processing_timeout', attemptCount: 3 },
     ]);
   });
 
   it('converts an unexpected processor failure into a controlled retry', async () => {
-    const state = queue();
+    const state = queue([job({ attemptCount: 2 })]);
     const worker = new PendingTranslationWorker(state.store, {
       process: () => Promise.reject(new Error('model connection failed')),
     });
@@ -114,7 +122,7 @@ describe('pending translation worker', () => {
       rescheduled: 1,
     });
     expect(state.rescheduled).toEqual([
-      { requestId: payload.requestId, reason: 'technical_failure' },
+      { requestId: payload.requestId, reason: 'technical_failure', attemptCount: 2 },
     ]);
   });
 
