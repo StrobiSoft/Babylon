@@ -1,12 +1,18 @@
-import type { TranslationResult } from './contracts.js';
+import type { TranslationPendingReason, TranslationResult } from './contracts.js';
 import type {
   PendingTranslationJob,
   PendingTranslationPayload,
-  PendingTranslationStore,
 } from './pending-translation-store.js';
 
 export interface PendingTranslationProcessor {
   process(payload: PendingTranslationPayload): Promise<TranslationResult>;
+}
+
+export interface PendingTranslationQueue {
+  deleteExpired(): Promise<number>;
+  claimDue(limit?: number): Promise<PendingTranslationJob[]>;
+  reschedule(requestId: string, reason: TranslationPendingReason): Promise<void>;
+  complete(requestId: string): Promise<void>;
 }
 
 export interface PendingTranslationWorkerOptions {
@@ -21,12 +27,12 @@ export interface PendingTranslationWorkerResult {
 }
 
 export class PendingTranslationWorker {
-  readonly #store: PendingTranslationStore;
+  readonly #store: PendingTranslationQueue;
   readonly #processor: PendingTranslationProcessor;
   readonly #batchSize: number;
 
   constructor(
-    store: PendingTranslationStore,
+    store: PendingTranslationQueue,
     processor: PendingTranslationProcessor,
     options: Readonly<PendingTranslationWorkerOptions> = {},
   ) {
