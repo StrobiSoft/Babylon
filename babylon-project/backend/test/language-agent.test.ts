@@ -162,7 +162,7 @@ describe('language agent', () => {
   });
 
   it('persists the accepted request before reporting translation_pending', async () => {
-    const enqueued: Array<{ payload: unknown; reason: string }> = [];
+    const enqueued: { payload: unknown; reason: string }[] = [];
     const result = await agent({
       generate: () => Promise.reject(new CandidateGenerationError('model_unavailable')),
       pendingSink: {
