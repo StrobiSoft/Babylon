@@ -72,6 +72,13 @@ export interface TranslationCandidateGenerator {
   generate(request: Readonly<CandidateGenerationRequest>): Promise<unknown>;
 }
 
+export interface PendingTranslationJobSink {
+  enqueue(
+    payload: LanguageAgentRequest,
+    reason: TranslationPendingReason,
+  ): Promise<void>;
+}
+
 const languageAgentPolicySchema = z
   .object({
     attempts: z
@@ -104,12 +111,14 @@ export class LanguageAgent {
   readonly #generator: TranslationCandidateGenerator;
   readonly #validator: OutputLanguageValidator;
   readonly #policy: LanguageAgentPolicy;
+  readonly #pendingSink?: PendingTranslationJobSink;
 
   constructor(
     classifier: InputClassifier,
     generator: TranslationCandidateGenerator,
     validator: OutputLanguageValidator,
     policy: LanguageAgentPolicy,
+    pendingSink?: PendingTranslationJobSink,
   ) {
     const parsedPolicy = languageAgentPolicySchema.safeParse(policy);
     if (!parsedPolicy.success) throw new Error('Invalid language agent policy.');
@@ -117,6 +126,7 @@ export class LanguageAgent {
     this.#generator = generator;
     this.#validator = validator;
     this.#policy = { attempts: Object.freeze([...parsedPolicy.data.attempts]) };
+    this.#pendingSink = pendingSink;
   }
 
   async process(request: unknown): Promise<TranslationResult> {
@@ -130,7 +140,7 @@ export class LanguageAgent {
         await this.#classifier.classify({ text: input.sourceText, inputMode: input.inputMode }),
       );
     } catch {
-      return this.#pending(input.requestId, 'technical_failure');
+      return this.#pending(input, 'technical_failure');
     }
 
     if (classification.kind === 'neutral') {
@@ -209,15 +219,30 @@ export class LanguageAgent {
       };
     }
 
-    return this.#pending(input.requestId, this.#summarizeFailures(failureReasons));
+    return this.#pending(input, this.#summarizeFailures(failureReasons));
   }
 
   #invalid(reason: InvalidInputReason): TranslationResult {
     return { status: 'invalid_input', reason, requiredAction: 'correct_and_retry' };
   }
 
-  #pending(requestId: string, reason: TranslationPendingReason): TranslationResult {
-    return { status: 'translation_pending', requestId, reason, presentation: 'sad' };
+  async #pending(
+    input: LanguageAgentRequest,
+    reason: TranslationPendingReason,
+  ): Promise<TranslationResult> {
+    if (this.#pendingSink !== undefined) {
+      try {
+        await this.#pendingSink.enqueue(input, reason);
+      } catch {
+        reason = 'technical_failure';
+      }
+    }
+    return {
+      status: 'translation_pending',
+      requestId: input.requestId,
+      reason,
+      presentation: 'sad',
+    };
   }
 
   #summarizeFailures(reasons: readonly TranslationPendingReason[]): TranslationPendingReason {
