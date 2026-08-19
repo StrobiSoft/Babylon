@@ -63,9 +63,9 @@ describe('PendingTranslationStore retry policy', () => {
           maxRetryDelaySeconds: 30,
         }),
     ).toThrow('Invalid pending translation retry policy.');
-    expect(
-      () => new PendingTranslationStore(database, key, { maxAttempts: 0 }),
-    ).toThrow('Invalid pending translation retry policy.');
+    expect(() => new PendingTranslationStore(database, key, { maxAttempts: 0 })).toThrow(
+      'Invalid pending translation retry policy.',
+    );
   });
 
   it('claims only jobs below the explicit maximum attempt count and applies a processing lease', async () => {
@@ -80,12 +80,7 @@ describe('PendingTranslationStore retry policy', () => {
 
     expect(database.calls).toHaveLength(1);
     expect(database.calls[0]!.text).toContain('attempt_count < $3');
-    expect(database.calls[0]!.values).toEqual([
-      now,
-      8,
-      4,
-      new Date('2026-08-19T20:02:00.000Z'),
-    ]);
+    expect(database.calls[0]!.values).toEqual([now, 8, 4, new Date('2026-08-19T20:02:00.000Z')]);
   });
 
   it('uses exponential retry backoff capped at the configured maximum', async () => {
