@@ -146,9 +146,7 @@ function stripNeutralArtifacts(text: string, stripQuotes: boolean): string {
 }
 
 function tokens(text: string): string[] {
-  return [...text.toLocaleLowerCase().matchAll(TOKEN_RE)]
-    .map((match) => match[0])
-    .filter(Boolean);
+  return [...text.toLocaleLowerCase().matchAll(TOKEN_RE)].map((match) => match[0]).filter(Boolean);
 }
 
 function isLanguageNeutral(text: string): boolean {
@@ -165,8 +163,7 @@ function scoreLanguage(text: string): Record<SupportedLanguage, number> {
 
   for (const word of words) {
     for (const language of ['en', 'hu', 'be'] as const) {
-      if (WORDS[language].has(word))
-        scores[language] += word.length <= 2 ? 1 : 2;
+      if (WORDS[language].has(word)) scores[language] += word.length <= 2 ? 1 : 2;
     }
   }
 
@@ -185,9 +182,9 @@ function detectLanguage(text: string): SupportedLanguage | null {
   if (wordList.length === 0) return null;
 
   const scores = scoreLanguage(cleaned);
-  const ordered = (
-    Object.entries(scores) as [SupportedLanguage, number][]
-  ).sort((a, b) => b[1] - a[1]);
+  const ordered = (Object.entries(scores) as [SupportedLanguage, number][]).sort(
+    (a, b) => b[1] - a[1],
+  );
   const [best, second] = ordered;
   if (!best || !second) return null;
 
@@ -197,25 +194,17 @@ function detectLanguage(text: string): SupportedLanguage | null {
   if (hasCyrillic && !hasLatin && scores.be >= 1.4) return 'be';
   if (best[1] >= 3 && best[1] >= second[1] + 1.5) return best[0];
 
-  if (
-    wordList.length >= 4 &&
-    best[1] >= 2 &&
-    best[1] >= second[1] * 1.8
-  )
-    return best[0];
+  if (wordList.length >= 4 && best[1] >= 2 && best[1] >= second[1] * 1.8) return best[0];
   return null;
 }
 
 export class ConservativeInputClassifier implements InputClassifier {
-  classify(
-    input: Readonly<{ text: string; inputMode: InputMode }>,
-  ): Promise<InputClassification> {
+  classify(input: Readonly<{ text: string; inputMode: InputMode }>): Promise<InputClassification> {
     const text = input.text.trim();
     if (isLanguageNeutral(text)) return Promise.resolve({ kind: 'neutral' });
 
     const sourceLanguage = detectLanguage(text);
-    if (sourceLanguage !== null)
-      return Promise.resolve({ kind: 'language', sourceLanguage });
+    if (sourceLanguage !== null) return Promise.resolve({ kind: 'language', sourceLanguage });
 
     return Promise.resolve({
       kind: 'invalid',
@@ -237,8 +226,7 @@ export class ConservativeOutputLanguageValidator implements OutputLanguageValida
     if (assessable.length === 0) return Promise.resolve(true);
 
     const detected = detectLanguage(assessable);
-    if (detected !== null)
-      return Promise.resolve(detected === input.targetLanguage);
+    if (detected !== null) return Promise.resolve(detected === input.targetLanguage);
 
     const hasCyrillic = CYRILLIC_RE.test(assessable);
     const hasLatin = LATIN_RE.test(assessable);
