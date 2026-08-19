@@ -211,16 +211,16 @@ No new foundational feature should normally enter this stage. The focus is provi
 
 ## Progress scale
 
-| Estimated completion | Meaning |
-|---:|---|
-| 30% | Current baseline when this master plan was created |
-| 40% | Language engine complete |
-| 50% | Guaranteed delivery/pending processing complete |
-| 60% | Real Pepper-hosted local AI integrated |
-| 70% | Production model strategy benchmarked and selected |
-| 80% | Complete intended communication product integrated |
-| 90% | Production/security boundary verified |
-| 100% | Verified Android release build ready for Google Play publication workflow |
+| Estimated completion | Meaning                                                                   |
+| -------------------: | ------------------------------------------------------------------------- |
+|                  30% | Current baseline when this master plan was created                        |
+|                  40% | Language engine complete                                                  |
+|                  50% | Guaranteed delivery/pending processing complete                           |
+|                  60% | Real Pepper-hosted local AI integrated                                    |
+|                  70% | Production model strategy benchmarked and selected                        |
+|                  80% | Complete intended communication product integrated                        |
+|                  90% | Production/security boundary verified                                     |
+|                 100% | Verified Android release build ready for Google Play publication workflow |
 
 ## Current next task
 
