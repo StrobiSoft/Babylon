@@ -19,14 +19,14 @@ import {
   type ModelRegistry,
 } from './model-gateway.js';
 
-export const defaultLanguageAgentPolicy: Readonly<LanguageAgentPolicy> = Object.freeze({
+export const defaultLanguageAgentPolicy = Object.freeze({
   attempts: Object.freeze([
     { phase: 'translate', modelRole: 'primary' },
     { phase: 'repair', modelRole: 'primary' },
     { phase: 'translate', modelRole: 'secondary' },
     { phase: 'translate', modelRole: 'reserve' },
-  ]),
-});
+  ] as const),
+}) satisfies Readonly<LanguageAgentPolicy>;
 
 function languageName(language: 'en' | 'hu' | 'be'): string {
   if (language === 'en') return 'English';
