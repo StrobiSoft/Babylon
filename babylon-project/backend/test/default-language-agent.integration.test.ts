@@ -59,7 +59,9 @@ describe('default language agent integration', () => {
       },
     };
 
-    await expect(agent(engine).process({ ...request, sourceText: 'blorx zzqv nmp' })).resolves.toEqual({
+    await expect(
+      agent(engine).process({ ...request, sourceText: 'blorx zzqv nmp' }),
+    ).resolves.toEqual({
       status: 'invalid_input',
       reason: 'unintelligible_text',
       requiredAction: 'correct_and_retry',
