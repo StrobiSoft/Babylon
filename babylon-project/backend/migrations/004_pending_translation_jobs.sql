@@ -42,7 +42,7 @@ CREATE TABLE pending_translation_jobs (
   ),
   CHECK (
     state <> 'ready_for_delivery'
-    OR (encrypted_payload IS NOT NULL AND source_language IS NOT NULL)
+    OR encrypted_payload IS NOT NULL
   )
 );
 
