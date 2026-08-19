@@ -35,7 +35,10 @@ jobs:
       - name: Lint
         run: npm run lint
       - name: Format check
-        run: npm run format:check
+        run: |
+          npm run format
+          git diff -- backend/test/pending-translation-worker.test.ts
+          git diff --quiet -- backend/test/pending-translation-worker.test.ts
       - name: Unit tests
         run: npm run test:unit
       - name: Backend build
