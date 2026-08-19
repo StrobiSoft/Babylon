@@ -37,7 +37,7 @@ function stripNeutralArtifacts(text: string, stripQuotes: boolean): string {
 }
 
 function tokens(text: string): string[] {
-  return [...text.toLocaleLowerCase().matchAll(TOKEN_RE)].map((match) => match[0] ?? '').filter(Boolean);
+  return [...text.toLocaleLowerCase().matchAll(TOKEN_RE)].map((match) => match[0]).filter(Boolean);
 }
 
 function isLanguageNeutral(text: string): boolean {
@@ -77,8 +77,8 @@ function detectLanguage(text: string): SupportedLanguage | null {
   const [best, second] = ordered;
   if (!best || !second) return null;
 
-  const hasCyrillic = [...cleaned].some((character) => CYRILLIC_RE.test(character));
-  const hasLatin = [...cleaned].some((character) => LATIN_RE.test(character));
+  const hasCyrillic = CYRILLIC_RE.test(cleaned);
+  const hasLatin = LATIN_RE.test(cleaned);
 
   if (hasCyrillic && !hasLatin && scores.be >= 1.4) return 'be';
   if (best[1] >= 3 && best[1] >= second[1] + 1.5) return best[0];
@@ -88,50 +88,50 @@ function detectLanguage(text: string): SupportedLanguage | null {
 }
 
 export class ConservativeInputClassifier implements InputClassifier {
-  async classify(input: Readonly<{ text: string; inputMode: InputMode }>): Promise<InputClassification> {
+  classify(input: Readonly<{ text: string; inputMode: InputMode }>): Promise<InputClassification> {
     const text = input.text.trim();
-    if (isLanguageNeutral(text)) return { kind: 'neutral' };
+    if (isLanguageNeutral(text)) return Promise.resolve({ kind: 'neutral' });
 
     const sourceLanguage = detectLanguage(text);
-    if (sourceLanguage !== null) return { kind: 'language', sourceLanguage };
+    if (sourceLanguage !== null) return Promise.resolve({ kind: 'language', sourceLanguage });
 
-    return {
+    return Promise.resolve({
       kind: 'invalid',
       reason: input.inputMode === 'voice_transcript' ? 'unintelligible_voice_input' : 'unintelligible_text',
-    };
+    });
   }
 }
 
 export class ConservativeOutputLanguageValidator implements OutputLanguageValidator {
-  async matchesTargetLanguage(
+  matchesTargetLanguage(
     input: Readonly<{ text: string; targetLanguage: SupportedLanguage }>,
   ): Promise<boolean> {
-    if (isLanguageNeutral(input.text)) return true;
+    if (isLanguageNeutral(input.text)) return Promise.resolve(true);
 
     const assessable = stripNeutralArtifacts(input.text, true).trim();
-    if (assessable.length === 0) return true;
+    if (assessable.length === 0) return Promise.resolve(true);
 
     const detected = detectLanguage(assessable);
-    if (detected !== null) return detected === input.targetLanguage;
+    if (detected !== null) return Promise.resolve(detected === input.targetLanguage);
 
-    const hasCyrillic = [...assessable].some((character) => CYRILLIC_RE.test(character));
-    const hasLatin = [...assessable].some((character) => LATIN_RE.test(character));
+    const hasCyrillic = CYRILLIC_RE.test(assessable);
+    const hasLatin = LATIN_RE.test(assessable);
 
     if (input.targetLanguage === 'be') {
-      if (!hasCyrillic) return false;
-      return scoreLanguage(assessable).be >= 1.4;
+      if (!hasCyrillic) return Promise.resolve(false);
+      return Promise.resolve(scoreLanguage(assessable).be >= 1.4);
     }
 
-    if (hasCyrillic) return false;
-    if (!hasLatin) return true;
+    if (hasCyrillic) return Promise.resolve(false);
+    if (!hasLatin) return Promise.resolve(true);
 
     const scores = scoreLanguage(assessable);
     if (input.targetLanguage === 'hu') {
-      if (HUNGARIAN_UNIQUE_RE.test(assessable)) return true;
-      return scores.hu >= scores.en && scores.hu >= 2;
+      if (HUNGARIAN_UNIQUE_RE.test(assessable)) return Promise.resolve(true);
+      return Promise.resolve(scores.hu >= scores.en && scores.hu >= 2);
     }
 
-    if (HUNGARIAN_UNIQUE_RE.test(assessable) && scores.hu > scores.en) return false;
-    return scores.en >= scores.hu && scores.en >= 2;
+    if (HUNGARIAN_UNIQUE_RE.test(assessable) && scores.hu > scores.en) return Promise.resolve(false);
+    return Promise.resolve(scores.en >= scores.hu && scores.en >= 2);
   }
 }
