@@ -111,7 +111,7 @@ export class LanguageAgent {
   readonly #generator: TranslationCandidateGenerator;
   readonly #validator: OutputLanguageValidator;
   readonly #policy: LanguageAgentPolicy;
-  readonly #pendingSink?: PendingTranslationJobSink;
+  readonly #pendingSink: PendingTranslationJobSink | undefined;
 
   constructor(
     classifier: InputClassifier,
