@@ -8,6 +8,7 @@ import {
 const baseJob = {
   id: '00000000-0000-4000-8000-000000000201',
   requestId: '00000000-0000-4000-8000-000000000202',
+  requestFingerprint: 'a'.repeat(64),
   state: 'pending',
   encryptedPayload: 'ciphertext',
   sourceLanguage: null,
@@ -68,11 +69,18 @@ describe('pending translation job contract', () => {
     }
   });
 
-  it('rejects invalid identifiers, timestamps and counters', () => {
+  it('rejects invalid identifiers, fingerprints, timestamps and counters', () => {
     expect(
       pendingTranslationJobSchema.safeParse({
         ...baseJob,
         requestId: 'not-a-uuid',
+      }).success,
+    ).toBe(false);
+
+    expect(
+      pendingTranslationJobSchema.safeParse({
+        ...baseJob,
+        requestFingerprint: 'not-a-fingerprint',
       }).success,
     ).toBe(false);
 
