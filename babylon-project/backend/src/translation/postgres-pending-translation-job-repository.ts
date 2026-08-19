@@ -51,7 +51,8 @@ function mapRow(row: PendingTranslationJobRow): PendingTranslationJob {
     requestId: row.request_id,
     requestFingerprint: row.request_fingerprint,
     state: row.state,
-    encryptedPayload: row.encrypted_payload === null ? null : row.encrypted_payload.toString('utf8'),
+    encryptedPayload:
+      row.encrypted_payload === null ? null : row.encrypted_payload.toString('utf8'),
     sourceLanguage: row.source_language,
     targetLanguage: row.target_language,
     ...(row.style === null ? {} : { style: row.style }),
@@ -113,7 +114,9 @@ export class PostgresPendingTranslationJobRepository implements PendingTranslati
     );
 
     const existing = await this.findByRequestId(input.requestId);
-    if (!existing) throw new Error('Pending translation job insert did not produce a readable record.');
+    if (!existing) {
+      throw new Error('Pending translation job insert did not produce a readable record.');
+    }
     if (existing.requestFingerprint !== input.requestFingerprint) {
       throw new PendingTranslationIdempotencyConflictError();
     }
@@ -193,7 +196,12 @@ export class PostgresPendingTranslationJobRepository implements PendingTranslati
            updated_at = $4
        WHERE id = $1 AND state = 'processing'
        RETURNING ${selectColumns}`,
-      [input.jobId, Buffer.from(input.encryptedPayload, 'utf8'), input.sourceLanguage, input.updatedAt],
+      [
+        input.jobId,
+        Buffer.from(input.encryptedPayload, 'utf8'),
+        input.sourceLanguage,
+        input.updatedAt,
+      ],
       'ready transition',
     );
   }
