@@ -96,9 +96,9 @@ export class PostgresPendingTranslationJobRepository implements PendingTranslati
     await this.database.query(
       `INSERT INTO pending_translation_jobs (
         id, request_id, request_fingerprint, state, encrypted_payload,
-        target_language, style, input_mode, attempt_count, next_attempt_at,
-        created_at, updated_at, expires_at
-      ) VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,0,$8,$8,$8,$9)
+        target_language, style, input_mode, attempt_count, last_failure_reason,
+        next_attempt_at, created_at, updated_at, expires_at
+      ) VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,0,$8,$9,$9,$9,$10)
       ON CONFLICT (request_id) DO NOTHING`,
       [
         input.id,
@@ -108,6 +108,7 @@ export class PostgresPendingTranslationJobRepository implements PendingTranslati
         input.targetLanguage,
         input.style ?? null,
         input.inputMode,
+        input.initialFailureReason,
         input.createdAt,
         input.expiresAt,
       ],
@@ -203,6 +204,23 @@ export class PostgresPendingTranslationJobRepository implements PendingTranslati
         input.updatedAt,
       ],
       'ready transition',
+    );
+  }
+
+  expireProcessing(jobId: string, expiredAt: string): Promise<PendingTranslationJob> {
+    return requireUpdatedJob(
+      this.database,
+      `UPDATE pending_translation_jobs
+       SET state = 'expired',
+           encrypted_payload = NULL,
+           next_attempt_at = NULL,
+           lease_owner = NULL,
+           lease_expires_at = NULL,
+           updated_at = $2
+       WHERE id = $1 AND state = 'processing'
+       RETURNING ${selectColumns}`,
+      [jobId, expiredAt],
+      'processing expiry',
     );
   }
 
