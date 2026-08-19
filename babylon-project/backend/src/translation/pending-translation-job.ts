@@ -18,10 +18,12 @@ export const pendingTranslationJobStateSchema = z.enum(pendingTranslationJobStat
 export type PendingTranslationJobState = z.infer<typeof pendingTranslationJobStateSchema>;
 
 const isoTimestampSchema = z.iso.datetime({ offset: true });
+const requestFingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const pendingTranslationJobSchema = z.object({
   id: z.uuid(),
   requestId: z.uuid(),
+  requestFingerprint: requestFingerprintSchema,
   state: pendingTranslationJobStateSchema,
   encryptedPayload: z.string().trim().min(1).max(262_144).nullable(),
   sourceLanguage: supportedLanguageSchema.nullable(),
@@ -43,6 +45,7 @@ export type PendingTranslationJob = z.infer<typeof pendingTranslationJobSchema>;
 export interface CreatePendingTranslationJobInput {
   id: string;
   requestId: string;
+  requestFingerprint: string;
   encryptedPayload: string;
   targetLanguage: z.infer<typeof supportedLanguageSchema>;
   style?: z.infer<typeof translationStyleSchema>;
