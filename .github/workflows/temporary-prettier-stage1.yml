@@ -1,0 +1,45 @@
+name: Temporary Stage I formatter
+
+on:
+  push:
+    branches:
+      - test/stage1-language-chain-completion
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: test/stage1-language-chain-completion
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: babylon-project/package-lock.json
+
+      - name: Install dependencies
+        working-directory: babylon-project
+        run: npm ci
+
+      - name: Apply project Prettier
+        working-directory: babylon-project
+        run: npx prettier --write backend/test/default-language-agent.integration.test.ts
+
+      - name: Commit formatting if needed
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add babylon-project/backend/test/default-language-agent.integration.test.ts
+          git commit -m "style: apply prettier to Stage I language chain tests"
+          git push origin HEAD:test/stage1-language-chain-completion
