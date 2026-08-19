@@ -19,30 +19,44 @@ describe('ConservativeInputClassifier', () => {
 
   it('detects Hungarian without trusting sender metadata', async () => {
     await expect(
-      classifier.classify({ text: 'Szia, kérlek mondd meg, hogy mikor lesz kész.', inputMode: 'text' }),
+      classifier.classify({
+        text: 'Szia, kérlek mondd meg, hogy mikor lesz kész.',
+        inputMode: 'text',
+      }),
     ).resolves.toEqual({ kind: 'language', sourceLanguage: 'hu' });
   });
 
   it('detects English', async () => {
     await expect(
-      classifier.classify({ text: 'Hello, please tell me when this will be ready.', inputMode: 'text' }),
+      classifier.classify({
+        text: 'Hello, please tell me when this will be ready.',
+        inputMode: 'text',
+      }),
     ).resolves.toEqual({ kind: 'language', sourceLanguage: 'en' });
   });
 
   it('detects Belarusian', async () => {
     await expect(
-      classifier.classify({ text: 'Прывітанне, калі ласка, скажы мне, калі гэта будзе гатова.', inputMode: 'text' }),
+      classifier.classify({
+        text: 'Прывітанне, калі ласка, скажы мне, калі гэта будзе гатова.',
+        inputMode: 'text',
+      }),
     ).resolves.toEqual({ kind: 'language', sourceLanguage: 'be' });
   });
 
   it('does not reject ordinary Hungarian spelling noise when the language signal remains clear', async () => {
     await expect(
-      classifier.classify({ text: 'Sziaa, kérlek mondd meg hogy mikor lesz késsz.', inputMode: 'text' }),
+      classifier.classify({
+        text: 'Sziaa, kérlek mondd meg hogy mikor lesz késsz.',
+        inputMode: 'text',
+      }),
     ).resolves.toEqual({ kind: 'language', sourceLanguage: 'hu' });
   });
 
   it('fails safely when apparent text has insufficient reliable signal', async () => {
-    await expect(classifier.classify({ text: 'blorx zzqv nmp', inputMode: 'text' })).resolves.toEqual({
+    await expect(
+      classifier.classify({ text: 'blorx zzqv nmp', inputMode: 'text' }),
+    ).resolves.toEqual({
       kind: 'invalid',
       reason: 'unintelligible_text',
     });
@@ -58,25 +72,37 @@ describe('ConservativeInputClassifier', () => {
 describe('ConservativeOutputLanguageValidator', () => {
   it('accepts Hungarian output for a Hungarian target', async () => {
     await expect(
-      validator.matchesTargetLanguage({ text: 'Szia, ez már magyarul van.', targetLanguage: 'hu' }),
+      validator.matchesTargetLanguage({
+        text: 'Szia, ez már magyarul van.',
+        targetLanguage: 'hu',
+      }),
     ).resolves.toBe(true);
   });
 
   it('rejects English output for a Hungarian target', async () => {
     await expect(
-      validator.matchesTargetLanguage({ text: 'Hello, this is still in English.', targetLanguage: 'hu' }),
+      validator.matchesTargetLanguage({
+        text: 'Hello, this is still in English.',
+        targetLanguage: 'hu',
+      }),
     ).resolves.toBe(false);
   });
 
   it('accepts Belarusian output for a Belarusian target', async () => {
     await expect(
-      validator.matchesTargetLanguage({ text: 'Прывітанне, гэта ўжо па-беларуску.', targetLanguage: 'be' }),
+      validator.matchesTargetLanguage({
+        text: 'Прывітанне, гэта ўжо па-беларуску.',
+        targetLanguage: 'be',
+      }),
     ).resolves.toBe(true);
   });
 
   it('rejects Belarusian output for an English target', async () => {
     await expect(
-      validator.matchesTargetLanguage({ text: 'Прывітанне, гэта не англійская.', targetLanguage: 'en' }),
+      validator.matchesTargetLanguage({
+        text: 'Прывітанне, гэта не англійская.',
+        targetLanguage: 'en',
+      }),
     ).resolves.toBe(false);
   });
 
