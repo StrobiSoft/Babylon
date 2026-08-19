@@ -90,7 +90,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 3. Test mixed-language input.
 4. Test misspellings and noisy input.
 5. Test short and long messages.
-6. Test formal, everyday and casual styles.
+6. Test formal, everyday and casual styles as a separate output dimension: the user-selected style must be interpreted and applied by the AI language layer without changing semantic content or the locked recipient language.
 7. Test wrong-language model output and recovery.
 8. Measure latency.
 9. Measure RAM usage.
@@ -117,8 +117,8 @@ New product capabilities are placed at the earliest stage where their prerequisi
 6. Complete client-side conversation logging without creating central server-side conversation history.
 7. Complete profile-image handling.
 8. Add the conversation partner language/flag UI indicator.
-9. Complete wording-style selection: formal, everyday, casual.
-10. Ensure same-language communication bypasses unnecessary translation/model work.
+9. Complete user-controlled wording-style selection as an AI-managed output layer: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
+10. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation is explicitly required by the selected mode.
 11. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the ordinary text-processing path.
 12. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
 13. Integrate voice calling without translation, according to the product decision.
