@@ -20,6 +20,10 @@ The master plan and the repository therefore have different roles:
 - **Master plan:** what remains to be done, in priority order.
 - **Repository history / issues / architecture records:** what has already been done and how it was verified.
 
+### Dependency-ordering rule
+
+New product capabilities are placed at the earliest stage where their prerequisites are already available and where implementing them will not force premature infrastructure or architecture work. Features that depend on later runtime, delivery, storage or security capabilities remain explicitly deferred until those dependencies are complete.
+
 ### Related project records
 
 - [Babylon application README](../README.md)
@@ -71,8 +75,9 @@ The master plan and the repository therefore have different roles:
 10. Integrate and smoke-test `gpt-oss:20b`.
 11. Integrate and smoke-test `qwen3:8b`.
 12. Prepare the reserve-model path without enabling it unnecessarily.
+13. Reserve NVMe-backed active working storage for latency-sensitive future media processing, including speech recognition and speech synthesis workloads; bulk or completed media need not remain on NVMe.
 
-**Stage exit criterion:** Babylon translation uses real local models on Pepper rather than only fake/stub engines.
+**Stage exit criterion:** Babylon translation uses real local models on Pepper rather than only fake/stub engines, and the runtime layout does not block later latency-sensitive voice processing.
 
 ---
 
@@ -114,10 +119,12 @@ The master plan and the repository therefore have different roles:
 8. Add the conversation partner language/flag UI indicator.
 9. Complete wording-style selection: formal, everyday, casual.
 10. Ensure same-language communication bypasses unnecessary translation/model work.
-11. Integrate voice calling without translation, according to the product decision.
-12. Complete the remaining Android user flows required for the intended first release.
+11. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the ordinary text-processing path.
+12. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
+13. Integrate voice calling without translation, according to the product decision.
+14. Complete the remaining Android user flows required for the intended first release.
 
-**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end.
+**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including ordinary text communication and first-release untranslated voice messaging.
 
 ---
 
@@ -141,10 +148,11 @@ The master plan and the repository therefore have different roles:
 14. Configure rate limits and request-size limits.
 15. Isolate model endpoints from clients/public access.
 16. Prove that no client can directly reach Ollama or the model gateway.
-17. Run the complete authentication/security regression suite.
-18. Resolve all release-blocking security findings.
+17. Define and verify voice-media security and lifecycle rules: authenticated access, transport protection, bounded size/duration, transient server-side retention where required, and deletion/expiry semantics without creating a central voice-message archive.
+18. Run the complete authentication/security regression suite.
+19. Resolve all release-blocking security findings.
 
-**Stage exit criterion:** the complete functional system operates behind a verified production security boundary.
+**Stage exit criterion:** the complete functional system operates behind a verified production security boundary, including the first-release voice-message path.
 
 ---
 
@@ -164,22 +172,40 @@ No new foundational feature should normally enter this stage. The focus is provi
 8. Test long messages and malformed/invalid input.
 9. Test model failure, pending state and eventual acknowledgement.
 10. Test client close/reopen and retained local state.
-11. Perform complete UI/UX defect review.
-12. Fix crashes and edge cases.
-13. Run security regression again after fixes.
-14. Run performance regression after fixes.
-15. Update documentation to the actually implemented topology and behaviour.
-16. Remove obsolete planning language from normative documentation.
-17. Record final architecture decisions and benchmark results.
-18. Finalize Android release configuration.
-19. Produce the Android release build.
-20. Rebuild from a clean environment to prove reproducibility.
-21. Test the Release Candidate comprehensively.
-22. Fix remaining release-blocking defects.
-23. Repeat the full release test suite.
-24. Freeze the verified release build.
+11. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
+12. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the normal text-processing path.
+13. Perform complete UI/UX defect review.
+14. Fix crashes and edge cases.
+15. Run security regression again after fixes.
+16. Run performance regression after fixes.
+17. Update documentation to the actually implemented topology and behaviour.
+18. Remove obsolete planning language from normative documentation.
+19. Record final architecture decisions and benchmark results.
+20. Finalize Android release configuration.
+21. Produce the Android release build.
+22. Rebuild from a clean environment to prove reproducibility.
+23. Test the Release Candidate comprehensively.
+24. Fix remaining release-blocking defects.
+25. Repeat the full release test suite.
+26. Freeze the verified release build.
 
 **Stage exit criterion — Babylon Project = 100% / DONE:** the functionally complete Android release package has been repeatedly verified and is ready to enter the Google Play publication process.
+
+---
+
+# Post-v1 — Translated voice-message pipeline
+
+This capability is intentionally outside the first-release 100% definition. Its prerequisites are the verified text language engine, reliable delivery semantics, the real Pepper-hosted model runtime, first-release voice-message transport, and the production media-security/lifecycle rules.
+
+1. Convert recorded voice to a reviewable transcript using speech recognition.
+2. Preserve a user-review/correction path where product UX requires sender confirmation before translation.
+3. Feed the approved transcript through the existing Babylon text translation and independent validation pipeline rather than creating a separate translation policy.
+4. Convert only validated translated text to recipient-language speech using a neutral synthetic voice; speaker voice cloning is explicitly out of scope for the initial translated-voice implementation.
+5. Use NVMe-backed active working storage for latency-sensitive speech-recognition, translation and speech-synthesis processing; move or delete completed/transient media according to the media lifecycle policy rather than treating NVMe as permanent message storage.
+6. Add failure and pending semantics for speech recognition and speech synthesis without allowing media jobs to disappear silently.
+7. Benchmark end-to-end latency, concurrency, CPU/RAM/storage pressure and perceived output quality before enabling the feature generally.
+
+**Post-v1 exit criterion:** a voice message can be transformed into independently validated translated text and delivered as recipient-language synthetic speech without weakening Babylon's delivery, privacy or security guarantees.
 
 ---
 
