@@ -157,7 +157,9 @@ export class PendingTranslationStore {
   }
 
   async complete(requestId: string): Promise<void> {
-    await this.#database.query('DELETE FROM translation_pending_jobs WHERE request_id = $1', [requestId]);
+    await this.#database.query('DELETE FROM translation_pending_jobs WHERE request_id = $1', [
+      requestId,
+    ]);
   }
 
   async deleteExpired(): Promise<number> {
@@ -180,7 +182,10 @@ function encryptPayload(
   return { ciphertext, iv, authTag: cipher.getAuthTag() };
 }
 
-function decryptPayload(row: Pick<PendingRow, 'encrypted_payload' | 'iv' | 'auth_tag'>, key: Buffer): PendingTranslationPayload {
+function decryptPayload(
+  row: Pick<PendingRow, 'encrypted_payload' | 'iv' | 'auth_tag'>,
+  key: Buffer,
+): PendingTranslationPayload {
   const decipher = createDecipheriv('aes-256-gcm', key, row.iv);
   decipher.setAuthTag(row.auth_tag);
   const plaintext = Buffer.concat([
