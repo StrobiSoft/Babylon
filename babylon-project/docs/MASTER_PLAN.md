@@ -115,16 +115,19 @@ New product capabilities are placed at the earliest stage where their prerequisi
 4. Return only independently validated results to the delivery path.
 5. Complete recipient delivery and acknowledgement flow.
 6. Complete client-side conversation logging without creating central server-side conversation history.
-7. Complete profile-image handling.
-8. Add the conversation partner language/flag UI indicator.
-9. Complete user-controlled wording-style selection as an AI-managed output layer: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
-10. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation is explicitly required by the selected mode.
-11. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the ordinary text-processing path.
-12. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
-13. Integrate voice calling without translation, according to the product decision.
-14. Complete the remaining Android user flows required for the intended first release.
+7. Add first-release image and general file attachments: users can send and receive attached images and files alongside ordinary messages. Attachment binaries are transported unchanged. Attachment filenames/image filenames are preserved exactly and are never passed through the translation or wording-style pipeline. Text visibly embedded inside an image is not OCR-extracted or translated during ordinary message delivery. Attached document contents are likewise not translated automatically merely because the document is attached.
+8. Complete profile-image handling.
+9. Add the conversation partner language/flag UI indicator.
+10. Complete user-controlled wording-style selection as an AI-managed output layer: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
+11. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation is explicitly required by the selected mode.
+12. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the ordinary text-processing path.
+13. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
+14. Integrate voice calling without translation, according to the product decision.
+15. Complete the remaining Android user flows required for the intended first release.
 
-**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including ordinary text communication and first-release untranslated voice messaging.
+**Attachment translation rule:** ordinary image/file delivery is a transport feature, not a language-processing feature. Filenames, image filenames, text embedded in images and attached document contents remain exactly as supplied by the sender unless a future, separately invoked document/image translation feature is explicitly designed and authorized.
+
+**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including ordinary text communication, image/file attachment exchange and first-release untranslated voice messaging.
 
 ---
 
@@ -148,11 +151,12 @@ New product capabilities are placed at the earliest stage where their prerequisi
 14. Configure rate limits and request-size limits.
 15. Isolate model endpoints from clients/public access.
 16. Prove that no client can directly reach Ollama or the model gateway.
-17. Define and verify voice-media security and lifecycle rules: authenticated access, transport protection, bounded size/duration, transient server-side retention where required, and deletion/expiry semantics without creating a central voice-message archive.
-18. Run the complete authentication/security regression suite.
-19. Resolve all release-blocking security findings.
+17. Define and verify image/file attachment security and lifecycle rules: authenticated upload/download, transport protection, bounded file size, allowed/blocked content handling, malware-aware validation where appropriate, transient server-side retention where required, deletion/expiry semantics, and preservation of the sender-supplied filename without translating it.
+18. Define and verify voice-media security and lifecycle rules: authenticated access, transport protection, bounded size/duration, transient server-side retention where required, and deletion/expiry semantics without creating a central voice-message archive.
+19. Run the complete authentication/security regression suite.
+20. Resolve all release-blocking security findings.
 
-**Stage exit criterion:** the complete functional system operates behind a verified production security boundary, including the first-release voice-message path.
+**Stage exit criterion:** the complete functional system operates behind a verified production security boundary, including the first-release file/image and voice-message paths.
 
 ---
 
@@ -172,22 +176,23 @@ No new foundational feature should normally enter this stage. The focus is provi
 8. Test long messages and malformed/invalid input.
 9. Test model failure, pending state and eventual acknowledgement.
 10. Test client close/reopen and retained local state.
-11. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
-12. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the normal text-processing path.
-13. Perform complete UI/UX defect review.
-14. Fix crashes and edge cases.
-15. Run security regression again after fixes.
-16. Run performance regression after fixes.
-17. Update documentation to the actually implemented topology and behaviour.
-18. Remove obsolete planning language from normative documentation.
-19. Record final architecture decisions and benchmark results.
-20. Finalize Android release configuration.
-21. Produce the Android release build.
-22. Rebuild from a clean environment to prove reproducibility.
-23. Test the Release Candidate comprehensively.
-24. Fix remaining release-blocking defects.
-25. Repeat the full release test suite.
-26. Freeze the verified release build.
+11. Test image/file attachment upload, interrupted transfer, retry, delivery, download/open flow, expiry/deletion and filename preservation. Confirm that filenames and text embedded in images are not translated automatically.
+12. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
+13. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the normal text-processing path.
+14. Perform complete UI/UX defect review.
+15. Fix crashes and edge cases.
+16. Run security regression again after fixes.
+17. Run performance regression after fixes.
+18. Update documentation to the actually implemented topology and behaviour.
+19. Remove obsolete planning language from normative documentation.
+20. Record final architecture decisions and benchmark results.
+21. Finalize Android release configuration.
+22. Produce the Android release build.
+23. Rebuild from a clean environment to prove reproducibility.
+24. Test the Release Candidate comprehensively.
+25. Fix remaining release-blocking defects.
+26. Repeat the full release test suite.
+27. Freeze the verified release build.
 
 **Stage exit criterion — Babylon Project = 100% / DONE:** the functionally complete Android release package has been repeatedly verified and is ready to enter the Google Play publication process.
 

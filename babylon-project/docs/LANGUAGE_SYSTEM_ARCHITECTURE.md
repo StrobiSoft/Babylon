@@ -86,10 +86,23 @@ its own output, and a model assertion that its output is valid is not evidence o
 - Same-language communication normally bypasses translation. If the user explicitly selects a mode
   that requires wording transformation, the AI style layer may still run without performing a
   language translation.
+- Ordinary image and file attachments are outside the language-processing path. The sender-supplied
+  filename, image filename and attachment binary are preserved unchanged and are never translated or
+  rewritten by the language agent or model layer.
+- Text visually embedded in an attached image is not OCR-extracted or translated during ordinary
+  message delivery. Attached document contents are likewise not parsed or translated automatically
+  merely because the file is attached.
+- Any future document/image translation capability must be a separately invoked, explicit user
+  action with its own policy and validation path. It must never be triggered implicitly by ordinary
+  attachment delivery.
 
 Conceptually, the text path is:
 
 `source text → semantic interpretation/translation → user-selected AI wording style → independent validation → delivery`
+
+The attachment path is intentionally separate:
+
+`attachment binary + original filename → authenticated transport → recipient`
 
 The implementation may combine translation and style realization in one approved model call for
 performance, but the policy dimensions remain logically separate and must be independently testable.
@@ -183,6 +196,12 @@ short-lived encrypted processing state, subject to all of these constraints:
 - it is deleted after successful delivery or expiry;
 - logs contain neither message text nor secrets; and
 - the client retains its own copy until it receives delivery acknowledgement.
+
+Image/file attachment transport must follow a separate bounded lifecycle. Attachment handling may
+require transient server-side storage for reliable transfer, but that transient storage must not
+become a central attachment archive. The original sender-supplied filename is retained as transport
+metadata and is not sent through the translation pipeline. Attachment binaries are not sent to the
+language model merely for ordinary delivery.
 
 Operational metadata may support validation, bounded retries and provenance without retaining the
 conversation content centrally.
