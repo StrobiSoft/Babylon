@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createDefaultLanguageAgent,
-} from '../src/language/default-language-agent.js';
+import { createDefaultLanguageAgent } from '../src/language/default-language-agent.js';
 import {
   ModelEngineError,
   ModelRegistry,
@@ -138,9 +136,7 @@ describe('default language agent integration', () => {
         calls.push({ ...input });
         return Promise.resolve({
           text:
-            calls.length === 1
-              ? 'Hello, this is still in English.'
-              : 'Szia, ez már magyarul van.',
+            calls.length === 1 ? 'Hello, this is still in English.' : 'Szia, ez már magyarul van.',
         });
       },
     };
@@ -155,12 +151,8 @@ describe('default language agent integration', () => {
       },
     });
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.systemInstructions).toContain(
-      'previous candidate failed',
-    );
-    expect(calls[1]?.systemInstructions).toContain(
-      'Hello, this is still in English.',
-    );
+    expect(calls[1]?.systemInstructions).toContain('previous candidate failed');
+    expect(calls[1]?.systemInstructions).toContain('Hello, this is still in English.');
   });
 
   it('falls back to secondary', async () => {
@@ -239,8 +231,7 @@ describe('default language agent integration', () => {
 
   it('maps model outage to model_unavailable', async () => {
     const engine: ModelEngine = {
-      generate: () =>
-        Promise.reject(new ModelEngineError('unavailable', true)),
+      generate: () => Promise.reject(new ModelEngineError('unavailable', true)),
     };
 
     await expect(agent(engine).process(request)).resolves.toEqual({
