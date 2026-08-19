@@ -196,7 +196,12 @@ function detectLanguage(text: string): SupportedLanguage | null {
   if (hasCyrillic && !hasLatin && scores.be >= 1.4) return 'be';
   if (best[1] >= 3 && best[1] >= second[1] + 1.5) return best[0];
 
-  if (wordList.length >= 4 && best[1] >= 2 && best[1] >= second[1] * 1.8) return best[0];
+  if (
+    wordList.length >= 4 &&
+    best[1] >= 2 &&
+    best[1] >= second[1] * 1.8
+  )
+    return best[0];
   return null;
 }
 
