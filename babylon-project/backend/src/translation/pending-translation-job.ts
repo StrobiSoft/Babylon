@@ -70,7 +70,7 @@ export interface SchedulePendingTranslationRetryInput {
 export interface MarkPendingTranslationReadyInput {
   jobId: string;
   encryptedPayload: string;
-  sourceLanguage: z.infer<typeof supportedLanguageSchema>;
+  sourceLanguage?: z.infer<typeof supportedLanguageSchema>;
   updatedAt: string;
 }
 
