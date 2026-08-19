@@ -26,11 +26,7 @@ export interface PendingTranslationWorkerPolicy {
   retryMaximumSeconds: number;
 }
 
-export type PendingTranslationWorkerResult =
-  | 'idle'
-  | 'ready'
-  | 'retry_scheduled'
-  | 'expired';
+export type PendingTranslationWorkerResult = 'idle' | 'ready' | 'retry_scheduled' | 'expired';
 
 export class PendingTranslationWorker {
   readonly #repository: PendingTranslationJobRepository;
