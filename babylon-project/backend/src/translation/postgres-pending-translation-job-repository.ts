@@ -199,7 +199,7 @@ export class PostgresPendingTranslationJobRepository implements PendingTranslati
       [
         input.jobId,
         Buffer.from(input.encryptedPayload, 'utf8'),
-        input.sourceLanguage,
+        input.sourceLanguage ?? null,
         input.updatedAt,
       ],
       'ready transition',
