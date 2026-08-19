@@ -165,7 +165,8 @@ function scoreLanguage(text: string): Record<SupportedLanguage, number> {
 
   for (const word of words) {
     for (const language of ['en', 'hu', 'be'] as const) {
-      if (WORDS[language].has(word)) scores[language] += word.length <= 2 ? 1 : 2;
+      if (WORDS[language].has(word))
+        scores[language] += word.length <= 2 ? 1 : 2;
     }
   }
 
@@ -213,7 +214,8 @@ export class ConservativeInputClassifier implements InputClassifier {
     if (isLanguageNeutral(text)) return Promise.resolve({ kind: 'neutral' });
 
     const sourceLanguage = detectLanguage(text);
-    if (sourceLanguage !== null) return Promise.resolve({ kind: 'language', sourceLanguage });
+    if (sourceLanguage !== null)
+      return Promise.resolve({ kind: 'language', sourceLanguage });
 
     return Promise.resolve({
       kind: 'invalid',
@@ -235,7 +237,8 @@ export class ConservativeOutputLanguageValidator implements OutputLanguageValida
     if (assessable.length === 0) return Promise.resolve(true);
 
     const detected = detectLanguage(assessable);
-    if (detected !== null) return Promise.resolve(detected === input.targetLanguage);
+    if (detected !== null)
+      return Promise.resolve(detected === input.targetLanguage);
 
     const hasCyrillic = CYRILLIC_RE.test(assessable);
     const hasLatin = LATIN_RE.test(assessable);
