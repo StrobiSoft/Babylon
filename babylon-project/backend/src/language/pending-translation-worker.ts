@@ -11,7 +11,11 @@ export interface PendingTranslationProcessor {
 export interface PendingTranslationQueue {
   deleteExpired(): Promise<number>;
   claimDue(limit?: number): Promise<PendingTranslationJob[]>;
-  reschedule(requestId: string, reason: TranslationPendingReason): Promise<void>;
+  reschedule(
+    requestId: string,
+    reason: TranslationPendingReason,
+    attemptCount: number,
+  ): Promise<void>;
   complete(requestId: string): Promise<void>;
 }
 
@@ -63,14 +67,14 @@ export class PendingTranslationWorker {
     try {
       const result = await this.#processor.process(job.payload);
       if (result.status === 'translation_pending') {
-        await this.#store.reschedule(job.payload.requestId, result.reason);
+        await this.#store.reschedule(job.payload.requestId, result.reason, job.attemptCount);
         return 'rescheduled';
       }
 
       await this.#store.complete(job.payload.requestId);
       return 'completed';
     } catch {
-      await this.#store.reschedule(job.payload.requestId, 'technical_failure');
+      await this.#store.reschedule(job.payload.requestId, 'technical_failure', job.attemptCount);
       return 'rescheduled';
     }
   }
