@@ -50,6 +50,7 @@ export interface CreatePendingTranslationJobInput {
   targetLanguage: z.infer<typeof supportedLanguageSchema>;
   style?: z.infer<typeof translationStyleSchema>;
   inputMode: z.infer<typeof inputModeSchema>;
+  initialFailureReason: z.infer<typeof translationPendingReasonSchema>;
   createdAt: string;
   expiresAt: string;
 }
@@ -86,6 +87,7 @@ export interface PendingTranslationJobRepository {
     input: Readonly<SchedulePendingTranslationRetryInput>,
   ): Promise<PendingTranslationJob>;
   markReady(input: Readonly<MarkPendingTranslationReadyInput>): Promise<PendingTranslationJob>;
+  expireProcessing(jobId: string, expiredAt: string): Promise<PendingTranslationJob>;
   acknowledgeDelivery(jobId: string, acknowledgedAt: string): Promise<PendingTranslationJob>;
   expireDue(now: string, limit: number): Promise<number>;
   releaseExpiredLeases(now: string, limit: number): Promise<number>;
