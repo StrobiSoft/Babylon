@@ -7,6 +7,7 @@ import {
   type CandidateGenerationRequest,
   type InputClassification,
   type LanguageAgentPolicy,
+  type PendingTranslationJobSink,
 } from '../src/language/language-agent.js';
 
 const request = {
@@ -34,6 +35,7 @@ function agent(options: {
   classification?: InputClassification;
   generate?: (input: Readonly<CandidateGenerationRequest>) => Promise<unknown>;
   validate?: (text: string) => Promise<boolean>;
+  pendingSink?: PendingTranslationJobSink;
 }): LanguageAgent {
   return new LanguageAgent(
     {
@@ -47,6 +49,7 @@ function agent(options: {
       matchesTargetLanguage: ({ text }) => options.validate?.(text) ?? Promise.resolve(true),
     },
     policy,
+    options.pendingSink,
   );
 }
 
@@ -156,6 +159,27 @@ describe('language agent', () => {
       modelRole: 'secondary',
     });
     expect(generated[2]).not.toHaveProperty('rejectedCandidateText');
+  });
+
+  it('persists the accepted request before reporting translation_pending', async () => {
+    const enqueued: Array<{ payload: unknown; reason: string }> = [];
+    const result = await agent({
+      generate: () => Promise.reject(new CandidateGenerationError('model_unavailable')),
+      pendingSink: {
+        enqueue: (payload, reason) => {
+          enqueued.push({ payload, reason });
+          return Promise.resolve();
+        },
+      },
+    }).process(request);
+
+    expect(enqueued).toEqual([{ payload: request, reason: 'model_unavailable' }]);
+    expect(result).toEqual({
+      status: 'translation_pending',
+      requestId: request.requestId,
+      reason: 'model_unavailable',
+      presentation: 'sad',
+    });
   });
 
   it('reports a truthful network reason with a sad presentation hint', async () => {
