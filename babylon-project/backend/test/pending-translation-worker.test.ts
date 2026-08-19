@@ -136,9 +136,7 @@ describe('pending translation worker', () => {
     const state = queue([]);
     const processor = { process: () => Promise.reject(new Error('unused')) };
 
-    expect(
-      () => new PendingTranslationWorker(state.store, processor, { batchSize: 0 }),
-    ).toThrow();
+    expect(() => new PendingTranslationWorker(state.store, processor, { batchSize: 0 })).toThrow();
     expect(
       () => new PendingTranslationWorker(state.store, processor, { batchSize: 101 }),
     ).toThrow();
