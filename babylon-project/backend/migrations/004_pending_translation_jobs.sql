@@ -1,6 +1,7 @@
 CREATE TABLE pending_translation_jobs (
   id uuid PRIMARY KEY,
   request_id uuid NOT NULL UNIQUE,
+  request_fingerprint text NOT NULL CHECK (request_fingerprint ~ '^[a-f0-9]{64}$'),
   state text NOT NULL CHECK (state IN (
     'pending',
     'processing',
