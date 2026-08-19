@@ -45,7 +45,9 @@ class RecordingDatabase implements Database {
     return work(client);
   }
 
-  async close(): Promise<void> {}
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 const key = Buffer.alloc(32, 7);
