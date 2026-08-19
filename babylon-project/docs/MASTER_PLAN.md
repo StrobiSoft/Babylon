@@ -39,21 +39,21 @@ New product capabilities are placed at the earliest stage where their prerequisi
 
 **Approximate project range: 40% → 50%**
 
-1. Implement `translation_pending` end-to-end.
-2. Add short-lived encrypted translation jobs.
-3. Add bounded automatic retries.
-4. Configure explicit retry limits, timeouts, backoff and expiry.
-5. Keep the client-side copy until delivery acknowledgement arrives.
-6. Implement delivery acknowledgement semantics.
-7. Delete transient server-side content after successful delivery.
-8. Expire and securely delete abandoned jobs.
-9. Complete handling of the public delivery states:
+1. Complete `translation_pending` end-to-end by wiring the existing encrypted pending queue and retry worker into the real runtime and delivery path once the production model processor is available.
+2. Activate the already bounded automatic retry worker in the real runtime once the production model processor is available.
+3. Keep the client-side copy until delivery acknowledgement arrives.
+4. Implement delivery acknowledgement semantics.
+5. Delete transient server-side content after successful delivery.
+6. Expire and securely delete abandoned jobs in the running system.
+7. Complete handling of the public delivery states:
    - `delivered`
    - `delivered_after_repair`
    - `delivered_via_fallback`
    - `delivered_unchanged`
    - `translation_pending`
    - `invalid_input`
+
+**Dependency note:** Stage II items 1–2 require the real model processor/runtime integration planned in Stage III. Until that dependency is available, the next actionable Stage II work is item 3.
 
 **Stage exit criterion:** no accepted message can disappear silently; every accepted message reaches a delivered or explicit pending state.
 
@@ -224,4 +224,4 @@ This capability is intentionally outside the first-release 100% definition. Its 
 
 ## Current next task
 
-**Stage II / Item 1 — Implement `translation_pending` end-to-end.**
+**Stage II / Item 3 — Keep the client-side copy until delivery acknowledgement arrives.**
