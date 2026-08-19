@@ -1,4 +1,9 @@
-import type { InputClassification, InputClassifier, InputMode, OutputLanguageValidator } from './language-agent.js';
+import type {
+  InputClassification,
+  InputClassifier,
+  InputMode,
+  OutputLanguageValidator,
+} from './language-agent.js';
 import type { SupportedLanguage } from './contracts.js';
 
 const URL_RE = /https?:\/\/\S+|www\.\S+/giu;
@@ -14,30 +19,136 @@ const BELARUSIAN_UNIQUE_RE = /[іў]/iu;
 
 const WORDS: Record<SupportedLanguage, ReadonlySet<string>> = {
   en: new Set([
-    'a', 'about', 'and', 'are', 'as', 'at', 'be', 'but', 'can', 'do', 'for', 'from', 'have',
-    'hello', 'how', 'i', 'if', 'in', 'is', 'it', 'me', 'my', 'not', 'of', 'on', 'or', 'please',
-    'that', 'the', 'this', 'to', 'we', 'what', 'when', 'with', 'you', 'your',
+    'a',
+    'about',
+    'and',
+    'are',
+    'as',
+    'at',
+    'be',
+    'but',
+    'can',
+    'do',
+    'for',
+    'from',
+    'have',
+    'hello',
+    'how',
+    'i',
+    'if',
+    'in',
+    'is',
+    'it',
+    'me',
+    'my',
+    'not',
+    'of',
+    'on',
+    'or',
+    'please',
+    'that',
+    'the',
+    'this',
+    'to',
+    'we',
+    'what',
+    'when',
+    'with',
+    'you',
+    'your',
   ]),
   hu: new Set([
-    'a', 'az', 'és', 'egy', 'hogy', 'nem', 'igen', 'is', 'van', 'volt', 'lesz', 'vagy', 'de',
-    'ha', 'mert', 'mint', 'meg', 'már', 'még', 'itt', 'ott', 'én', 'te', 'mi', 'ti', 'nekem',
-    'neked', 'szia', 'helló', 'kérlek', 'köszönöm', 'ezt', 'azt', 'ami', 'akkor', 'most',
+    'a',
+    'az',
+    'és',
+    'egy',
+    'hogy',
+    'nem',
+    'igen',
+    'is',
+    'van',
+    'volt',
+    'lesz',
+    'vagy',
+    'de',
+    'ha',
+    'mert',
+    'mint',
+    'meg',
+    'már',
+    'még',
+    'itt',
+    'ott',
+    'én',
+    'te',
+    'mi',
+    'ti',
+    'nekem',
+    'neked',
+    'szia',
+    'helló',
+    'kérlek',
+    'köszönöm',
+    'ezt',
+    'azt',
+    'ami',
+    'akkor',
+    'most',
   ]),
   be: new Set([
-    'і', 'ў', 'я', 'ты', 'ён', 'яна', 'мы', 'вы', 'яны', 'не', 'так', 'гэта', 'што', 'як',
-    'на', 'у', 'ў', 'з', 'да', 'для', 'але', 'калі', 'бо', 'мой', 'мая', 'твой', 'твая',
-    'прывітанне', 'дзякуй', 'калі', 'ласка', 'ёсць', 'быў', 'будзе', 'цябе', 'мяне',
+    'і',
+    'ў',
+    'я',
+    'ты',
+    'ён',
+    'яна',
+    'мы',
+    'вы',
+    'яны',
+    'не',
+    'так',
+    'гэта',
+    'што',
+    'як',
+    'на',
+    'у',
+    'ў',
+    'з',
+    'да',
+    'для',
+    'але',
+    'калі',
+    'бо',
+    'мой',
+    'мая',
+    'твой',
+    'твая',
+    'прывітанне',
+    'дзякуй',
+    'калі',
+    'ласка',
+    'ёсць',
+    'быў',
+    'будзе',
+    'цябе',
+    'мяне',
   ]),
 };
 
 function stripNeutralArtifacts(text: string, stripQuotes: boolean): string {
-  let result = text.replace(CODE_RE, ' ').replace(URL_RE, ' ').replace(EMAIL_RE, ' ').replace(PHONE_RE, ' ');
+  let result = text
+    .replace(CODE_RE, ' ')
+    .replace(URL_RE, ' ')
+    .replace(EMAIL_RE, ' ')
+    .replace(PHONE_RE, ' ');
   if (stripQuotes) result = result.replace(QUOTED_RE, ' ');
   return result;
 }
 
 function tokens(text: string): string[] {
-  return [...text.toLocaleLowerCase().matchAll(TOKEN_RE)].map((match) => match[0]).filter(Boolean);
+  return [...text.toLocaleLowerCase().matchAll(TOKEN_RE)]
+    .map((match) => match[0])
+    .filter(Boolean);
 }
 
 function isLanguageNeutral(text: string): boolean {
@@ -73,7 +184,9 @@ function detectLanguage(text: string): SupportedLanguage | null {
   if (wordList.length === 0) return null;
 
   const scores = scoreLanguage(cleaned);
-  const ordered = (Object.entries(scores) as [SupportedLanguage, number][]).sort((a, b) => b[1] - a[1]);
+  const ordered = (
+    Object.entries(scores) as [SupportedLanguage, number][]
+  ).sort((a, b) => b[1] - a[1]);
   const [best, second] = ordered;
   if (!best || !second) return null;
 
@@ -88,7 +201,9 @@ function detectLanguage(text: string): SupportedLanguage | null {
 }
 
 export class ConservativeInputClassifier implements InputClassifier {
-  classify(input: Readonly<{ text: string; inputMode: InputMode }>): Promise<InputClassification> {
+  classify(
+    input: Readonly<{ text: string; inputMode: InputMode }>,
+  ): Promise<InputClassification> {
     const text = input.text.trim();
     if (isLanguageNeutral(text)) return Promise.resolve({ kind: 'neutral' });
 
@@ -97,7 +212,10 @@ export class ConservativeInputClassifier implements InputClassifier {
 
     return Promise.resolve({
       kind: 'invalid',
-      reason: input.inputMode === 'voice_transcript' ? 'unintelligible_voice_input' : 'unintelligible_text',
+      reason:
+        input.inputMode === 'voice_transcript'
+          ? 'unintelligible_voice_input'
+          : 'unintelligible_text',
     });
   }
 }
@@ -131,7 +249,9 @@ export class ConservativeOutputLanguageValidator implements OutputLanguageValida
       return Promise.resolve(scores.hu >= scores.en && scores.hu >= 2);
     }
 
-    if (HUNGARIAN_UNIQUE_RE.test(assessable) && scores.hu > scores.en) return Promise.resolve(false);
+    if (HUNGARIAN_UNIQUE_RE.test(assessable) && scores.hu > scores.en) {
+      return Promise.resolve(false);
+    }
     return Promise.resolve(scores.en >= scores.hu && scores.en >= 2);
   }
 }
