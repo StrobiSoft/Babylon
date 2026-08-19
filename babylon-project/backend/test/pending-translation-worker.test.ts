@@ -24,7 +24,10 @@ function makeJob(attemptCount = 1): PendingTranslationJob {
     requestId,
     requestFingerprint: 'b'.repeat(64),
     state: 'processing',
-    encryptedPayload: cipher.encrypt(JSON.stringify({ sourceText: 'Szia világ' }), requestId),
+    encryptedPayload: cipher.encrypt(
+      JSON.stringify({ sourceText: 'Szia világ' }),
+      requestId,
+    ),
     sourceLanguage: null,
     targetLanguage: 'en',
     inputMode: 'text',
@@ -57,7 +60,9 @@ class FakeRepository implements PendingTranslationJobRepository {
     return Promise.resolve(this.claimed);
   }
 
-  scheduleRetry(input: Readonly<SchedulePendingTranslationRetryInput>): Promise<PendingTranslationJob> {
+  scheduleRetry(
+    input: Readonly<SchedulePendingTranslationRetryInput>,
+  ): Promise<PendingTranslationJob> {
     this.retryInput = { ...input };
     return Promise.resolve({ ...(this.claimed ?? makeJob()), state: 'pending' });
   }
@@ -142,7 +147,10 @@ describe('pending translation worker', () => {
       repository.readyInput?.encryptedPayload ?? '',
       `${repository.claimed.requestId}:delivery`,
     );
-    expect(JSON.parse(decrypted)).toMatchObject({ status: 'delivered', translatedText: 'Hello world' });
+    expect(JSON.parse(decrypted)).toMatchObject({
+      status: 'delivered',
+      translatedText: 'Hello world',
+    });
   });
 
   it('schedules bounded exponential retry for a pending result', async () => {
