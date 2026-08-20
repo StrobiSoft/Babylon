@@ -25,18 +25,12 @@ async function main(): Promise<void> {
     new SmtpMailer(config),
     new SimpleWebAuthnProvider(config),
   );
-  const delivery = new MessageDeliveryService(
-    database,
-    systemClock,
-    config.adminBootstrapToken,
-  );
+  const delivery = new MessageDeliveryService(database, systemClock, config.adminBootstrapToken);
   const app = await buildServer({ config, database, service, delivery });
   const cleanupTimer = setInterval(() => {
-    void Promise.all([service.cleanup(), delivery.cleanup()]).catch(
-      (error: unknown) => {
-        app.log.error({ err: error }, 'Cleanup failed');
-      },
-    );
+    void Promise.all([service.cleanup(), delivery.cleanup()]).catch((error: unknown) => {
+      app.log.error({ err: error }, 'Cleanup failed');
+    });
   }, config.cleanupIntervalSeconds * 1000);
   cleanupTimer.unref();
 
