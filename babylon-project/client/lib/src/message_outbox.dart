@@ -47,8 +47,10 @@ class OutboxMessage {
     DateTime? deliveredAt,
     int? attemptCount,
     DateTime? nextAttemptAt,
+    bool clearNextAttemptAt = false,
     DateTime? expiresAt,
     DeliveryFailureKind? failureKind,
+    bool clearFailureKind = false,
   }) {
     return OutboxMessage(
       requestId: requestId,
@@ -61,9 +63,9 @@ class OutboxMessage {
       pendingReason: clearPendingReason ? null : pendingReason ?? this.pendingReason,
       deliveredAt: deliveredAt ?? this.deliveredAt,
       attemptCount: attemptCount ?? this.attemptCount,
-      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      nextAttemptAt: clearNextAttemptAt ? null : nextAttemptAt ?? this.nextAttemptAt,
       expiresAt: expiresAt ?? this.expiresAt,
-      failureKind: failureKind ?? this.failureKind,
+      failureKind: clearFailureKind ? null : failureKind ?? this.failureKind,
     );
   }
 }
@@ -101,15 +103,21 @@ class MessageOutbox {
       message.copyWith(
         status: OutboxMessageStatus.sending,
         clearPendingReason: true,
+        clearNextAttemptAt: true,
       ),
     );
   }
 
-  Future<void> markPending(String requestId, String reason) async {
+  Future<void> markPending(
+    String requestId,
+    String reason, {
+    DateTime? nextAttemptAt,
+    DateTime? expiresAt,
+  }) async {
     final message = await _required(requestId);
-    if (message.status == OutboxMessageStatus.pending && message.pendingReason == reason) return;
-    if (message.status != OutboxMessageStatus.sending) {
-      throw StateError('Only a sending message can become pending.');
+    if (message.status != OutboxMessageStatus.sending &&
+        message.status != OutboxMessageStatus.pending) {
+      throw StateError('Only a sending or pending message can become pending.');
     }
     if (reason.trim().isEmpty) {
       throw ArgumentError.value(reason, 'reason', 'Pending reason must not be empty.');
@@ -118,6 +126,9 @@ class MessageOutbox {
       message.copyWith(
         status: OutboxMessageStatus.pending,
         pendingReason: reason,
+        nextAttemptAt: nextAttemptAt,
+        expiresAt: expiresAt,
+        clearFailureKind: true,
       ),
     );
   }
@@ -131,6 +142,7 @@ class MessageOutbox {
       message.copyWith(
         status: OutboxMessageStatus.queued,
         clearPendingReason: true,
+        clearNextAttemptAt: true,
       ),
     );
   }
@@ -151,7 +163,9 @@ class MessageOutbox {
       message.copyWith(
         status: OutboxMessageStatus.delivered,
         clearPendingReason: true,
+        clearNextAttemptAt: true,
         deliveredAt: deliveredAt.toUtc(),
+        clearFailureKind: true,
       ),
     );
   }
@@ -172,8 +186,14 @@ class MessageOutbox {
       throw ArgumentError.value(status, 'status', 'Terminal status required.');
     }
     final message = await _required(requestId);
-    await _store.put(message.copyWith(status: status, failureKind: DeliveryFailureKind.permanent,
-      pendingReason: reason));
+    await _store.put(
+      message.copyWith(
+        status: status,
+        failureKind: DeliveryFailureKind.permanent,
+        pendingReason: reason,
+        clearNextAttemptAt: true,
+      ),
+    );
   }
 
   Future<void> recordFailure(
@@ -186,13 +206,22 @@ class MessageOutbox {
     final attempts = message.attemptCount + 1;
     final expired = message.expiresAt != null && !message.expiresAt!.isAfter(now);
     final terminal = kind == DeliveryFailureKind.permanent || attempts >= maxAttempts || expired;
-    await _store.put(message.copyWith(
-      status: expired ? OutboxMessageStatus.expired : terminal ? OutboxMessageStatus.failed : OutboxMessageStatus.pending,
-      failureKind: kind,
-      attemptCount: attempts,
-      nextAttemptAt: terminal ? now : now.add(Duration(seconds: 1 << (attempts - 1).clamp(0, 6))),
-      pendingReason: kind.name,
-    ));
+    await _store.put(
+      message.copyWith(
+        status: expired
+            ? OutboxMessageStatus.expired
+            : terminal
+            ? OutboxMessageStatus.failed
+            : OutboxMessageStatus.pending,
+        failureKind: kind,
+        attemptCount: attempts,
+        nextAttemptAt: terminal
+            ? null
+            : now.add(Duration(seconds: 1 << (attempts - 1).clamp(0, 6))),
+        clearNextAttemptAt: terminal,
+        pendingReason: kind.name,
+      ),
+    );
   }
 
   Future<OutboxMessage> _required(String requestId) async {
