@@ -42,11 +42,13 @@ describe('communication security acceptance gates', () => {
       .sort();
     expect(dependencies).toEqual([
       'crypto',
+      'cryptography',
       'flutter',
       'flutter_localizations',
       'flutter_secure_storage',
       'http',
       'package_info_plus',
+      'path_provider',
       'url_launcher',
     ]);
   });
@@ -67,6 +69,10 @@ describe('communication security acceptance gates', () => {
         '/api/v1/email-verification/confirm',
         '/api/v1/email-verification/resend',
         '/api/v1/me',
+        '/api/v1/messages',
+        '/api/v1/messages/:requestId',
+        '/api/v1/messages/:requestId/ack',
+        '/api/v1/messages/pending',
         '/api/v1/native-auth/exchange',
         '/api/v1/native-auth/start',
         '/api/v1/onboarding/accept-invitation',

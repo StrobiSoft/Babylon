@@ -1,6 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AuthService } from './auth-service.js';
+import { MessageDeliveryService } from './message-delivery.js';
 import { loadConfig } from './config.js';
 import { secureRandom, systemClock } from './crypto.js';
 import { PostgresDatabase } from './database.js';
@@ -24,9 +25,10 @@ async function main(): Promise<void> {
     new SmtpMailer(config),
     new SimpleWebAuthnProvider(config),
   );
-  const app = await buildServer({ config, database, service });
+  const delivery = new MessageDeliveryService(database, systemClock);
+  const app = await buildServer({ config, database, service, delivery });
   const cleanupTimer = setInterval(() => {
-    void service.cleanup().catch((error: unknown) => {
+    void Promise.all([service.cleanup(), delivery.cleanup()]).catch((error: unknown) => {
       app.log.error({ err: error }, 'Cleanup failed');
     });
   }, config.cleanupIntervalSeconds * 1000);

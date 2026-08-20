@@ -144,12 +144,17 @@ class FileMessageOutboxStore implements MessageOutboxStore {
 
     final style = json['style'];
     final pendingReason = json['pendingReason'];
+    final attemptCount = json['attemptCount'] ?? 0;
+    final failureName = json['failureKind'];
     if (style != null && style is! String) {
       throw const FormatException('Invalid outbox message style.');
     }
     if (pendingReason != null && pendingReason is! String) {
       throw const FormatException('Invalid outbox pending reason.');
     }
+    if (attemptCount is! int || attemptCount < 0) throw const FormatException('Invalid outbox attempt count.');
+    final failureKind = failureName == null ? null : DeliveryFailureKind.values.where((v) => v.name == failureName).firstOrNull;
+    if (failureName != null && failureKind == null) throw const FormatException('Invalid outbox failure kind.');
 
     return OutboxMessage(
       requestId: requiredString('requestId'),
@@ -161,6 +166,10 @@ class FileMessageOutboxStore implements MessageOutboxStore {
       status: status,
       pendingReason: pendingReason as String?,
       deliveredAt: optionalDate('deliveredAt'),
+      attemptCount: attemptCount,
+      nextAttemptAt: optionalDate('nextAttemptAt'),
+      expiresAt: optionalDate('expiresAt'),
+      failureKind: failureKind,
     );
   }
 
@@ -200,7 +209,12 @@ class FileMessageOutboxStore implements MessageOutboxStore {
   @override
   Future<List<OutboxMessage>> pendingMessages() async {
     final messages = _messages.values
-        .where((message) => message.status != OutboxMessageStatus.delivered)
+        .where(
+          (message) =>
+              message.status != OutboxMessageStatus.delivered &&
+              message.status != OutboxMessageStatus.expired &&
+              message.status != OutboxMessageStatus.failed,
+        )
         .toList(growable: false);
     messages.sort((left, right) => left.createdAt.compareTo(right.createdAt));
     return messages;
@@ -267,5 +281,9 @@ class FileMessageOutboxStore implements MessageOutboxStore {
         'status': message.status.name,
         'pendingReason': message.pendingReason,
         'deliveredAt': message.deliveredAt?.toUtc().toIso8601String(),
+        'attemptCount': message.attemptCount,
+        'nextAttemptAt': message.nextAttemptAt?.toUtc().toIso8601String(),
+        'expiresAt': message.expiresAt?.toUtc().toIso8601String(),
+        'failureKind': message.failureKind?.name,
       };
 }

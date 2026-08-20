@@ -15,6 +15,7 @@ tags:
   - name: recovery
   - name: security
   - name: administration
+  - name: delivery
 paths:
   /health/live:
     get:
@@ -497,6 +498,71 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /api/v1/messages:
+    post:
+      tags: [delivery]
+      operationId: sendMessage
+      security: [{ accessBearer: [] }]
+      description: Accepts an content-agnostic transport envelope. Reusing requestId returns the same logical delivery.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [requestId, recipientId, payloadFormat, payload]
+              properties:
+                requestId: { type: string, format: uuid }
+                recipientId: { type: string, format: uuid }
+                payloadFormat: { type: string, enum: [transport-v1] }
+                payload: { type: string, contentEncoding: base64, maxLength: 87384 }
+      responses:
+        '202': { description: Accepted or idempotently recovered delivery state. }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v1/messages/pending:
+    get:
+      tags: [delivery]
+      operationId: pendingMessages
+      security: [{ accessBearer: [] }]
+      parameters:
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
+          }
+      responses:
+        '200': { description: Bounded recipient queue of transport envelopes. }
+  /api/v1/messages/{requestId}:
+    get:
+      tags: [delivery]
+      operationId: messageDeliveryStatus
+      security: [{ accessBearer: [] }]
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Sender-visible lifecycle state without content. }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/messages/{requestId}/ack:
+    post:
+      tags: [delivery]
+      operationId: acknowledgeMessageDelivery
+      security: [{ accessBearer: [] }]
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [senderId]
+              properties: { senderId: { type: string, format: uuid } }
+      responses:
+        '200': { description: Idempotent acknowledgement; transient payload has been deleted. }
+        '401': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     adminBearer: { type: http, scheme: bearer, bearerFormat: opaque-bootstrap-token }

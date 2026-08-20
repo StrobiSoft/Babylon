@@ -41,11 +41,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 
 1. Complete `translation_pending` end-to-end by wiring the existing encrypted pending queue and retry worker into the real runtime and delivery path once the production model processor is available.
 2. Activate the already bounded automatic retry worker in the real runtime once the production model processor is available.
-3. Keep the client-side copy until delivery acknowledgement arrives.
-4. Implement delivery acknowledgement semantics.
-5. Delete transient server-side content after successful delivery.
-6. Expire and securely delete abandoned jobs in the running system.
-7. Complete handling of the public delivery states:
+3. Complete handling of the public delivery states:
    - `delivered`
    - `delivered_after_repair`
    - `delivered_via_fallback`
@@ -53,7 +49,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
    - `translation_pending`
    - `invalid_input`
 
-**Dependency note:** Stage II items 1–2 require the real model processor/runtime integration planned in Stage III. Until that dependency is available, the next actionable Stage II work is item 3.
+**Dependency note:** Stage II items 1–2 require the real model processor/runtime integration planned in Stage III. The transient delivery chain is complete; the remaining Stage II work depends on the production model processor.
 
 **Stage exit criterion:** no accepted message can disappear silently; every accepted message reaches a delivered or explicit pending state.
 
@@ -229,4 +225,4 @@ This capability is intentionally outside the first-release 100% definition. Its 
 
 ## Current next task
 
-**Stage II / Item 3 — Keep the client-side copy until delivery acknowledgement arrives.**
+**Stage II / Item 1 — Wire the encrypted translation-pending queue into the production model runtime when Stage III provides it.**

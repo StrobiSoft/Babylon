@@ -3,7 +3,11 @@ enum OutboxMessageStatus {
   sending,
   pending,
   delivered,
+  expired,
+  failed,
 }
+
+enum DeliveryFailureKind { network, backend, model, permanent }
 
 class OutboxMessage {
   const OutboxMessage({
@@ -16,6 +20,10 @@ class OutboxMessage {
     this.status = OutboxMessageStatus.queued,
     this.pendingReason,
     this.deliveredAt,
+    this.attemptCount = 0,
+    this.nextAttemptAt,
+    this.expiresAt,
+    this.failureKind,
   });
 
   final String requestId;
@@ -27,12 +35,20 @@ class OutboxMessage {
   final OutboxMessageStatus status;
   final String? pendingReason;
   final DateTime? deliveredAt;
+  final int attemptCount;
+  final DateTime? nextAttemptAt;
+  final DateTime? expiresAt;
+  final DeliveryFailureKind? failureKind;
 
   OutboxMessage copyWith({
     OutboxMessageStatus? status,
     String? pendingReason,
     bool clearPendingReason = false,
     DateTime? deliveredAt,
+    int? attemptCount,
+    DateTime? nextAttemptAt,
+    DateTime? expiresAt,
+    DeliveryFailureKind? failureKind,
   }) {
     return OutboxMessage(
       requestId: requestId,
@@ -44,6 +60,10 @@ class OutboxMessage {
       status: status ?? this.status,
       pendingReason: clearPendingReason ? null : pendingReason ?? this.pendingReason,
       deliveredAt: deliveredAt ?? this.deliveredAt,
+      attemptCount: attemptCount ?? this.attemptCount,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      expiresAt: expiresAt ?? this.expiresAt,
+      failureKind: failureKind ?? this.failureKind,
     );
   }
 }
@@ -87,6 +107,7 @@ class MessageOutbox {
 
   Future<void> markPending(String requestId, String reason) async {
     final message = await _required(requestId);
+    if (message.status == OutboxMessageStatus.pending && message.pendingReason == reason) return;
     if (message.status != OutboxMessageStatus.sending) {
       throw StateError('Only a sending message can become pending.');
     }
@@ -121,7 +142,9 @@ class MessageOutbox {
     }
     if (message.status != OutboxMessageStatus.queued &&
         message.status != OutboxMessageStatus.sending &&
-        message.status != OutboxMessageStatus.pending) {
+        message.status != OutboxMessageStatus.pending &&
+        message.status != OutboxMessageStatus.expired &&
+        message.status != OutboxMessageStatus.failed) {
       throw StateError('Delivery acknowledgement is not valid for this outbox state.');
     }
     await _store.put(
@@ -142,6 +165,35 @@ class MessageOutbox {
   }
 
   Future<List<OutboxMessage>> recoverableMessages() => _store.pendingMessages();
+  Future<OutboxMessage?> find(String requestId) => _store.get(requestId);
+
+  Future<void> markTerminal(String requestId, OutboxMessageStatus status, String reason) async {
+    if (status != OutboxMessageStatus.expired && status != OutboxMessageStatus.failed) {
+      throw ArgumentError.value(status, 'status', 'Terminal status required.');
+    }
+    final message = await _required(requestId);
+    await _store.put(message.copyWith(status: status, failureKind: DeliveryFailureKind.permanent,
+      pendingReason: reason));
+  }
+
+  Future<void> recordFailure(
+    String requestId,
+    DeliveryFailureKind kind,
+    DateTime now, {
+    int maxAttempts = 5,
+  }) async {
+    final message = await _required(requestId);
+    final attempts = message.attemptCount + 1;
+    final expired = message.expiresAt != null && !message.expiresAt!.isAfter(now);
+    final terminal = kind == DeliveryFailureKind.permanent || attempts >= maxAttempts || expired;
+    await _store.put(message.copyWith(
+      status: expired ? OutboxMessageStatus.expired : terminal ? OutboxMessageStatus.failed : OutboxMessageStatus.pending,
+      failureKind: kind,
+      attemptCount: attempts,
+      nextAttemptAt: terminal ? now : now.add(Duration(seconds: 1 << (attempts - 1).clamp(0, 6))),
+      pendingReason: kind.name,
+    ));
+  }
 
   Future<OutboxMessage> _required(String requestId) async {
     final message = await _store.get(requestId);

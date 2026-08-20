@@ -35,3 +35,9 @@ Minden időpont `timestamptz`, az alkalmazás UTC ISO-8601 formátumot ad vissza
 ## Függőségek
 
 Node 24 LTS, Fastify 5, Zod 4, PostgreSQL 17 és SimpleWebAuthn 13 alkotja a kis backend-felületet. Nodemailer kizárólag a konfigurált SMTP-hosthoz kapcsolódik, fájl- és URL-hozzáférése tiltott. A Flutter kliens csak HTTP, kriptográfiai hash, biztonságos operációsrendszer-tárhely és rendszerböngésző csomagot használ.
+
+## Transient message delivery
+
+The authenticated delivery API stores only sender/recipient routing identifiers, a stable client-generated request ID, bounded timestamps, lifecycle state, and a short-lived content-agnostic payload. The request ID is scoped to the sender and is the durable idempotency key. PostgreSQL row locking serializes concurrent sends and acknowledgements. Recipient acknowledgement atomically changes the state and removes the payload; expiry does the same. Terminal tombstones contain no content and are themselves deleted after a bounded interval.
+
+The delivery contract deliberately knows `transport-v1`, not message text or translation fields. The current client encoder is a replaceable boundary adapter. A later independently audited E2EE/session layer can supply ciphertext through that interface without changing idempotency, routing, acknowledgement, expiry, or retry semantics. This boundary is not an encryption claim and introduces no bespoke cryptographic protocol. Client content remains protected by the existing AES-GCM outbox storage until explicit acknowledgement or documented terminal expiry/failure policy. Payload fields are explicitly redacted from request logs.

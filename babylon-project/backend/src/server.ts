@@ -9,7 +9,12 @@ import { z, ZodError, type ZodType } from 'zod';
 import type { AuthenticatedSession, AuthService } from './auth-service.js';
 import type { Config } from './config.js';
 import { constantTimeEqual, hash } from './crypto.js';
-import { ApiError, unauthorized } from './errors.js';
+import { ApiError, conflict, unauthorized } from './errors.js';
+import {
+  DeliveryConflictError,
+  DeliveryNotFoundError,
+  MessageDeliveryService,
+} from './message-delivery.js';
 import type { Database } from './types.js';
 
 const envelope = (data: unknown) => ({ data });
@@ -106,8 +111,10 @@ export async function buildServer(input: {
   config: Config;
   database: Database;
   service: AuthService;
+  delivery?: MessageDeliveryService;
 }): Promise<FastifyInstance> {
   const { config, database, service } = input;
+  const delivery = input.delivery;
   const app = Fastify({
     bodyLimit: 65_536,
     requestTimeout: 30_000,
@@ -126,6 +133,7 @@ export async function buildServer(input: {
           'body.returnCode',
           'body.refreshToken',
           'body.pkceVerifier',
+          'body.payload',
         ],
         censor: '[REDACTED]',
       },
@@ -524,6 +532,73 @@ export async function buildServer(input: {
       cooldownSeconds: 300,
     });
     return envelope(await service.completeRecovery(body, requestContext(request)));
+  });
+
+  app.post('/api/v1/messages', async (request, reply) => {
+    if (!delivery) throw new Error('Message delivery service is unavailable');
+    const session = await authenticated(service, request);
+    const body = parse(
+      z
+        .object({
+          requestId: z.uuid(),
+          recipientId: z.uuid(),
+          payloadFormat: z.literal('transport-v1'),
+          payload: z.base64().max(87_384),
+        })
+        .strict(),
+      request.body,
+    );
+    try {
+      const result = await delivery.accept({
+        requestId: body.requestId,
+        senderUserId: session.userId,
+        recipientUserId: body.recipientId,
+        payloadFormat: body.payloadFormat,
+        payload: Buffer.from(body.payload, 'base64'),
+      });
+      return await reply.code(202).send(envelope(result));
+    } catch (error) {
+      if (error instanceof DeliveryConflictError)
+        throw conflict('A request ID már más címzetthez tartozik.');
+      throw error;
+    }
+  });
+
+  app.get('/api/v1/messages/pending', async (request) => {
+    if (!delivery) throw new Error('Message delivery service is unavailable');
+    const session = await authenticated(service, request);
+    const query = parse(
+      z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).strict(),
+      request.query,
+    );
+    return envelope({ items: await delivery.listPending(session.userId, query.limit) });
+  });
+
+  app.get('/api/v1/messages/:requestId', async (request) => {
+    if (!delivery) throw new Error('Message delivery service is unavailable');
+    const session = await authenticated(service, request);
+    const params = parse(z.object({ requestId: z.uuid() }).strict(), request.params);
+    try {
+      return await Promise.resolve(
+        envelope(await delivery.status(session.userId, params.requestId)),
+      );
+    } catch (error) {
+      if (error instanceof DeliveryNotFoundError) throw unauthorized();
+      throw error;
+    }
+  });
+
+  app.post('/api/v1/messages/:requestId/ack', async (request) => {
+    if (!delivery) throw new Error('Message delivery service is unavailable');
+    const session = await authenticated(service, request);
+    const params = parse(z.object({ requestId: z.uuid() }).strict(), request.params);
+    const body = parse(z.object({ senderId: z.uuid() }).strict(), request.body);
+    try {
+      return envelope(await delivery.acknowledge(session.userId, params.requestId, body.senderId));
+    } catch (error) {
+      if (error instanceof DeliveryNotFoundError) throw unauthorized();
+      throw error;
+    }
   });
 
   app.get('/api/v1/security-events', async (request) => {

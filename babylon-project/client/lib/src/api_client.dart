@@ -61,6 +61,15 @@ abstract interface class BabylonGateway {
   Future<void> renameDevice(String id, String name);
   Future<void> revokeDevice(String id);
   Future<void> logout();
+  Future<Map<String, dynamic>> sendMessage({
+    required String requestId,
+    required String recipientId,
+    required String payloadFormat,
+    required String payload,
+  });
+  Future<Map<String, dynamic>> messageStatus(String requestId);
+  Future<List<Map<String, dynamic>>> pendingMessages({int limit = 50});
+  Future<Map<String, dynamic>> acknowledgeMessage(String requestId, String senderId);
 }
 
 class BabylonApiClient implements BabylonGateway {
@@ -193,6 +202,29 @@ class BabylonApiClient implements BabylonGateway {
     _accessToken = null;
     await tokenStore.delete(_refreshKey);
   }
+
+  @override
+  Future<Map<String, dynamic>> sendMessage({required String requestId, required String recipientId,
+    required String payloadFormat, required String payload}) async => _decode(
+      await _authorizedRequest('POST', '/api/v1/messages', body: {
+        'requestId': requestId, 'recipientId': recipientId,
+        'payloadFormat': payloadFormat, 'payload': payload,
+      }),
+    );
+
+  @override
+  Future<Map<String, dynamic>> messageStatus(String requestId) async =>
+      _decode(await _authorizedRequest('GET', '/api/v1/messages/$requestId'));
+
+  @override
+  Future<List<Map<String, dynamic>>> pendingMessages({int limit = 50}) async {
+    final data = _decode(await _authorizedRequest('GET', '/api/v1/messages/pending?limit=$limit'));
+    return (data['items'] as List<dynamic>? ?? const []).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<Map<String, dynamic>> acknowledgeMessage(String requestId, String senderId) async =>
+      _decode(await _authorizedRequest('POST', '/api/v1/messages/$requestId/ack', body: {'senderId': senderId}));
 
   @override
   Future<bool> health() async {
