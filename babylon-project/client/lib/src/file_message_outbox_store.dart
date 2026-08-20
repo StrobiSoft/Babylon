@@ -11,6 +11,7 @@ class FileMessageOutboxStore implements MessageOutboxStore {
 
   final File _file;
   final Map<String, OutboxMessage> _messages;
+  Future<void> _mutationTail = Future<void>.value();
 
   static Future<FileMessageOutboxStore> open(Directory directory) async {
     await directory.create(recursive: true);
@@ -143,20 +144,20 @@ class FileMessageOutboxStore implements MessageOutboxStore {
   }
 
   @override
-  Future<void> put(OutboxMessage message) async {
-    final previous = _messages[message.requestId];
-    _messages[message.requestId] = message;
-    try {
-      await _persist();
-    } catch (_) {
-      if (previous == null) {
-        _messages.remove(message.requestId);
-      } else {
-        _messages[message.requestId] = previous;
-      }
-      rethrow;
-    }
-  }
+  Future<void> put(OutboxMessage message) => _serializeMutation(() async {
+        final previous = _messages[message.requestId];
+        _messages[message.requestId] = message;
+        try {
+          await _persist();
+        } catch (_) {
+          if (previous == null) {
+            _messages.remove(message.requestId);
+          } else {
+            _messages[message.requestId] = previous;
+          }
+          rethrow;
+        }
+      });
 
   @override
   Future<OutboxMessage?> get(String requestId) async => _messages[requestId];
@@ -171,15 +172,21 @@ class FileMessageOutboxStore implements MessageOutboxStore {
   }
 
   @override
-  Future<void> delete(String requestId) async {
-    final previous = _messages.remove(requestId);
-    if (previous == null) return;
-    try {
-      await _persist();
-    } catch (_) {
-      _messages[requestId] = previous;
-      rethrow;
-    }
+  Future<void> delete(String requestId) => _serializeMutation(() async {
+        final previous = _messages.remove(requestId);
+        if (previous == null) return;
+        try {
+          await _persist();
+        } catch (_) {
+          _messages[requestId] = previous;
+          rethrow;
+        }
+      });
+
+  Future<void> _serializeMutation(Future<void> Function() action) {
+    final operation = _mutationTail.then((_) => action());
+    _mutationTail = operation.then<void>((_) {}, onError: (_, __) {});
+    return operation;
   }
 
   Future<void> _persist() async {
