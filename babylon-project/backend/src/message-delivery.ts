@@ -1,13 +1,23 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { QueryResultRow } from 'pg';
 import type { Clock, Database } from './types.js';
 
 export type DeliveryState = 'pending' | 'delivered' | 'expired' | 'failed';
+
+type DeliveryBindingInput = {
+  requestId: string;
+  senderUserId: string;
+  recipientUserId: string;
+  payload: Buffer;
+  payloadFormat: 'transport-v1';
+};
 
 interface DeliveryRow extends QueryResultRow {
   request_id: string;
   sender_user_id: string;
   recipient_user_id: string;
   payload: Buffer | null;
+  request_binding: Buffer;
   payload_format: 'transport-v1';
   state: DeliveryState;
   failure_code: string | null;
@@ -16,54 +26,86 @@ interface DeliveryRow extends QueryResultRow {
   delivered_at: Date | null;
 }
 
+function updateBoundPart(mac: ReturnType<typeof createHmac>, value: string | Buffer): void {
+  const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value, 'utf8');
+  const length = Buffer.allocUnsafe(4);
+  length.writeUInt32BE(bytes.length);
+  mac.update(length);
+  mac.update(bytes);
+}
+
+export function createDeliveryBinding(secret: string, input: DeliveryBindingInput): Buffer {
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    throw new Error('Message delivery binding secret must contain at least 32 bytes.');
+  }
+  const key = createHmac('sha256', secret)
+    .update('babylon/message-delivery-binding-key/v1', 'utf8')
+    .digest();
+  const mac = createHmac('sha256', key);
+  mac.update('babylon/message-delivery-binding/v1', 'utf8');
+  updateBoundPart(mac, input.requestId);
+  updateBoundPart(mac, input.senderUserId);
+  updateBoundPart(mac, input.recipientUserId);
+  updateBoundPart(mac, input.payloadFormat);
+  updateBoundPart(mac, input.payload);
+  return mac.digest();
+}
+
 export class MessageDeliveryService {
   constructor(
     private readonly database: Database,
     private readonly clock: Clock,
+    private readonly bindingSecret: string,
     private readonly ttlSeconds = 86_400,
     private readonly tombstoneSeconds = 86_400,
   ) {
+    if (Buffer.byteLength(bindingSecret, 'utf8') < 32) {
+      throw new Error('Message delivery binding secret must contain at least 32 bytes.');
+    }
     if (ttlSeconds < 60 || ttlSeconds > 604_800 || tombstoneSeconds < 60) {
       throw new Error('Invalid message delivery retention policy.');
     }
   }
 
-  async accept(input: {
-    requestId: string;
-    senderUserId: string;
-    recipientUserId: string;
-    payload: Buffer;
-    payloadFormat: 'transport-v1';
-  }) {
+  async accept(input: DeliveryBindingInput) {
     const now = this.clock.now();
     const expiresAt = new Date(now.getTime() + this.ttlSeconds * 1000);
+    const requestBinding = createDeliveryBinding(this.bindingSecret, input);
     return this.database.transaction(async (client) => {
       const inserted = await client.query<DeliveryRow>(
         `INSERT INTO message_deliveries
-           (request_id, sender_user_id, recipient_user_id, payload, payload_format, state, created_at, expires_at)
-         VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
+           (request_id, sender_user_id, recipient_user_id, payload, payload_format, request_binding,
+            state, created_at, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
          ON CONFLICT (sender_user_id, request_id) DO NOTHING
-         RETURNING request_id, sender_user_id, recipient_user_id, payload, payload_format, state,
-                   failure_code, created_at, expires_at, delivered_at`,
+         RETURNING request_id, sender_user_id, recipient_user_id, payload, request_binding,
+                   payload_format, state, failure_code, created_at, expires_at, delivered_at`,
         [
           input.requestId,
           input.senderUserId,
           input.recipientUserId,
           input.payload,
           input.payloadFormat,
+          requestBinding,
           now,
           expiresAt,
         ],
       );
       if (inserted.rows[0]) return this.publicState(inserted.rows[0]);
       const existing = await client.query<DeliveryRow>(
-        `SELECT request_id, sender_user_id, recipient_user_id, payload, payload_format, state,
-                failure_code, created_at, expires_at, delivered_at
+        `SELECT request_id, sender_user_id, recipient_user_id, payload, request_binding,
+                payload_format, state, failure_code, created_at, expires_at, delivered_at
            FROM message_deliveries WHERE sender_user_id = $1 AND request_id = $2 FOR UPDATE`,
         [input.senderUserId, input.requestId],
       );
       const row = this.requiredRow(existing.rows[0]);
-      if (row.recipient_user_id !== input.recipientUserId) throw new DeliveryConflictError();
+      if (
+        row.recipient_user_id !== input.recipientUserId ||
+        row.request_binding.length !== requestBinding.length ||
+        !timingSafeEqual(row.request_binding, requestBinding)
+      ) {
+        throw new DeliveryConflictError();
+      }
       return this.publicState(row);
     });
   }
@@ -71,8 +113,8 @@ export class MessageDeliveryService {
   async listPending(recipientUserId: string, limit: number) {
     await this.expireDue(limit);
     const result = await this.database.query<DeliveryRow>(
-      `SELECT request_id, sender_user_id, recipient_user_id, payload, payload_format, state, failure_code,
-              created_at, expires_at, delivered_at
+      `SELECT request_id, sender_user_id, recipient_user_id, payload, request_binding,
+              payload_format, state, failure_code, created_at, expires_at, delivered_at
          FROM message_deliveries
         WHERE recipient_user_id = $1 AND state = 'pending' AND expires_at > $2
         ORDER BY created_at LIMIT $3`,
@@ -88,8 +130,8 @@ export class MessageDeliveryService {
   async acknowledge(recipientUserId: string, requestId: string, senderUserId: string) {
     return this.database.transaction(async (client) => {
       const found = await client.query<DeliveryRow>(
-        `SELECT request_id, recipient_user_id, payload, payload_format, state, failure_code,
-                created_at, expires_at, delivered_at
+        `SELECT request_id, recipient_user_id, payload, request_binding, payload_format, state,
+                failure_code, created_at, expires_at, delivered_at
            FROM message_deliveries WHERE sender_user_id = $1 AND request_id = $2 FOR UPDATE`,
         [senderUserId, requestId],
       );
@@ -102,8 +144,8 @@ export class MessageDeliveryService {
         const expired = await client.query<DeliveryRow>(
           `UPDATE message_deliveries SET state = 'expired', payload = NULL, terminal_at = $3
            WHERE sender_user_id = $1 AND request_id = $2
-           RETURNING request_id, recipient_user_id, payload, payload_format, state, failure_code,
-                     created_at, expires_at, delivered_at`,
+           RETURNING request_id, recipient_user_id, payload, request_binding, payload_format, state,
+                     failure_code, created_at, expires_at, delivered_at`,
           [senderUserId, requestId, now],
         );
         return this.publicState(this.requiredRow(expired.rows[0]));
@@ -112,8 +154,8 @@ export class MessageDeliveryService {
         `UPDATE message_deliveries SET state = 'delivered', payload = NULL,
           delivered_at = $3, terminal_at = $3
          WHERE sender_user_id = $1 AND request_id = $2
-         RETURNING request_id, recipient_user_id, payload, payload_format, state, failure_code,
-                   created_at, expires_at, delivered_at`,
+         RETURNING request_id, recipient_user_id, payload, request_binding, payload_format, state,
+                   failure_code, created_at, expires_at, delivered_at`,
         [senderUserId, requestId, now],
       );
       return this.publicState(this.requiredRow(updated.rows[0]));
@@ -123,8 +165,8 @@ export class MessageDeliveryService {
   async status(senderUserId: string, requestId: string) {
     await this.expireDue(100);
     const result = await this.database.query<DeliveryRow>(
-      `SELECT request_id, recipient_user_id, payload, payload_format, state, failure_code,
-              created_at, expires_at, delivered_at
+      `SELECT request_id, recipient_user_id, payload, request_binding, payload_format, state,
+              failure_code, created_at, expires_at, delivered_at
          FROM message_deliveries WHERE sender_user_id = $1 AND request_id = $2`,
       [senderUserId, requestId],
     );
@@ -141,8 +183,8 @@ export class MessageDeliveryService {
       `UPDATE message_deliveries SET state = 'failed', payload = NULL,
               failure_code = $3, terminal_at = $4
          WHERE sender_user_id = $1 AND request_id = $2 AND state = 'pending'
-       RETURNING request_id, sender_user_id, recipient_user_id, payload, payload_format, state,
-                 failure_code, created_at, expires_at, delivered_at`,
+       RETURNING request_id, sender_user_id, recipient_user_id, payload, request_binding,
+                 payload_format, state, failure_code, created_at, expires_at, delivered_at`,
       [senderUserId, requestId, failureCode, this.clock.now()],
     );
     return this.publicState(this.requiredRow(result.rows[0]));
