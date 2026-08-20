@@ -4,13 +4,13 @@ import type { Clock, Database } from './types.js';
 
 export type DeliveryState = 'pending' | 'delivered' | 'expired' | 'failed';
 
-type DeliveryBindingInput = {
+interface DeliveryBindingInput {
   requestId: string;
   senderUserId: string;
   recipientUserId: string;
   payload: Buffer;
   payloadFormat: 'transport-v1';
-};
+}
 
 interface DeliveryRow extends QueryResultRow {
   request_id: string;
