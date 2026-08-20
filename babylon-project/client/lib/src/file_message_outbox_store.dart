@@ -2,28 +2,39 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'message_outbox.dart';
+import 'outbox_storage_crypto.dart';
 
 class FileMessageOutboxStore implements MessageOutboxStore {
-  FileMessageOutboxStore._(this._file, this._messages);
+  FileMessageOutboxStore._(this._file, this._messages, this._crypto);
 
-  static const int _schemaVersion = 1;
+  static const int _schemaVersion = 2;
+  static const int _payloadVersion = 1;
   static const String _fileName = 'message-outbox.json';
 
   final File _file;
   final Map<String, OutboxMessage> _messages;
+  final OutboxStorageCrypto _crypto;
   Future<void> _mutationTail = Future<void>.value();
 
-  static Future<FileMessageOutboxStore> open(Directory directory) async {
+  static Future<FileMessageOutboxStore> open(
+    Directory directory, {
+    OutboxStorageKeyStore? keyStore,
+  }) async {
     await directory.create(recursive: true);
     final file = File('${directory.path}${Platform.pathSeparator}$_fileName');
     final backup = File('${file.path}.bak');
+    final hasStoredData = await file.exists() || await backup.exists();
+    final crypto = await OutboxStorageCrypto.open(
+      keyStore ?? FlutterSecureOutboxStorageKeyStore(),
+      allowKeyCreation: !hasStoredData,
+    );
 
     if (!await file.exists() && await backup.exists()) {
       await backup.rename(file.path);
     }
 
-    final messages = await _load(file);
-    final store = FileMessageOutboxStore._(file, messages);
+    final messages = await _load(file, crypto);
+    final store = FileMessageOutboxStore._(file, messages, crypto);
     final recovered = store._recoverInterruptedSends();
     if (recovered) {
       await store._persist();
@@ -31,7 +42,10 @@ class FileMessageOutboxStore implements MessageOutboxStore {
     return store;
   }
 
-  static Future<Map<String, OutboxMessage>> _load(File file) async {
+  static Future<Map<String, OutboxMessage>> _load(
+    File file,
+    OutboxStorageCrypto crypto,
+  ) async {
     if (!await file.exists()) return <String, OutboxMessage>{};
 
     final raw = await file.readAsString();
@@ -39,17 +53,38 @@ class FileMessageOutboxStore implements MessageOutboxStore {
       throw const FormatException('Outbox storage is empty or truncated.');
     }
 
-    final Object? decoded;
+    final Object? envelope;
     try {
-      decoded = jsonDecode(raw);
+      envelope = jsonDecode(raw);
     } on FormatException {
       throw const FormatException('Outbox storage contains invalid JSON.');
     }
-    if (decoded is! Map<String, dynamic>) {
+    if (envelope is! Map<String, dynamic>) {
       throw const FormatException('Outbox storage root must be an object.');
     }
-    if (decoded['schemaVersion'] != _schemaVersion) {
+    if (envelope['schemaVersion'] != _schemaVersion) {
       throw const FormatException('Unsupported outbox storage schema version.');
+    }
+    if (envelope['algorithm'] != OutboxStorageCrypto.algorithmName) {
+      throw const FormatException('Unsupported outbox storage encryption algorithm.');
+    }
+    final encryptedPayload = envelope['ciphertext'];
+    if (encryptedPayload is! String || encryptedPayload.isEmpty) {
+      throw const FormatException('Encrypted outbox payload is missing.');
+    }
+
+    final clearPayload = await crypto.decryptString(encryptedPayload);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(clearPayload);
+    } on FormatException {
+      throw const FormatException('Decrypted outbox payload contains invalid JSON.');
+    }
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Decrypted outbox payload must be an object.');
+    }
+    if (decoded['payloadVersion'] != _payloadVersion) {
+      throw const FormatException('Unsupported outbox payload version.');
     }
     final items = decoded['messages'];
     if (items is! List<dynamic>) {
@@ -194,12 +229,18 @@ class FileMessageOutboxStore implements MessageOutboxStore {
     final backup = File('${_file.path}.bak');
     final items = _messages.values.toList(growable: false)
       ..sort((left, right) => left.createdAt.compareTo(right.createdAt));
-    final payload = <String, dynamic>{
-      'schemaVersion': _schemaVersion,
+    final clearPayload = jsonEncode(<String, dynamic>{
+      'payloadVersion': _payloadVersion,
       'messages': items.map(_encodeMessage).toList(growable: false),
+    });
+    final encryptedPayload = await _crypto.encryptString(clearPayload);
+    final envelope = <String, dynamic>{
+      'schemaVersion': _schemaVersion,
+      'algorithm': OutboxStorageCrypto.algorithmName,
+      'ciphertext': encryptedPayload,
     };
 
-    await temp.writeAsString(jsonEncode(payload), flush: true);
+    await temp.writeAsString(jsonEncode(envelope), flush: true);
 
     if (await backup.exists()) await backup.delete();
     if (await _file.exists()) await _file.rename(backup.path);
