@@ -3,9 +3,9 @@
 ## Status and scope
 
 This record captures approved architectural direction for Babylon messaging and attachment transport.
-It does **not** select the final cryptographic protocol/library yet. Protocol selection, key-backup UX,
-multi-device recovery details and the exact `.bab` binary format remain implementation decisions that
-must be completed before production activation.
+It does **not** select the final message E2EE protocol/library yet. Protocol selection, key-backup UX,
+multi-device recovery details and the exact production cryptographic suite remain implementation
+decisions that must be completed before production activation.
 
 The intent is to make later client, delivery, attachment and API work compatible with end-to-end
 encryption from the start rather than retrofit it after message transport is fixed.
@@ -27,8 +27,8 @@ protects message content from intermediary/server decryption.
 
 ## Key management direction
 
-Babylon must not invent a custom E2EE cryptographic protocol. A maintained, independently reviewed
-protocol/library with suitable Android/Windows support and licensing must be selected before
+Babylon must not invent a custom message E2EE cryptographic protocol. A maintained, independently
+reviewed protocol/library with suitable Android/Windows support and licensing must be selected before
 production use.
 
 The endpoint model must support:
@@ -41,7 +41,7 @@ The endpoint model must support:
 - replay, downgrade, out-of-order and concurrent-device tests;
 - visible/auditable key-change events without exposing message content.
 
-The exact rotation cadence and protocol state machine remain open until the reviewed protocol is
+The exact rotation cadence and E2EE session state machine remain open until the reviewed protocol is
 selected.
 
 ## Local Outbox implication
@@ -51,41 +51,105 @@ and after network encryption, therefore persistent local Outbox storage must als
 rest with client-held/platform-protected key material. A server-held Outbox decryption key is not an
 acceptable privacy boundary.
 
-## `.bab` container role
+## BSOP — Babylon Secure Object Protocol ("Bishop")
 
-`.bab` is a Babylon-controlled transport/isolation container concept. It is **not** a new
-cryptographic primitive and does not make malware harmless.
+The approved Babylon object-containment protocol name is **BSOP — Babylon Secure Object Protocol**,
+pronounced internally as **"Bishop"**.
 
-For content placed into `.bab`:
+Terminology:
 
-- the payload is encrypted before transport so Babylon servers cannot inspect or extract it;
-- the server handles the object as an opaque blob plus only the minimum routing/lifecycle metadata;
-- executable or otherwise dangerous content remains non-executable while it is encrypted and
-  encapsulated;
-- compression, if used, is an implementation detail and is not the security property—the security
-  boundary is authenticated encryption plus controlled extraction;
-- the final format must be versioned and integrity-protected, and may carry non-secret metadata such
-  as format version, ciphertext length and delivery identifiers as required by the protocol;
-- decryption secrets must not be stored beside the ciphertext in a form usable by Babylon servers.
+- **BSOP** is the versioned protocol/specification that creates, authenticates, encrypts, transports
+  and restores protected Babylon objects;
+- **BAB object/container** is an object encoded according to BSOP;
+- **`.bab`** is the file extension used for a serialized BAB container.
 
-The exact binary/container layout, algorithm identifiers and multi-recipient key wrapping remain open
-until the E2EE protocol is selected.
+BSOP is a Babylon transport/container protocol, not a new cryptographic primitive. It must compose
+reviewed standard cryptographic building blocks rather than inventing new ciphers, hashes, key
+exchange algorithms or ratchets.
 
-## Automatic classification of risky attachments
+The scope is intentionally broader than ordinary files so the same object model can later carry
+images, documents, audio or other binary payloads without changing the security boundary.
 
-The sender does not choose `.bab` as a cosmetic archive option. The client security pipeline decides
-when special containment is required.
+## BSOP processing order
 
-Before sending an attachment, the sender-side client must perform the approved local checks available
-for the platform, including file-type/structure validation and malware-aware scanning where
-available. Based on policy, the client classifies the attachment, for example as ordinary, suspicious
-or blocked.
+For a locally selected attachment/object, the canonical sender-side order is:
+
+1. identify and validate the source object;
+2. run the approved sender-side malware/security classification while plaintext is still locally
+   available;
+3. choose the security policy (`ordinary`, `suspicious` or `blocked`, or the later approved equivalent);
+4. if policy permits transport, optionally compress the plaintext payload;
+5. create protected metadata;
+6. encrypt and integrity-protect metadata and payload using endpoint-controlled key material;
+7. serialize the result as a BAB container for transport.
+
+Compression therefore happens **before encryption**. Encrypted ciphertext is not subsequently
+compressed.
+
+Content classified as blocked by mandatory product/platform/security policy is not made sendable by
+placing it in a BAB container.
+
+## Compression policy
+
+BSOP v1 should use **lossless Zstandard (Zstd)** when compression materially reduces payload size.
+Compression is an optimization, not a security property.
+
+The sender client must not blindly recompress every object. Content that is already efficiently
+compressed (for example many JPEG/PNG/video/archive inputs) may be stored with `compression = none`
+when Zstd would provide no meaningful gain.
+
+The exact threshold for choosing Zstd versus no compression remains a benchmarked implementation
+parameter. The encoder must preserve the original bytes exactly after decrypt/decompress round-trip;
+BSOP never applies lossy transformation to attachment content.
+
+## BAB container security properties
+
+A BAB container must be:
+
+- versioned;
+- encrypted end-to-end;
+- integrity/authenticity protected with an approved AEAD construction;
+- streamable/chunkable so large objects do not need to be held entirely in memory;
+- resistant to truncation, chunk reordering, replay and metadata substitution;
+- self-describing only to the minimum extent required to parse the protected envelope safely;
+- opaque to Babylon servers except for explicitly approved routing/lifecycle metadata.
+
+Each object should use fresh per-object content-encryption key material rather than reusing a single
+long-lived content key. How that object key is derived or wrapped for one or multiple recipient
+devices is delegated to the selected E2EE/key-management layer and must not expose a usable content
+key to Babylon servers.
+
+Large payloads should be protected in authenticated chunks. The exact chunk size is deliberately not
+fixed until Android/Windows memory, throughput and resume benchmarks are available.
+
+## BAB metadata boundary
+
+The cleartext BAB header should contain only data required to recognize and safely parse the format,
+for example a magic/version marker, algorithm-suite identifier, structural lengths and other strictly
+necessary framing data.
+
+Sensitive object metadata belongs inside the encrypted/authenticated region, including where
+practical:
+
+- original filename;
+- original media/MIME classification;
+- original size;
+- integrity hash/reference data;
+- sender-side malware/security classification;
+- scanner/version/timestamp metadata when policy retains it.
+
+Babylon servers should not need the original filename or payload type merely to route a BAB object.
+
+## `.bab` containment role
+
+The sender does not choose `.bab` as a cosmetic archive/compression option. The client security
+pipeline decides when special containment is required.
 
 For suspicious/high-risk but still policy-permitted content:
 
 1. the sender client warns the sender as appropriate;
-2. the system automatically places the payload into the protected `.bab` transport path;
-3. the encrypted container is transmitted without server-side content inspection;
+2. the system automatically uses the BSOP/BAB protected transport path;
+3. the encrypted BAB object is transmitted without server-side content inspection;
 4. the recipient client must not automatically decrypt/extract/open it;
 5. the recipient receives an explicit risk warning before any extraction/open action;
 6. the recipient action is deliberate and attributable in local/application security telemetry that
@@ -93,8 +157,9 @@ For suspicious/high-risk but still policy-permitted content:
 7. a recipient-side re-scan before extraction/open is recommended where the platform provides a
    reliable mechanism, because the sender scanner may be outdated or the sender device compromised.
 
-Content classified as blocked by mandatory product/platform/security policy is not sent merely by
-wrapping it in `.bab`.
+An executable or otherwise dangerous original payload remains non-functional while it remains inside
+its encrypted BAB representation. This is containment during storage/transport, not malware
+neutralization: the original risk returns when the payload is restored to usable plaintext.
 
 ## Malware-scanning consequence of E2EE
 
@@ -105,6 +170,16 @@ classification is a **sender-client responsibility**.
 A recipient-side check remains defense in depth at the moment the payload becomes usable again. This
 does not change the sender-side requirement that risky content be identified and contained before
 leaving the sender device.
+
+## Recipient restoration rule
+
+For protected risky content, the recipient flow is conceptually:
+
+`receive -> authenticate container -> decrypt protected metadata -> show classification/warning ->
+explicit user decision -> optional local re-scan -> decrypt/decompress/restore original bytes`
+
+The client must never implement an automatic `receive -> extract -> execute/open` path for content
+that requires risk containment.
 
 ## User warning and responsibility model
 
@@ -127,11 +202,14 @@ and that opening content explicitly marked as risky is a conscious user action.
 
 The following are intentionally preserved rather than prematurely fixed:
 
-- reviewed E2EE protocol/library selection;
+- reviewed message E2EE protocol/library selection;
+- exact E2EE/object-key wrapping relationship;
 - account/device verification UX and multi-device key distribution;
 - key backup/recovery policy and consequences of lost keys;
 - exact rotation/session-rekey rules;
-- final `.bab` binary format and naming/versioning rules;
+- final BSOP v1 binary framing and algorithm suite;
+- authenticated chunk size and resume semantics;
+- benchmarked Zstd compression threshold;
 - exact suspicious-versus-blocked file policy;
 - platform-specific malware engines and update policy;
 - recipient-side scanning capability and sandbox/open behavior;
