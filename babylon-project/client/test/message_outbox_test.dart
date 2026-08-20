@@ -84,6 +84,41 @@ void main() {
       expect(await store.get(original.requestId), isNull);
     });
 
+    test('accepts a late delivery acknowledgement after uncertain-send recovery', () async {
+      final store = MemoryOutboxStore();
+      final outbox = MessageOutbox(store);
+      final original = message();
+      final deliveredAt = DateTime.utc(2026, 8, 19, 18, 6);
+
+      await outbox.queue(original);
+      await outbox.markSending(original.requestId);
+      await outbox.restoreAfterUncertainSend(original.requestId);
+      await outbox.acknowledgeDelivery(original.requestId, deliveredAt);
+
+      final delivered = await store.get(original.requestId);
+      expect(delivered!.status, OutboxMessageStatus.delivered);
+      expect(delivered.deliveredAt, deliveredAt);
+    });
+
+    test('treats duplicate delivery acknowledgement as idempotent', () async {
+      final store = MemoryOutboxStore();
+      final outbox = MessageOutbox(store);
+      final original = message();
+      final firstDeliveredAt = DateTime.utc(2026, 8, 19, 18, 7);
+
+      await outbox.queue(original);
+      await outbox.markSending(original.requestId);
+      await outbox.acknowledgeDelivery(original.requestId, firstDeliveredAt);
+      await outbox.acknowledgeDelivery(
+        original.requestId,
+        DateTime.utc(2026, 8, 19, 18, 8),
+      );
+
+      final delivered = await store.get(original.requestId);
+      expect(delivered!.status, OutboxMessageStatus.delivered);
+      expect(delivered.deliveredAt, firstDeliveredAt);
+    });
+
     test('restores uncertain network sends without discarding the text', () async {
       final store = MemoryOutboxStore();
       final outbox = MessageOutbox(store);
