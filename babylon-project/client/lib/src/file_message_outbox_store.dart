@@ -185,7 +185,7 @@ class FileMessageOutboxStore implements MessageOutboxStore {
 
   Future<void> _serializeMutation(Future<void> Function() action) {
     final operation = _mutationTail.then((_) => action());
-    _mutationTail = operation.then<void>((_) {}, onError: (_, __) {});
+    _mutationTail = operation.then<void>((_) {}, onError: (_, _) {});
     return operation;
   }
 
