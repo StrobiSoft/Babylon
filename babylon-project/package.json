@@ -15,7 +15,7 @@
     "check:test": "tsc -p backend/test/tsconfig.json --noEmit",
     "dev": "tsx watch backend/src/main.ts",
     "format": "prettier --write \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
-    "format:check": "prettier --check \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
+    "format:check": "prettier --check \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\" || (prettier backend/src/main.ts && exit 1)",
     "lint": "eslint backend/src backend/test",
     "migrate": "tsx backend/src/migrate-cli.ts",
     "start": "node backend/dist/main.js",
