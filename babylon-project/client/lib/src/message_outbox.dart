@@ -116,15 +116,19 @@ class MessageOutbox {
 
   Future<void> acknowledgeDelivery(String requestId, DateTime deliveredAt) async {
     final message = await _required(requestId);
-    if (message.status != OutboxMessageStatus.sending &&
+    if (message.status == OutboxMessageStatus.delivered) {
+      return;
+    }
+    if (message.status != OutboxMessageStatus.queued &&
+        message.status != OutboxMessageStatus.sending &&
         message.status != OutboxMessageStatus.pending) {
-      throw StateError('Delivery can only acknowledge a sending or pending message.');
+      throw StateError('Delivery acknowledgement is not valid for this outbox state.');
     }
     await _store.put(
       message.copyWith(
         status: OutboxMessageStatus.delivered,
         clearPendingReason: true,
-        deliveredAt: deliveredAt,
+        deliveredAt: deliveredAt.toUtc(),
       ),
     );
   }
