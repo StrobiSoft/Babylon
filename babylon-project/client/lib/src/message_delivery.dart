@@ -16,11 +16,20 @@ class Utf8MessageEnvelopeEncoder implements MessageEnvelopeEncoder {
 }
 
 class MessageDeliveryCoordinator {
-  MessageDeliveryCoordinator({required this.outbox, required this.gateway, required this.encoder});
+  MessageDeliveryCoordinator({
+    required this.outbox,
+    required this.gateway,
+    required this.encoder,
+    DateTime Function()? now,
+  }) : _now = now ?? _utcNow;
+
   final MessageOutbox outbox;
   final BabylonGateway gateway;
   final MessageEnvelopeEncoder encoder;
+  final DateTime Function() _now;
   final Set<String> _inFlight = <String>{};
+
+  static DateTime _utcNow() => DateTime.now().toUtc();
 
   Future<void> send(OutboxMessage message) async {
     await outbox.queue(message);
@@ -30,23 +39,32 @@ class MessageDeliveryCoordinator {
   Future<void> retry(String requestId) async {
     if (!_inFlight.add(requestId)) return;
     try {
-    final candidates = (await outbox.recoverableMessages()).where((m) => m.requestId == requestId);
-    if (candidates.isEmpty) return;
-    final item = candidates.first;
-    final now = DateTime.now().toUtc();
-    if (item.nextAttemptAt case final next? when next.isAfter(now)) return;
-    await outbox.markSending(requestId);
-    try {
-      final state = await gateway.sendMessage(requestId: requestId, recipientId: item.recipientId,
-        payloadFormat: 'transport-v1', payload: encoder.encode(item));
-      await _applyState(requestId, state);
-    } on BabylonApiException catch (error) {
-      final kind = error.statusCode == 0 ? DeliveryFailureKind.network
-        : error.statusCode >= 500 ? DeliveryFailureKind.backend
-        : error.code.startsWith('MODEL_') ? DeliveryFailureKind.model
-        : DeliveryFailureKind.permanent;
-      await outbox.recordFailure(requestId, kind, DateTime.now().toUtc());
-    }
+      final candidates = (await outbox.recoverableMessages()).where(
+        (message) => message.requestId == requestId,
+      );
+      if (candidates.isEmpty) return;
+      final item = candidates.first;
+      final now = _now();
+      if (item.nextAttemptAt case final next? when next.isAfter(now)) return;
+      await outbox.markSending(requestId);
+      try {
+        final state = await gateway.sendMessage(
+          requestId: requestId,
+          recipientId: item.recipientId,
+          payloadFormat: 'transport-v1',
+          payload: encoder.encode(item),
+        );
+        await _applyState(requestId, state);
+      } on BabylonApiException catch (error) {
+        final kind = error.statusCode == 0
+            ? DeliveryFailureKind.network
+            : error.statusCode >= 500
+            ? DeliveryFailureKind.backend
+            : error.code.startsWith('MODEL_')
+            ? DeliveryFailureKind.model
+            : DeliveryFailureKind.permanent;
+        await outbox.recordFailure(requestId, kind, _now());
+      }
     } finally {
       _inFlight.remove(requestId);
     }
@@ -70,18 +88,30 @@ class MessageDeliveryCoordinator {
     }
   }
 
-  Future<void> reconcile(String requestId) async => _applyState(requestId, await gateway.messageStatus(requestId));
+  Future<void> reconcile(String requestId) async =>
+      _applyState(requestId, await gateway.messageStatus(requestId));
 
   Future<void> _applyState(String requestId, Map<String, dynamic> state) async {
     switch (state['state']) {
       case 'delivered':
         if (await outbox.find(requestId) == null) return;
-        await outbox.acknowledgeDelivery(requestId, DateTime.parse(state['deliveredAt'] as String));
+        await outbox.acknowledgeDelivery(
+          requestId,
+          DateTime.parse(state['deliveredAt'] as String),
+        );
         await outbox.removeAcknowledged(requestId);
       case 'expired':
-        await outbox.markTerminal(requestId, OutboxMessageStatus.expired, 'server_expired');
+        await outbox.markTerminal(
+          requestId,
+          OutboxMessageStatus.expired,
+          'server_expired',
+        );
       case 'failed':
-        await outbox.markTerminal(requestId, OutboxMessageStatus.failed, 'server_failed');
+        await outbox.markTerminal(
+          requestId,
+          OutboxMessageStatus.failed,
+          'server_failed',
+        );
       default:
         await outbox.markPending(requestId, 'awaiting_delivery_ack');
     }
