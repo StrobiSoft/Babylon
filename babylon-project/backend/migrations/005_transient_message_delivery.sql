@@ -3,6 +3,7 @@ CREATE TABLE message_deliveries (
   sender_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   recipient_user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   payload bytea,
+  request_binding bytea NOT NULL CHECK (octet_length(request_binding) = 32),
   payload_format text NOT NULL CHECK (payload_format IN ('transport-v1')),
   state text NOT NULL CHECK (state IN ('pending', 'delivered', 'expired', 'failed')),
   failure_code text CHECK (failure_code IN ('recipient_unavailable', 'invalid_payload', 'retry_exhausted')),
@@ -25,3 +26,5 @@ CREATE INDEX message_deliveries_terminal_cleanup_idx
 
 COMMENT ON TABLE message_deliveries IS
   'Transient opaque delivery envelopes and bounded terminal tombstones; never conversation history.';
+COMMENT ON COLUMN message_deliveries.request_binding IS
+  'Domain-separated HMAC binding for immutable idempotency semantics; not plaintext content.';
