@@ -7,50 +7,106 @@ import 'fakes.dart';
 
 class OutboxMemoryStore implements MessageOutboxStore {
   final values = <String, OutboxMessage>{};
-  @override Future<void> delete(String id) async => values.remove(id);
-  @override Future<OutboxMessage?> get(String id) async => values[id];
-  @override Future<List<OutboxMessage>> pendingMessages() async => values.values.where((m) =>
-    m.status != OutboxMessageStatus.delivered && m.status != OutboxMessageStatus.failed && m.status != OutboxMessageStatus.expired).toList();
-  @override Future<void> put(OutboxMessage message) async => values[message.requestId] = message;
+
+  @override
+  Future<void> delete(String id) async => values.remove(id);
+
+  @override
+  Future<OutboxMessage?> get(String id) async => values[id];
+
+  @override
+  Future<List<OutboxMessage>> pendingMessages() async => values.values
+      .where(
+        (message) =>
+            message.status != OutboxMessageStatus.delivered &&
+            message.status != OutboxMessageStatus.failed &&
+            message.status != OutboxMessageStatus.expired,
+      )
+      .toList();
+
+  @override
+  Future<void> put(OutboxMessage message) async => values[message.requestId] = message;
 }
 
-OutboxMessage item() => OutboxMessage(requestId: '00000000-0000-4000-8000-000000000021',
-  recipientId: '00000000-0000-4000-8000-000000000002', sourceText: 'private text', targetLanguage: 'hu',
-  createdAt: DateTime.utc(2026, 8, 20), expiresAt: DateTime.utc(2026, 8, 21));
+OutboxMessage item() => OutboxMessage(
+  requestId: '00000000-0000-4000-8000-000000000021',
+  recipientId: '00000000-0000-4000-8000-000000000002',
+  sourceText: 'private text',
+  targetLanguage: 'hu',
+  createdAt: DateTime.utc(2026, 8, 20),
+  expiresAt: DateTime.utc(2026, 8, 21),
+);
 
 void main() {
   test('uncertain send keeps content and stable request ID for a bounded retry', () async {
-    final store = OutboxMemoryStore(); final gateway = FakeGateway()
+    final store = OutboxMemoryStore();
+    final gateway = FakeGateway()
       ..messageFailure = BabylonApiException(0, 'NETWORK_TIMEOUT', 'safe');
-    final coordinator = MessageDeliveryCoordinator(outbox: MessageOutbox(store), gateway: gateway,
-      encoder: const Utf8MessageEnvelopeEncoder());
+    var now = DateTime.utc(2026, 8, 20, 12);
+    final coordinator = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(store),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      now: () => now,
+    );
+
     await coordinator.send(item());
     expect(store.values[item().requestId]!.sourceText, 'private text');
-    expect(store.values[item().requestId]!.failureKind, DeliveryFailureKind.network);
+    expect(
+      store.values[item().requestId]!.failureKind,
+      DeliveryFailureKind.network,
+    );
+    expect(gateway.messageSendCalls, 1);
+
     gateway.messageFailure = null;
+    await coordinator.retry(item().requestId);
+    expect(gateway.messageSendCalls, 1, reason: 'retry backoff must be enforced');
+
+    now = now.add(const Duration(seconds: 1));
     await coordinator.retry(item().requestId);
     expect(gateway.lastMessageRequestId, item().requestId);
     expect(gateway.messageSendCalls, 2);
   });
 
   test('explicit delivered state removes only the acknowledged outbox item', () async {
-    final store = OutboxMemoryStore(); final gateway = FakeGateway()
-      ..messageState = {'state': 'delivered', 'deliveredAt': '2026-08-20T12:00:00Z'};
-    final coordinator = MessageDeliveryCoordinator(outbox: MessageOutbox(store), gateway: gateway,
-      encoder: const Utf8MessageEnvelopeEncoder());
-    await store.put(OutboxMessage(requestId: '00000000-0000-4000-8000-000000000099', recipientId: item().recipientId,
-      sourceText: 'other', targetLanguage: 'hu', createdAt: item().createdAt));
+    final store = OutboxMemoryStore();
+    final gateway = FakeGateway()
+      ..messageState = {
+        'state': 'delivered',
+        'deliveredAt': '2026-08-20T12:00:00Z',
+      };
+    final coordinator = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(store),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+    );
+    await store.put(
+      OutboxMessage(
+        requestId: '00000000-0000-4000-8000-000000000099',
+        recipientId: item().recipientId,
+        sourceText: 'other',
+        targetLanguage: 'hu',
+        createdAt: item().createdAt,
+      ),
+    );
     await coordinator.send(item());
     expect(store.values.containsKey(item().requestId), isFalse);
     expect(store.values.values.single.sourceText, 'other');
   });
 
   test('permanent failure reaches terminal state without retry scheduling', () async {
-    final store = OutboxMemoryStore(); final gateway = FakeGateway()
+    final store = OutboxMemoryStore();
+    final gateway = FakeGateway()
       ..messageFailure = BabylonApiException(400, 'INVALID_REQUEST', 'safe');
-    final coordinator = MessageDeliveryCoordinator(outbox: MessageOutbox(store), gateway: gateway,
-      encoder: const Utf8MessageEnvelopeEncoder());
+    final coordinator = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(store),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+    );
     await coordinator.send(item());
-    expect(store.values[item().requestId]!.status, OutboxMessageStatus.failed);
+    expect(
+      store.values[item().requestId]!.status,
+      OutboxMessageStatus.failed,
+    );
   });
 }
