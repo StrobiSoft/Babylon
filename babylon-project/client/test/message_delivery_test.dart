@@ -160,7 +160,7 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
-      scheduleWakeup: (_, __) => scheduled = true,
+      scheduleWakeup: (_, _) => scheduled = true,
     );
     await coordinator.send(item());
     expect(
