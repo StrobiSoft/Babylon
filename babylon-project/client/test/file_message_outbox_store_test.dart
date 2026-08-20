@@ -87,6 +87,41 @@ void main() {
       expect(await reopened.get(original.requestId), isNull);
     });
 
+    test('serializes concurrent mutations and persists the final state', () async {
+      final store = await FileMessageOutboxStore.open(directory);
+      final messages = List.generate(
+        12,
+        (index) => message(
+          requestId: '00000000-0000-4000-8000-${(index + 50).toString().padLeft(12, '0')}',
+        ),
+      );
+
+      await Future.wait(messages.map(store.put));
+      await Future.wait([
+        store.delete(messages[2].requestId),
+        store.delete(messages[7].requestId),
+        store.put(
+          messages[5].copyWith(
+            status: OutboxMessageStatus.pending,
+            pendingReason: 'model_unavailable',
+          ),
+        ),
+      ]);
+
+      final reopened = await FileMessageOutboxStore.open(directory);
+      expect(await reopened.get(messages[2].requestId), isNull);
+      expect(await reopened.get(messages[7].requestId), isNull);
+      expect(
+        (await reopened.get(messages[5].requestId))!.status,
+        OutboxMessageStatus.pending,
+      );
+      for (final item in messages.where(
+        (item) => item.requestId != messages[2].requestId && item.requestId != messages[7].requestId,
+      )) {
+        expect(await reopened.get(item.requestId), isNotNull);
+      }
+    });
+
     test('recovers the backup when the main file is missing', () async {
       final file = File('${directory.path}${Platform.pathSeparator}message-outbox.json');
       final backup = File('${file.path}.bak');
