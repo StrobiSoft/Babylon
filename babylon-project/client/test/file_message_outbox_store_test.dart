@@ -3,7 +3,24 @@ import 'dart:io';
 
 import 'package:babylon_client/src/file_message_outbox_store.dart';
 import 'package:babylon_client/src/message_outbox.dart';
+import 'package:babylon_client/src/outbox_storage_crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+class MemoryOutboxStorageKeyStore implements OutboxStorageKeyStore {
+  MemoryOutboxStorageKeyStore([List<int>? keyBytes])
+      : _keyBytes = keyBytes == null ? null : List<int>.from(keyBytes);
+
+  List<int>? _keyBytes;
+
+  @override
+  Future<List<int>?> readKey() async =>
+      _keyBytes == null ? null : List<int>.from(_keyBytes!);
+
+  @override
+  Future<void> writeKey(List<int> keyBytes) async {
+    _keyBytes = List<int>.from(keyBytes);
+  }
+}
 
 OutboxMessage message({
   String requestId = '00000000-0000-4000-8000-000000000041',
@@ -21,9 +38,11 @@ OutboxMessage message({
 void main() {
   group('FileMessageOutboxStore', () {
     late Directory directory;
+    late MemoryOutboxStorageKeyStore keyStore;
 
     setUp(() async {
       directory = await Directory.systemTemp.createTemp('babylon-outbox-test-');
+      keyStore = MemoryOutboxStorageKeyStore();
     });
 
     tearDown(() async {
@@ -32,12 +51,31 @@ void main() {
       }
     });
 
+    Future<FileMessageOutboxStore> openStore() =>
+        FileMessageOutboxStore.open(directory, keyStore: keyStore);
+
+    test('persists only encrypted payload data on disk', () async {
+      final store = await openStore();
+      final original = message();
+      await store.put(original);
+
+      final file = File('${directory.path}${Platform.pathSeparator}message-outbox.json');
+      final raw = await file.readAsString();
+      final envelope = jsonDecode(raw) as Map<String, dynamic>;
+
+      expect(raw, isNot(contains(original.sourceText)));
+      expect(raw, isNot(contains(original.recipientId)));
+      expect(envelope['schemaVersion'], 2);
+      expect(envelope['algorithm'], OutboxStorageCrypto.algorithmName);
+      expect(envelope['ciphertext'], isA<String>());
+    });
+
     test('survives a full store reopen without losing message content', () async {
-      final first = await FileMessageOutboxStore.open(directory);
+      final first = await openStore();
       final original = message();
       await first.put(original);
 
-      final reopened = await FileMessageOutboxStore.open(directory);
+      final reopened = await openStore();
       final restored = await reopened.get(original.requestId);
 
       expect(restored, isNotNull);
@@ -50,11 +88,11 @@ void main() {
     });
 
     test('recovers interrupted sending state as queued after restart', () async {
-      final first = await FileMessageOutboxStore.open(directory);
+      final first = await openStore();
       final original = message(status: OutboxMessageStatus.sending);
       await first.put(original);
 
-      final reopened = await FileMessageOutboxStore.open(directory);
+      final reopened = await openStore();
       final restored = await reopened.get(original.requestId);
 
       expect(restored, isNotNull);
@@ -63,14 +101,14 @@ void main() {
     });
 
     test('keeps pending state and reason across restart', () async {
-      final first = await FileMessageOutboxStore.open(directory);
+      final first = await openStore();
       final pending = message().copyWith(
         status: OutboxMessageStatus.pending,
         pendingReason: 'model_unavailable',
       );
       await first.put(pending);
 
-      final reopened = await FileMessageOutboxStore.open(directory);
+      final reopened = await openStore();
       final restored = await reopened.get(pending.requestId);
 
       expect(restored!.status, OutboxMessageStatus.pending);
@@ -78,17 +116,17 @@ void main() {
     });
 
     test('persists deletion after delivery acknowledgement cleanup', () async {
-      final first = await FileMessageOutboxStore.open(directory);
+      final first = await openStore();
       final original = message();
       await first.put(original);
       await first.delete(original.requestId);
 
-      final reopened = await FileMessageOutboxStore.open(directory);
+      final reopened = await openStore();
       expect(await reopened.get(original.requestId), isNull);
     });
 
     test('serializes concurrent mutations and persists the final state', () async {
-      final store = await FileMessageOutboxStore.open(directory);
+      final store = await openStore();
       final messages = List.generate(
         12,
         (index) => message(
@@ -108,7 +146,7 @@ void main() {
         ),
       ]);
 
-      final reopened = await FileMessageOutboxStore.open(directory);
+      final reopened = await openStore();
       expect(await reopened.get(messages[2].requestId), isNull);
       expect(await reopened.get(messages[7].requestId), isNull);
       expect(
@@ -122,44 +160,63 @@ void main() {
       }
     });
 
-    test('recovers the backup when the main file is missing', () async {
+    test('recovers an encrypted backup when the main file is missing', () async {
+      final first = await openStore();
+      final original = message();
+      await first.put(original);
+
       final file = File('${directory.path}${Platform.pathSeparator}message-outbox.json');
       final backup = File('${file.path}.bak');
-      final original = message();
-      await backup.writeAsString(
-        jsonEncode({
-          'schemaVersion': 1,
-          'messages': [
-            {
-              'requestId': original.requestId,
-              'recipientId': original.recipientId,
-              'sourceText': original.sourceText,
-              'targetLanguage': original.targetLanguage,
-              'style': original.style,
-              'createdAt': original.createdAt.toIso8601String(),
-              'status': original.status.name,
-              'pendingReason': null,
-              'deliveredAt': null,
-            },
-          ],
-        }),
-        flush: true,
-      );
+      await file.rename(backup.path);
 
-      final store = await FileMessageOutboxStore.open(directory);
-      expect(await store.get(original.requestId), isNotNull);
+      final reopened = await openStore();
+      expect(await reopened.get(original.requestId), isNotNull);
       expect(await file.exists(), isTrue);
       expect(await backup.exists(), isFalse);
     });
 
+    test('fails closed when encrypted storage is tampered with', () async {
+      final store = await openStore();
+      await store.put(message());
+
+      final file = File('${directory.path}${Platform.pathSeparator}message-outbox.json');
+      final envelope = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      final ciphertext = envelope['ciphertext'] as String;
+      envelope['ciphertext'] = '${ciphertext[0] == 'A' ? 'B' : 'A'}${ciphertext.substring(1)}';
+      await file.writeAsString(jsonEncode(envelope), flush: true);
+
+      await expectLater(openStore(), throwsA(isA<FormatException>()));
+    });
+
+    test('fails closed when the storage key is missing', () async {
+      final store = await openStore();
+      await store.put(message());
+
+      final missingKeyStore = MemoryOutboxStorageKeyStore();
+      await expectLater(
+        FileMessageOutboxStore.open(directory, keyStore: missingKeyStore),
+        throwsStateError,
+      );
+    });
+
+    test('fails closed when the storage key changes', () async {
+      final store = await openStore();
+      await store.put(message());
+
+      final differentKeyStore = MemoryOutboxStorageKeyStore(List<int>.filled(32, 7));
+      await expectLater(
+        FileMessageOutboxStore.open(directory, keyStore: differentKeyStore),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('fails closed instead of silently discarding corrupted storage', () async {
+      final store = await openStore();
+      await store.put(message());
       final file = File('${directory.path}${Platform.pathSeparator}message-outbox.json');
       await file.writeAsString('{broken-json', flush: true);
 
-      await expectLater(
-        FileMessageOutboxStore.open(directory),
-        throwsA(isA<FormatException>()),
-      );
+      await expectLater(openStore(), throwsA(isA<FormatException>()));
       expect(await file.readAsString(), '{broken-json');
     });
   });
