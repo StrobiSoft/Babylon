@@ -163,15 +163,30 @@ export class MessageDeliveryService {
   }
 
   async status(senderUserId: string, requestId: string) {
-    await this.expireDue(100);
-    const result = await this.database.query<DeliveryRow>(
-      `SELECT request_id, recipient_user_id, payload, request_binding, payload_format, state,
-              failure_code, created_at, expires_at, delivered_at
-         FROM message_deliveries WHERE sender_user_id = $1 AND request_id = $2`,
-      [senderUserId, requestId],
-    );
-    if (!result.rows[0]) throw new DeliveryNotFoundError();
-    return this.publicState(result.rows[0]);
+    return this.database.transaction(async (client) => {
+      const result = await client.query<DeliveryRow>(
+        `SELECT request_id, recipient_user_id, payload, request_binding, payload_format, state,
+                failure_code, created_at, expires_at, delivered_at
+           FROM message_deliveries
+          WHERE sender_user_id = $1 AND request_id = $2
+          FOR UPDATE`,
+        [senderUserId, requestId],
+      );
+      const row = result.rows[0];
+      if (!row) throw new DeliveryNotFoundError();
+      if (row.state !== 'pending' || row.expires_at > this.clock.now()) {
+        return this.publicState(row);
+      }
+      const now = this.clock.now();
+      const expired = await client.query<DeliveryRow>(
+        `UPDATE message_deliveries SET state = 'expired', payload = NULL, terminal_at = $3
+         WHERE sender_user_id = $1 AND request_id = $2 AND state = 'pending'
+         RETURNING request_id, recipient_user_id, payload, request_binding, payload_format, state,
+                   failure_code, created_at, expires_at, delivered_at`,
+        [senderUserId, requestId, now],
+      );
+      return this.publicState(this.requiredRow(expired.rows[0]));
+    });
   }
 
   async failUnrecoverable(
