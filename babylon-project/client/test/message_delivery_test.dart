@@ -28,6 +28,14 @@ class OutboxMemoryStore implements MessageOutboxStore {
   Future<void> put(OutboxMessage message) async => values[message.requestId] = message;
 }
 
+class InboundMemoryStore implements InboundAcceptanceStore {
+  final accepted = <String>{};
+
+  @override
+  Future<bool> accept(String senderId, String requestId) async =>
+      accepted.add('$senderId/$requestId');
+}
+
 OutboxMessage item() => OutboxMessage(
   requestId: '00000000-0000-4000-8000-000000000021',
   recipientId: '00000000-0000-4000-8000-000000000002',
@@ -38,6 +46,41 @@ OutboxMessage item() => OutboxMessage(
 );
 
 void main() {
+  test('durable inbound acceptance prevents duplicate consumption after uncertain ACK and restart', () async {
+    final acceptanceStore = InboundMemoryStore();
+    final gateway = FakeGateway()
+      ..pendingMessageRows = [
+        {
+          'requestId': '00000000-0000-4000-8000-000000000031',
+          'senderId': '00000000-0000-4000-8000-000000000032',
+          'payload': 'opaque',
+          'payloadFormat': 'transport-v1',
+        },
+      ]
+      ..acknowledgeFailure = BabylonApiException(0, 'NETWORK_TIMEOUT', 'safe');
+    var consumptions = 0;
+    MessageDeliveryCoordinator coordinator() => MessageDeliveryCoordinator(
+      outbox: MessageOutbox(OutboxMemoryStore()),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: acceptanceStore,
+      now: () => DateTime.utc(2026, 8, 20, 12),
+      scheduleWakeup: (_, _) {},
+    );
+
+    await expectLater(
+      coordinator().receiveAndAcknowledge((_, _) async => consumptions += 1),
+      throwsA(isA<BabylonApiException>()),
+    );
+    expect(consumptions, 1);
+
+    gateway.acknowledgeFailure = null;
+    await coordinator().receiveAndAcknowledge((_, _) async => consumptions += 1);
+    await coordinator().receiveAndAcknowledge((_, _) async => consumptions += 1);
+    expect(consumptions, 1, reason: 'duplicates after restart must not be user-visible');
+    expect(gateway.acknowledgeCalls, 3, reason: 'late and duplicate ACKs remain safe');
+  });
+
   test('uncertain send schedules durable retry with stable request ID across restart', () async {
     final store = OutboxMemoryStore();
     final gateway = FakeGateway()
@@ -49,6 +92,7 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
       now: () => now,
       scheduleWakeup: (delay, callback) {
         scheduledDelay = delay;
@@ -71,6 +115,7 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
       now: () => now,
       scheduleWakeup: (delay, callback) {
         scheduledDelay = delay;
@@ -103,6 +148,7 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
       now: () => now,
       scheduleWakeup: (delay, callback) {
         scheduledDelay = delay;
@@ -143,6 +189,7 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
       now: () => now,
       scheduleWakeup: (delay, callback) {
         scheduledDelay = delay;
@@ -169,6 +216,7 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
       now: () => now,
       scheduleWakeup: (_, callback) => restartCallback = callback,
     );
@@ -199,6 +247,8 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
+      now: () => DateTime.utc(2026, 8, 20, 12),
       scheduleWakeup: (_, _) => scheduled = true,
     );
 
@@ -222,6 +272,8 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
+      now: () => DateTime.utc(2026, 8, 20, 12),
     );
     await store.put(
       OutboxMessage(
@@ -246,6 +298,8 @@ void main() {
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
+      now: () => DateTime.utc(2026, 8, 20, 12),
       scheduleWakeup: (_, _) => scheduled = true,
     );
     await coordinator.send(item());

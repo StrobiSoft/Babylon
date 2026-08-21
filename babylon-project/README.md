@@ -24,7 +24,8 @@ Előfeltétel: Docker Engine Compose v2 támogatással.
 ```sh
 cd /srv/babylon/babylon-project
 cp .env.example .env
-# Cseréld le legalább az adatbázis-jelszót és az ADMIN_BOOTSTRAP_TOKEN értékét.
+# Cseréld le az adatbázis-jelszót, az ADMIN_BOOTSTRAP_TOKEN értékét és a tőle
+# független MESSAGE_DELIVERY_BINDING_SECRET értékét.
 docker compose config
 docker compose up --build -d
 docker compose ps

@@ -139,6 +139,7 @@ export function testConfig(databaseUrl: string): Config {
     recoveryTtlSeconds: 300,
     recoveryCooldownSeconds: 60,
     adminBootstrapToken: 'admin-token-that-is-at-least-32-characters-long',
+    messageDeliveryBindingSecret: 'delivery-binding-secret-that-is-independent-0001',
     smtpHost: '127.0.0.1',
     smtpPort: 1025,
     emailFrom: 'Babylon <no-reply@babylon.test>',

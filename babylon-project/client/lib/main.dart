@@ -8,6 +8,7 @@ import 'src/api_client.dart';
 import 'src/app.dart';
 import 'src/auth_controller.dart';
 import 'src/file_message_outbox_store.dart';
+import 'src/file_inbound_acceptance_store.dart';
 import 'src/message_outbox.dart';
 import 'src/message_delivery.dart';
 import 'src/native_auth.dart';
@@ -27,6 +28,7 @@ Future<void> main() async {
   );
   final outboxStore = await FileMessageOutboxStore.open(outboxDirectory);
   final outbox = MessageOutbox(outboxStore);
+  final inboundAcceptances = await FileInboundAcceptanceStore.open(outboxDirectory);
 
   final tokenStore = FlutterSecureTokenStore();
   final api = BabylonApiClient(
@@ -37,6 +39,7 @@ Future<void> main() async {
     outbox: outbox,
     gateway: api,
     encoder: const Utf8MessageEnvelopeEncoder(),
+    inboundAcceptances: inboundAcceptances,
   );
   unawaited(delivery.recover());
   final controller = AuthController(

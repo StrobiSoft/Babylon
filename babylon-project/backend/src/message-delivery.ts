@@ -189,22 +189,6 @@ export class MessageDeliveryService {
     });
   }
 
-  async failUnrecoverable(
-    senderUserId: string,
-    requestId: string,
-    failureCode: 'recipient_unavailable' | 'invalid_payload' | 'retry_exhausted',
-  ) {
-    const result = await this.database.query<DeliveryRow>(
-      `UPDATE message_deliveries SET state = 'failed', payload = NULL,
-              failure_code = $3, terminal_at = $4
-         WHERE sender_user_id = $1 AND request_id = $2 AND state = 'pending'
-       RETURNING request_id, sender_user_id, recipient_user_id, payload, request_binding,
-                 payload_format, state, failure_code, created_at, expires_at, delivered_at`,
-      [senderUserId, requestId, failureCode, this.clock.now()],
-    );
-    return this.publicState(this.requiredRow(result.rows[0]));
-  }
-
   async cleanup(limit = 100): Promise<{ expired: number; deleted: number }> {
     const expired = await this.expireDue(limit);
     const cutoff = new Date(this.clock.now().getTime() - this.tombstoneSeconds * 1000);

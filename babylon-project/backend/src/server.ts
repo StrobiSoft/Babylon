@@ -116,7 +116,9 @@ export async function buildServer(input: {
   const { config, database, service } = input;
   const delivery = input.delivery;
   const app = Fastify({
-    bodyLimit: 65_536,
+    // The transport-v1 envelope accepts a 65,536-byte payload encoded as base64,
+    // plus bounded JSON metadata. Keep framework rejection above that contract.
+    bodyLimit: 90_112,
     requestTimeout: 30_000,
     logger: {
       level: config.logLevel,

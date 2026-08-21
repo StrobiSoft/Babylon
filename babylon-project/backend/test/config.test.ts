@@ -10,6 +10,7 @@ function environment(): NodeJS.ProcessEnv {
     WEBAUTHN_RP_ID: 'localhost',
     WEBAUTHN_ORIGINS: 'http://localhost:3000',
     ADMIN_BOOTSTRAP_TOKEN: 'a'.repeat(32),
+    MESSAGE_DELIVERY_BINDING_SECRET: 'b'.repeat(32),
     SMTP_HOST: 'localhost',
     SMTP_PORT: '1025',
     EMAIL_FROM: 'Babylon <test@localhost>',
@@ -28,20 +29,23 @@ describe('configuration', () => {
     expect(config.returnProfiles.local?.clientId).toBe('client');
   });
 
-  it.each(['DATABASE_URL', 'ADMIN_BOOTSTRAP_TOKEN', 'WEBAUTHN_RP_ID', 'RETURN_PROFILES_JSON'])(
-    'rejects missing or invalid %s without printing values',
-    (name) => {
-      const env = environment();
-      delete env[name];
-      expect(() => loadConfig(env)).toThrow(/Invalid configuration/);
-      try {
-        loadConfig(env);
-      } catch (error) {
-        expect(String(error)).not.toContain('pass@');
-        expect(String(error)).not.toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
-      }
-    },
-  );
+  it.each([
+    'DATABASE_URL',
+    'ADMIN_BOOTSTRAP_TOKEN',
+    'MESSAGE_DELIVERY_BINDING_SECRET',
+    'WEBAUTHN_RP_ID',
+    'RETURN_PROFILES_JSON',
+  ])('rejects missing or invalid %s without printing values', (name) => {
+    const env = environment();
+    delete env[name];
+    expect(() => loadConfig(env)).toThrow(/Invalid configuration/);
+    try {
+      loadConfig(env);
+    } catch (error) {
+      expect(String(error)).not.toContain('pass@');
+      expect(String(error)).not.toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    }
+  });
 
   it('rejects production HTTP and development callback profiles', () => {
     expect(() => loadConfig({ ...environment(), NODE_ENV: 'production' })).toThrow(

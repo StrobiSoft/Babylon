@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const secretNames = ['DATABASE_URL', 'POSTGRES_PASSWORD', 'ADMIN_BOOTSTRAP_TOKEN'] as const;
+const secretNames = [
+  'DATABASE_URL',
+  'POSTGRES_PASSWORD',
+  'ADMIN_BOOTSTRAP_TOKEN',
+  'MESSAGE_DELIVERY_BINDING_SECRET',
+] as const;
 
 /**
  * Resolves development environment variables without coupling configuration to one secret store.

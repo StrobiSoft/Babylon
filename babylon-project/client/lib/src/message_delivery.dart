@@ -22,11 +22,18 @@ typedef RetryWakeupScheduler = void Function(
   Future<void> Function() callback,
 );
 
+/// Durable receipt ledger used to make inbound delivery idempotent across restarts.
+/// Implementations must commit the key before returning `true`.
+abstract interface class InboundAcceptanceStore {
+  Future<bool> accept(String senderId, String requestId);
+}
+
 class MessageDeliveryCoordinator {
   MessageDeliveryCoordinator({
     required this.outbox,
     required this.gateway,
     required this.encoder,
+    required this.inboundAcceptances,
     DateTime Function()? now,
     RetryWakeupScheduler? scheduleWakeup,
     this.statusPollInterval = const Duration(seconds: 5),
@@ -36,6 +43,7 @@ class MessageDeliveryCoordinator {
   final MessageOutbox outbox;
   final BabylonGateway gateway;
   final MessageEnvelopeEncoder encoder;
+  final InboundAcceptanceStore inboundAcceptances;
   final Duration statusPollInterval;
   final DateTime Function() _now;
   final RetryWakeupScheduler _scheduleWakeup;
@@ -103,10 +111,15 @@ class MessageDeliveryCoordinator {
     Future<void> Function(String payload, String payloadFormat) consume,
   ) async {
     for (final message in await gateway.pendingMessages()) {
-      await consume(message['payload'] as String, message['payloadFormat'] as String);
+      final requestId = message['requestId'] as String;
+      final senderId = message['senderId'] as String;
+      final newlyAccepted = await inboundAcceptances.accept(senderId, requestId);
+      if (newlyAccepted) {
+        await consume(message['payload'] as String, message['payloadFormat'] as String);
+      }
       await gateway.acknowledgeMessage(
-        message['requestId'] as String,
-        message['senderId'] as String,
+        requestId,
+        senderId,
       );
     }
   }
