@@ -9,6 +9,8 @@ enum OutboxMessageStatus {
 
 enum DeliveryFailureKind { network, backend, model, permanent }
 
+enum OutboxRecoveryAction { send, reconcile }
+
 class OutboxMessage {
   const OutboxMessage({
     required this.requestId,
@@ -21,6 +23,8 @@ class OutboxMessage {
     this.pendingReason,
     this.deliveredAt,
     this.attemptCount = 0,
+    this.reconcileAttemptCount = 0,
+    this.recoveryAction = OutboxRecoveryAction.send,
     this.nextAttemptAt,
     this.expiresAt,
     this.failureKind,
@@ -36,6 +40,8 @@ class OutboxMessage {
   final String? pendingReason;
   final DateTime? deliveredAt;
   final int attemptCount;
+  final int reconcileAttemptCount;
+  final OutboxRecoveryAction recoveryAction;
   final DateTime? nextAttemptAt;
   final DateTime? expiresAt;
   final DeliveryFailureKind? failureKind;
@@ -46,6 +52,8 @@ class OutboxMessage {
     bool clearPendingReason = false,
     DateTime? deliveredAt,
     int? attemptCount,
+    int? reconcileAttemptCount,
+    OutboxRecoveryAction? recoveryAction,
     DateTime? nextAttemptAt,
     bool clearNextAttemptAt = false,
     DateTime? expiresAt,
@@ -63,6 +71,8 @@ class OutboxMessage {
       pendingReason: clearPendingReason ? null : pendingReason ?? this.pendingReason,
       deliveredAt: deliveredAt ?? this.deliveredAt,
       attemptCount: attemptCount ?? this.attemptCount,
+      reconcileAttemptCount: reconcileAttemptCount ?? this.reconcileAttemptCount,
+      recoveryAction: recoveryAction ?? this.recoveryAction,
       nextAttemptAt: clearNextAttemptAt ? null : nextAttemptAt ?? this.nextAttemptAt,
       expiresAt: expiresAt ?? this.expiresAt,
       failureKind: clearFailureKind ? null : failureKind ?? this.failureKind,
@@ -102,6 +112,7 @@ class MessageOutbox {
     await _store.put(
       message.copyWith(
         status: OutboxMessageStatus.sending,
+        recoveryAction: OutboxRecoveryAction.send,
         clearPendingReason: true,
         clearNextAttemptAt: true,
       ),
@@ -113,6 +124,8 @@ class MessageOutbox {
     String reason, {
     DateTime? nextAttemptAt,
     DateTime? expiresAt,
+    OutboxRecoveryAction recoveryAction = OutboxRecoveryAction.send,
+    bool resetReconcileAttempts = false,
   }) async {
     final message = await _required(requestId);
     if (message.status != OutboxMessageStatus.sending &&
@@ -126,6 +139,8 @@ class MessageOutbox {
       message.copyWith(
         status: OutboxMessageStatus.pending,
         pendingReason: reason,
+        recoveryAction: recoveryAction,
+        reconcileAttemptCount: resetReconcileAttempts ? 0 : null,
         nextAttemptAt: nextAttemptAt,
         expiresAt: expiresAt,
         clearFailureKind: true,
@@ -141,6 +156,7 @@ class MessageOutbox {
     await _store.put(
       message.copyWith(
         status: OutboxMessageStatus.queued,
+        recoveryAction: OutboxRecoveryAction.send,
         clearPendingReason: true,
         clearNextAttemptAt: true,
       ),
@@ -215,11 +231,35 @@ class MessageOutbox {
             : OutboxMessageStatus.pending,
         failureKind: kind,
         attemptCount: attempts,
+        recoveryAction: OutboxRecoveryAction.send,
         nextAttemptAt: terminal
             ? null
             : now.add(Duration(seconds: 1 << (attempts - 1).clamp(0, 6))),
         clearNextAttemptAt: terminal,
         pendingReason: kind.name,
+      ),
+    );
+  }
+
+  Future<void> recordReconcileFailure(
+    String requestId,
+    DeliveryFailureKind kind,
+    DateTime now,
+  ) async {
+    final message = await _required(requestId);
+    final attempts = message.reconcileAttemptCount + 1;
+    final expired = message.expiresAt != null && !message.expiresAt!.isAfter(now);
+    await _store.put(
+      message.copyWith(
+        status: expired ? OutboxMessageStatus.expired : OutboxMessageStatus.pending,
+        failureKind: kind,
+        reconcileAttemptCount: attempts,
+        recoveryAction: OutboxRecoveryAction.reconcile,
+        nextAttemptAt: expired
+            ? null
+            : now.add(Duration(seconds: 1 << (attempts - 1).clamp(0, 6))),
+        clearNextAttemptAt: expired,
+        pendingReason: expired ? 'client_expired' : 'reconcile_${kind.name}',
       ),
     );
   }
