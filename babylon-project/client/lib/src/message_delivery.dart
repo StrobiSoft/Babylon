@@ -94,11 +94,7 @@ class MessageDeliveryCoordinator {
         continue;
       }
       if (message.nextAttemptAt case final next? when next.isAfter(now)) continue;
-      if (message.pendingReason == 'awaiting_delivery_ack') {
-        await reconcile(message.requestId);
-      } else {
-        await retry(message.requestId);
-      }
+      await _resume(message);
     }
     await _scheduleNextWakeup();
   }
@@ -125,10 +121,11 @@ class MessageDeliveryCoordinator {
         await outbox.markTerminal(requestId, OutboxMessageStatus.expired, 'client_expired');
         return;
       }
+      if (item.nextAttemptAt case final next? when next.isAfter(now)) return;
       try {
         await _applyState(requestId, await gateway.messageStatus(requestId));
       } on BabylonApiException catch (error) {
-        await outbox.recordFailure(requestId, _failureKind(error), _now());
+        await outbox.recordReconcileFailure(requestId, _failureKind(error), _now());
       }
     } finally {
       _inFlight.remove(requestId);
@@ -149,13 +146,18 @@ class MessageDeliveryCoordinator {
         continue;
       }
       if (message.nextAttemptAt case final next? when next.isAfter(now)) continue;
-      if (message.pendingReason == 'awaiting_delivery_ack') {
-        await reconcile(message.requestId);
-      } else {
-        await retry(message.requestId);
-      }
+      await _resume(message);
     }
     await _scheduleNextWakeup();
+  }
+
+  Future<void> _resume(OutboxMessage message) async {
+    switch (message.recoveryAction) {
+      case OutboxRecoveryAction.send:
+        await retry(message.requestId);
+      case OutboxRecoveryAction.reconcile:
+        await reconcile(message.requestId);
+    }
   }
 
   Future<void> _scheduleNextWakeup() async {
@@ -204,13 +206,15 @@ class MessageDeliveryCoordinator {
           'awaiting_delivery_ack',
           nextAttemptAt: _now().add(statusPollInterval),
           expiresAt: expiresAt,
+          recoveryAction: OutboxRecoveryAction.reconcile,
+          resetReconcileAttempts: true,
         );
     }
   }
 
   DeliveryFailureKind _failureKind(BabylonApiException error) => error.statusCode == 0
       ? DeliveryFailureKind.network
-      : error.statusCode >= 500
+      : error.statusCode >= 500 || error.statusCode == 401 || error.statusCode == 403
       ? DeliveryFailureKind.backend
       : error.code.startsWith('MODEL_')
       ? DeliveryFailureKind.model
