@@ -244,6 +244,13 @@ class FileMessageOutboxStore implements MessageOutboxStore {
   }
 
   @override
+  Future<List<OutboxMessage>> allMessages() async {
+    final messages = _messages.values.toList(growable: false);
+    messages.sort((left, right) => left.createdAt.compareTo(right.createdAt));
+    return messages;
+  }
+
+  @override
   Future<void> delete(String requestId) => _serializeMutation(() async {
         final previous = _messages.remove(requestId);
         if (previous == null) return;

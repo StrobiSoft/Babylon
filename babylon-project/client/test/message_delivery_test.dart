@@ -20,6 +20,9 @@ class OutboxMemoryStore implements MessageOutboxStore {
   Future<OutboxMessage?> get(String id) async => values[id];
 
   @override
+  Future<List<OutboxMessage>> allMessages() async => values.values.toList();
+
+  @override
   Future<List<OutboxMessage>> pendingMessages() async => values.values
       .where(
         (message) =>
@@ -570,7 +573,7 @@ void main() {
     expect(scheduled, isFalse);
   });
 
-  test('explicit delivered state removes only the acknowledged outbox item', () async {
+  test('explicit delivered state retains the acknowledged local conversation item', () async {
     final store = OutboxMemoryStore();
     final gateway = FakeGateway()
       ..messageState = {
@@ -594,8 +597,9 @@ void main() {
       ),
     );
     await coordinator.send(item());
-    expect(store.values.containsKey(item().requestId), isFalse);
-    expect(store.values.values.single.sourceText, 'other');
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
+    expect(store.values[item().requestId]!.deliveredAt, DateTime.utc(2026, 8, 20, 12));
+    expect(store.values.values.where((message) => message.sourceText == 'other'), hasLength(1));
   });
 
   test('permanent failure reaches terminal state without retry scheduling', () async {

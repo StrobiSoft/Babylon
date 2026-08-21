@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app_localizations.dart';
 import 'auth_controller.dart';
+import 'soft_chat.dart';
+import 'message_outbox.dart';
 
 class BabylonApp extends StatefulWidget {
-  const BabylonApp({required this.controller, this.versionLoader, super.key});
+  const BabylonApp({required this.controller, this.chatController, this.versionLoader, super.key});
 
   final AuthController controller;
+  final SoftChatController? chatController;
   final Future<String> Function()? versionLoader;
 
   @override
@@ -76,6 +81,7 @@ class _BabylonAppState extends State<BabylonApp> with WidgetsBindingObserver {
           Builder(
             builder: (context) => _LandingPage(
               controller: widget.controller,
+              chatController: widget.chatController,
               authVisible: _authVisible,
               version: _version,
               onShowAuth: () => setState(() => _authVisible = true),
@@ -110,6 +116,7 @@ class _BabylonAppState extends State<BabylonApp> with WidgetsBindingObserver {
 class _LandingPage extends StatelessWidget {
   const _LandingPage({
     required this.controller,
+    required this.chatController,
     required this.authVisible,
     required this.version,
     required this.onShowAuth,
@@ -117,6 +124,7 @@ class _LandingPage extends StatelessWidget {
   });
 
   final AuthController controller;
+  final SoftChatController? chatController;
   final bool authVisible;
   final String version;
   final VoidCallback onShowAuth;
@@ -210,7 +218,7 @@ class _LandingPage extends StatelessWidget {
             ),
           ),
           if (authVisible)
-            _AuthOverlay(controller: controller, onClose: onHideAuth),
+            _AuthOverlay(controller: controller, chatController: chatController, onClose: onHideAuth),
         ],
       ),
     );
@@ -230,9 +238,10 @@ class _LandingPage extends StatelessWidget {
 }
 
 class _AuthOverlay extends StatelessWidget {
-  const _AuthOverlay({required this.controller, required this.onClose});
+  const _AuthOverlay({required this.controller, required this.chatController, required this.onClose});
 
   final AuthController controller;
+  final SoftChatController? chatController;
   final VoidCallback onClose;
 
   @override
@@ -271,7 +280,7 @@ class _AuthOverlay extends StatelessWidget {
                           style: const TextStyle(color: Colors.redAccent),
                         ),
                       ),
-                    Expanded(child: _AuthContent(controller: controller)),
+                    Expanded(child: _AuthContent(controller: controller, chatController: chatController)),
                   ],
                 ),
               ),
@@ -284,8 +293,9 @@ class _AuthOverlay extends StatelessWidget {
 }
 
 class _AuthContent extends StatelessWidget {
-  const _AuthContent({required this.controller});
+  const _AuthContent({required this.controller, required this.chatController});
   final AuthController controller;
+  final SoftChatController? chatController;
 
   @override
   Widget build(BuildContext context) {
@@ -308,7 +318,7 @@ class _AuthContent extends StatelessWidget {
       AuthStage.signedOut => _SignedOut(controller: controller),
       AuthStage.waitingForEmail => _WaitingForEmail(controller: controller),
       AuthStage.authenticating => Center(child: Text(strings.secureSignIn)),
-      AuthStage.signedIn => _SignedIn(controller: controller),
+      AuthStage.signedIn => _SignedIn(controller: controller, chatController: chatController),
     };
   }
 }
@@ -396,8 +406,9 @@ class _WaitingForEmail extends StatelessWidget {
 }
 
 class _SignedIn extends StatelessWidget {
-  const _SignedIn({required this.controller});
+  const _SignedIn({required this.controller, required this.chatController});
   final AuthController controller;
+  final SoftChatController? chatController;
 
   @override
   Widget build(BuildContext context) {
@@ -408,6 +419,10 @@ class _SignedIn extends StatelessWidget {
           strings.signedInAs(controller.profile?['email'] ?? ''),
           style: const TextStyle(fontSize: 20),
         ),
+        if (chatController != null) ...[
+          const SizedBox(height: 16),
+          SizedBox(height: 430, child: _SoftChatPanel(controller: chatController!)),
+        ],
         const SizedBox(height: 20),
         Text(strings.registeredDevices, style: const TextStyle(fontSize: 18)),
         for (final device in controller.deviceList)
@@ -471,4 +486,103 @@ class _SignedIn extends StatelessWidget {
       await controller.renameDevice(device['id'] as String, name);
     }
   }
+}
+
+class _SoftChatPanel extends StatefulWidget {
+  const _SoftChatPanel({required this.controller});
+  final SoftChatController controller;
+
+  @override
+  State<_SoftChatPanel> createState() => _SoftChatPanelState();
+}
+
+class _SoftChatPanelState extends State<_SoftChatPanel> {
+  final recipient = TextEditingController();
+  final message = TextEditingController();
+  Timer? timer;
+  String? composerError;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_changed);
+    unawaited(widget.controller.refresh());
+    timer = Timer.periodic(const Duration(seconds: 5), (_) => unawaited(widget.controller.refresh()));
+  }
+
+  void _changed() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    widget.controller.removeListener(_changed);
+    recipient.dispose();
+    message.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[
+      for (final item in widget.controller.sent)
+        ListTile(
+          key: Key('sent-${item.requestId}'),
+          leading: const Icon(Icons.north_east),
+          title: Text(item.sourceText),
+          subtitle: Text('To ${item.recipientId} · ${_status(item.status)}'),
+        ),
+      for (final item in widget.controller.received)
+        ListTile(
+          key: Key('received-${item.senderId}-${item.requestId}'),
+          leading: const Icon(Icons.south_west), title: Text(item.text),
+          subtitle: Text('From ${item.senderId} · Received'),
+        ),
+    ];
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Expanded(child: Text('Soft Chat', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+            IconButton(key: const Key('refresh-chat'), tooltip: 'Check for messages',
+              onPressed: widget.controller.refreshing ? null : widget.controller.refresh,
+              icon: const Icon(Icons.sync)),
+          ]),
+          if (widget.controller.receiveError != null)
+            const Text('Could not receive messages. Try again.', style: TextStyle(color: Colors.redAccent)),
+          Expanded(child: rows.isEmpty
+            ? const Center(child: Text('No messages yet.'))
+            : ListView(children: rows)),
+          TextField(key: const Key('recipient-id'), controller: recipient,
+            decoration: const InputDecoration(labelText: 'Recipient user ID')),
+          Row(children: [
+            Expanded(child: TextField(key: const Key('message-text'), controller: message,
+              decoration: InputDecoration(labelText: 'Message', errorText: composerError),
+              onSubmitted: (_) => _send())),
+            IconButton(key: const Key('send-message'), tooltip: 'Send', onPressed: _send,
+              icon: const Icon(Icons.send)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _send() async {
+    try {
+      await widget.controller.send(ComposerDraft(recipientId: recipient.text, text: message.text));
+      message.clear();
+      if (mounted) setState(() => composerError = null);
+    } catch (_) {
+      if (mounted) setState(() => composerError = 'Message could not be sent. Retry is available below.');
+    }
+  }
+
+  String _status(OutboxMessageStatus status) => switch (status) {
+    OutboxMessageStatus.queued || OutboxMessageStatus.sending => 'Sending',
+    OutboxMessageStatus.pending => 'Pending · retrying',
+    OutboxMessageStatus.delivered => 'Delivered',
+    OutboxMessageStatus.expired => 'Expired',
+    OutboxMessageStatus.failed => 'Failed',
+  };
+
 }

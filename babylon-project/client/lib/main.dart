@@ -9,11 +9,13 @@ import 'src/app.dart';
 import 'src/auth_controller.dart';
 import 'src/file_message_outbox_store.dart';
 import 'src/file_inbound_acceptance_store.dart';
+import 'src/file_received_chat_store.dart';
 import 'src/message_outbox.dart';
 import 'src/message_delivery.dart';
 import 'src/native_auth.dart';
 import 'src/outbox_scope.dart';
 import 'src/token_store.dart';
+import 'src/soft_chat.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +31,7 @@ Future<void> main() async {
   final outboxStore = await FileMessageOutboxStore.open(outboxDirectory);
   final outbox = MessageOutbox(outboxStore);
   final inboundAcceptances = await FileInboundAcceptanceStore.open(outboxDirectory);
+  final receivedChat = await FileReceivedChatStore.open(outboxDirectory);
 
   final tokenStore = FlutterSecureTokenStore();
   final api = BabylonApiClient(
@@ -49,11 +52,12 @@ Future<void> main() async {
     secureValues: tokenStore,
     onAuthenticated: delivery.resumeAfterAuthentication,
   );
+  final chat = SoftChatController(outbox: outbox, delivery: delivery, receivedStore: receivedChat);
   runApp(
     OutboxScope(
       outbox: outbox,
       delivery: delivery,
-      child: BabylonApp(controller: controller),
+      child: BabylonApp(controller: controller, chatController: chat),
     ),
   );
 }
