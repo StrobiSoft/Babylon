@@ -68,9 +68,10 @@ void main() {
       'babylon-inbound-test-',
     );
     addTearDown(() => directory.delete(recursive: true));
-    const identity = InboundDeliveryIdentity(
+    final identity = InboundDeliveryIdentity(
       senderId: '00000000-0000-4000-8000-000000000032',
       requestId: '00000000-0000-4000-8000-000000000031',
+      expiresAt: DateTime.utc(2026, 8, 21),
     );
 
     final first = await FileInboundAcceptanceStore.open(directory);
@@ -88,8 +89,83 @@ void main() {
     final ledger = await File(
       '${directory.path}${Platform.pathSeparator}inbound-acceptances.json',
     ).readAsString();
-    expect(jsonDecode(ledger)['version'], 2);
+    expect(jsonDecode(ledger)['version'], 3);
     expect(ledger, isNot(contains('opaque secret payload')));
+  });
+
+  test('receipt cleanup keeps the current late duplicate but prunes it on later traffic', () async {
+    final directory = await Directory.systemTemp.createTemp('babylon-inbound-cleanup-');
+    addTearDown(() => directory.delete(recursive: true));
+    var now = DateTime.utc(2026, 8, 20);
+    final retained = InboundDeliveryIdentity(
+      senderId: '00000000-0000-4000-8000-000000000032',
+      requestId: '00000000-0000-4000-8000-000000000031',
+      expiresAt: now.add(const Duration(hours: 1)),
+    );
+    final store = await FileInboundAcceptanceStore.open(directory, now: () => now);
+    await store.register(retained);
+    await store.complete(retained);
+
+    now = retained.expiresAt.add(const Duration(days: 1));
+    expect(
+      await store.register(retained),
+      InboundAcceptanceState.completed,
+      reason: 'the delivery being handled cannot be re-enabled at the cleanup boundary',
+    );
+
+    final later = InboundDeliveryIdentity(
+      senderId: retained.senderId,
+      requestId: '00000000-0000-4000-8000-000000000033',
+      expiresAt: now.add(const Duration(days: 1)),
+    );
+    await store.register(later);
+    final ledger = jsonDecode(
+      await File(
+        '${directory.path}${Platform.pathSeparator}inbound-acceptances.json',
+      ).readAsString(),
+    ) as Map<String, dynamic>;
+    final receipts = ledger['receipts'] as Map<String, dynamic>;
+    expect(receipts, hasLength(1));
+    expect(receipts, contains(later.key));
+  });
+
+  test('legacy receipt migration receives a bounded conservative retention horizon', () async {
+    final directory = await Directory.systemTemp.createTemp('babylon-inbound-v2-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}inbound-acceptances.json',
+    );
+    await file.writeAsString(
+      jsonEncode({
+        'version': 2,
+        'receipts': {'sender\u0000request': 'completed'},
+      }),
+    );
+    final migratedAt = DateTime.utc(2026, 8, 20);
+    final store = await FileInboundAcceptanceStore.open(
+      directory,
+      now: () => migratedAt,
+    );
+    final legacy = InboundDeliveryIdentity(
+      senderId: 'sender',
+      requestId: 'request',
+      expiresAt: DateTime.utc(2026, 8, 20),
+    );
+    expect(await store.register(legacy), InboundAcceptanceState.completed);
+    await store.register(
+      InboundDeliveryIdentity(
+        senderId: 'sender',
+        requestId: 'later-request',
+        expiresAt: migratedAt.add(const Duration(days: 1)),
+      ),
+    );
+    final rewritten = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final receipt = (rewritten['receipts'] as Map<String, dynamic>)[legacy.key]
+        as Map<String, dynamic>;
+    expect(
+      DateTime.parse(receipt['retainUntil'] as String),
+      migratedAt.add(const Duration(days: 8)),
+    );
   });
 
   test('failed consumption remains registered and retries after restart without an early ACK', (
@@ -102,6 +178,7 @@ void main() {
           'senderId': '00000000-0000-4000-8000-000000000032',
           'payload': 'opaque',
           'payloadFormat': 'transport-v1',
+          'expiresAt': '2026-08-21T00:00:00Z',
         },
       ];
     var consumptions = 0;
@@ -153,6 +230,7 @@ void main() {
           'senderId': '00000000-0000-4000-8000-000000000032',
           'payload': 'opaque',
           'payloadFormat': 'transport-v1',
+          'expiresAt': '2026-08-21T00:00:00Z',
         },
       ]
       ..acknowledgeFailure = BabylonApiException(0, 'NETWORK_TIMEOUT', 'safe');
@@ -185,6 +263,7 @@ void main() {
           'senderId': '00000000-0000-4000-8000-000000000032',
           'payload': 'opaque',
           'payloadFormat': 'transport-v1',
+          'expiresAt': '2026-08-21T00:00:00Z',
         },
       ];
     final coordinator = MessageDeliveryCoordinator(
@@ -392,6 +471,33 @@ void main() {
     expect(retained.sourceText, 'private text');
     expect(retained.failureKind, DeliveryFailureKind.backend);
     expect(scheduled, isTrue);
+  });
+
+  test('persistent authorization denial stops at policy bound without deleting content', () async {
+    final store = OutboxMemoryStore();
+    final gateway = FakeGateway()
+      ..messageFailure = BabylonApiException(403, 'FORBIDDEN', 'safe');
+    var now = DateTime.utc(2026, 8, 20, 12);
+    final coordinator = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(store),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
+      now: () => now,
+      scheduleWakeup: (_, _) {},
+    );
+
+    await coordinator.send(item());
+    for (var attempt = 1; attempt < 5; attempt += 1) {
+      now = store.values[item().requestId]!.nextAttemptAt!;
+      await coordinator.retry(item().requestId);
+    }
+
+    final retained = store.values[item().requestId]!;
+    expect(gateway.messageSendCalls, 5);
+    expect(retained.status, OutboxMessageStatus.failed);
+    expect(retained.nextAttemptAt, isNull);
+    expect(retained.sourceText, 'private text');
   });
 
   test('explicit delivered state removes only the acknowledged outbox item', () async {

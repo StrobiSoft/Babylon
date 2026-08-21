@@ -25,10 +25,17 @@ typedef RetryWakeupScheduler = void Function(
 enum InboundAcceptanceState { registered, completed }
 
 class InboundDeliveryIdentity {
-  const InboundDeliveryIdentity({required this.senderId, required this.requestId});
+  const InboundDeliveryIdentity({
+    required this.senderId,
+    required this.requestId,
+    required this.expiresAt,
+  });
 
   final String senderId;
   final String requestId;
+  /// Authoritative server expiry for the transient payload. This is retention
+  /// metadata, not part of the durable deduplication key.
+  final DateTime expiresAt;
 
   String get key => '$senderId\u0000$requestId';
 }
@@ -138,6 +145,7 @@ class MessageDeliveryCoordinator {
       final identity = InboundDeliveryIdentity(
         requestId: message['requestId'] as String,
         senderId: message['senderId'] as String,
+        expiresAt: DateTime.parse(message['expiresAt'] as String).toUtc(),
       );
       // This guard only avoids concurrent duplicate work. Restart correctness and
       // user-visible deduplication come from the durable state/consumer contracts.

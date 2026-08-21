@@ -13,6 +13,7 @@ import { ApiError, conflict, unauthorized } from './errors.js';
 import {
   DeliveryConflictError,
   DeliveryNotFoundError,
+  DeliveryRecipientUnavailableError,
   MessageDeliveryService,
 } from './message-delivery.js';
 import type { Database } from './types.js';
@@ -561,7 +562,9 @@ export async function buildServer(input: {
       return await reply.code(202).send(envelope(result));
     } catch (error) {
       if (error instanceof DeliveryConflictError)
-        throw conflict('A request ID már más címzetthez tartozik.');
+        throw conflict('A request ID már egy másik változtathatatlan üzenetborítékhoz tartozik.');
+      if (error instanceof DeliveryRecipientUnavailableError)
+        throw new ApiError(422, 'RECIPIENT_UNAVAILABLE', 'A címzett nem érhető el.');
       throw error;
     }
   });

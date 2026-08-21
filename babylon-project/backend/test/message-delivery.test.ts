@@ -3,6 +3,7 @@ import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import {
   createDeliveryBinding,
   DeliveryConflictError,
+  DeliveryRecipientUnavailableError,
   MessageDeliveryService,
 } from '../src/message-delivery.js';
 import type { Clock, Database } from '../src/types.js';
@@ -79,6 +80,21 @@ describe('transient message delivery lifecycle', () => {
     await expect(
       service.accept(input('opaque', '00000000-0000-4000-8000-000000000003')),
     ).rejects.toBeInstanceOf(DeliveryConflictError);
+  });
+
+  it('maps an invalid recipient foreign key without exposing PostgreSQL details', async () => {
+    const databaseError = Object.assign(new Error('private PostgreSQL detail'), {
+      code: '23503',
+      constraint: 'message_deliveries_recipient_user_id_fkey',
+      detail: `Key (recipient_user_id)=(${recipientUserId}) is not present`,
+    });
+    class RejectingDatabase extends ScriptedDatabase {
+      override async query<R extends QueryResultRow = QueryResultRow>(): Promise<QueryResult<R>> {
+        throw databaseError;
+      }
+    }
+    const service = new MessageDeliveryService(new RejectingDatabase([]), clock, bindingSecret);
+    await expect(service.accept(input())).rejects.toEqual(new DeliveryRecipientUnavailableError());
   });
 
   it('treats duplicate and late delivery acknowledgements as terminal idempotent events', async () => {

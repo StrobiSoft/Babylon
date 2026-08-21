@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { QueryResultRow } from 'pg';
+import type { QueryResult, QueryResultRow } from 'pg';
 import type { Clock, Database } from './types.js';
 
 export type DeliveryState = 'pending' | 'delivered' | 'expired' | 'failed';
@@ -72,25 +72,31 @@ export class MessageDeliveryService {
     const expiresAt = new Date(now.getTime() + this.ttlSeconds * 1000);
     const requestBinding = createDeliveryBinding(this.bindingSecret, input);
     return this.database.transaction(async (client) => {
-      const inserted = await client.query<DeliveryRow>(
-        `INSERT INTO message_deliveries
+      let inserted: QueryResult<DeliveryRow>;
+      try {
+        inserted = await client.query<DeliveryRow>(
+          `INSERT INTO message_deliveries
            (request_id, sender_user_id, recipient_user_id, payload, payload_format, request_binding,
             state, created_at, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
          ON CONFLICT (sender_user_id, request_id) DO NOTHING
          RETURNING request_id, sender_user_id, recipient_user_id, payload, request_binding,
                    payload_format, state, failure_code, created_at, expires_at, delivered_at`,
-        [
-          input.requestId,
-          input.senderUserId,
-          input.recipientUserId,
-          input.payload,
-          input.payloadFormat,
-          requestBinding,
-          now,
-          expiresAt,
-        ],
-      );
+          [
+            input.requestId,
+            input.senderUserId,
+            input.recipientUserId,
+            input.payload,
+            input.payloadFormat,
+            requestBinding,
+            now,
+            expiresAt,
+          ],
+        );
+      } catch (error) {
+        if (isRecipientForeignKeyViolation(error)) throw new DeliveryRecipientUnavailableError();
+        throw error;
+      }
       if (inserted.rows[0]) return this.publicState(inserted.rows[0]);
       const existing = await client.query<DeliveryRow>(
         `SELECT request_id, sender_user_id, recipient_user_id, payload, request_binding,
@@ -235,3 +241,12 @@ export class MessageDeliveryService {
 
 export class DeliveryConflictError extends Error {}
 export class DeliveryNotFoundError extends Error {}
+export class DeliveryRecipientUnavailableError extends Error {}
+
+function isRecipientForeignKeyViolation(error: unknown): boolean {
+  const postgresError = error as { code?: unknown; constraint?: unknown };
+  return (
+    postgresError.code === '23503' &&
+    postgresError.constraint === 'message_deliveries_recipient_user_id_fkey'
+  );
+}

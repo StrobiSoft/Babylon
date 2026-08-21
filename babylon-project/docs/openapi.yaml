@@ -520,7 +520,9 @@ paths:
       responses:
         '202': { description: Accepted or idempotently recovered delivery state. }
         '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+        '422': { description: Recipient is unavailable; response contains no database details. }
   /api/v1/messages/pending:
     get:
       tags: [delivery]
