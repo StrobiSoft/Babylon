@@ -22,6 +22,14 @@
 - Real WebAuthn E2E must use `RUN_WEBAUTHN_E2E=1`, Chromium, a virtual authenticator, and an isolated PostgreSQL test database.
 - Do not use destructive Git operations or force-push unless the repository owner explicitly authorizes them.
 
+## Dependency stop rule
+
+- When implementation reveals a missing backend API, data field, contract, client capability, runtime dependency, or other cross-component prerequisite, do not hide or bypass the dependency with a mock, temporary workaround, silent fallback, or self-invented product behavior.
+- Record exactly what is missing, what work is blocked, and the smallest technically sufficient change that would unblock it.
+- If resolving the dependency requires a product, architecture, security, privacy, data-model, compatibility, or user-experience decision, stop the affected work and request an explicit decision before implementing that choice.
+- If the missing prerequisite is a purely mechanical technical requirement whose correct solution is already uniquely determined by existing architecture and recorded product rules, it may be proposed as the minimal unblocker, but must still be reported clearly rather than being hidden inside unrelated work.
+- This rule is the default for all agent work. It may be ignored only when the repository owner explicitly authorizes an exception for the specific case.
+
 ## Delivery and change control
 
 - Perform non-trivial work on a dedicated remote branch, not directly on the default branch.
