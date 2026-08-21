@@ -8,7 +8,7 @@ class FileMessageOutboxStore implements MessageOutboxStore {
   FileMessageOutboxStore._(this._file, this._messages, this._crypto);
 
   static const int _schemaVersion = 2;
-  static const int _payloadVersion = 1;
+  static const int _payloadVersion = 2;
   static const String _fileName = 'message-outbox.json';
 
   final File _file;
@@ -83,7 +83,8 @@ class FileMessageOutboxStore implements MessageOutboxStore {
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('Decrypted outbox payload must be an object.');
     }
-    if (decoded['payloadVersion'] != _payloadVersion) {
+    final payloadVersion = decoded['payloadVersion'];
+    if (payloadVersion != 1 && payloadVersion != _payloadVersion) {
       throw const FormatException('Unsupported outbox payload version.');
     }
     final items = decoded['messages'];
@@ -144,11 +145,35 @@ class FileMessageOutboxStore implements MessageOutboxStore {
 
     final style = json['style'];
     final pendingReason = json['pendingReason'];
+    final attemptCount = json['attemptCount'] ?? 0;
+    final reconcileAttemptCount = json['reconcileAttemptCount'] ?? 0;
+    final failureName = json['failureKind'];
+    final recoveryActionName = json['recoveryAction'];
     if (style != null && style is! String) {
       throw const FormatException('Invalid outbox message style.');
     }
     if (pendingReason != null && pendingReason is! String) {
       throw const FormatException('Invalid outbox pending reason.');
+    }
+    if (attemptCount is! int || attemptCount < 0) {
+      throw const FormatException('Invalid outbox attempt count.');
+    }
+    if (reconcileAttemptCount is! int || reconcileAttemptCount < 0) {
+      throw const FormatException('Invalid outbox reconcile attempt count.');
+    }
+    final failureKind = failureName == null
+        ? null
+        : DeliveryFailureKind.values.where((v) => v.name == failureName).firstOrNull;
+    if (failureName != null && failureKind == null) {
+      throw const FormatException('Invalid outbox failure kind.');
+    }
+    final recoveryAction = recoveryActionName == null
+        ? pendingReason == 'awaiting_delivery_ack'
+              ? OutboxRecoveryAction.reconcile
+              : OutboxRecoveryAction.send
+        : OutboxRecoveryAction.values.where((v) => v.name == recoveryActionName).firstOrNull;
+    if (recoveryAction == null) {
+      throw const FormatException('Invalid outbox recovery action.');
     }
 
     return OutboxMessage(
@@ -161,6 +186,12 @@ class FileMessageOutboxStore implements MessageOutboxStore {
       status: status,
       pendingReason: pendingReason as String?,
       deliveredAt: optionalDate('deliveredAt'),
+      attemptCount: attemptCount,
+      reconcileAttemptCount: reconcileAttemptCount,
+      recoveryAction: recoveryAction,
+      nextAttemptAt: optionalDate('nextAttemptAt'),
+      expiresAt: optionalDate('expiresAt'),
+      failureKind: failureKind,
     );
   }
 
@@ -170,6 +201,7 @@ class FileMessageOutboxStore implements MessageOutboxStore {
       if (entry.value.status == OutboxMessageStatus.sending) {
         _messages[entry.key] = entry.value.copyWith(
           status: OutboxMessageStatus.queued,
+          recoveryAction: OutboxRecoveryAction.send,
           clearPendingReason: true,
         );
         changed = true;
@@ -200,7 +232,12 @@ class FileMessageOutboxStore implements MessageOutboxStore {
   @override
   Future<List<OutboxMessage>> pendingMessages() async {
     final messages = _messages.values
-        .where((message) => message.status != OutboxMessageStatus.delivered)
+        .where(
+          (message) =>
+              message.status != OutboxMessageStatus.delivered &&
+              message.status != OutboxMessageStatus.expired &&
+              message.status != OutboxMessageStatus.failed,
+        )
         .toList(growable: false);
     messages.sort((left, right) => left.createdAt.compareTo(right.createdAt));
     return messages;
@@ -267,5 +304,11 @@ class FileMessageOutboxStore implements MessageOutboxStore {
         'status': message.status.name,
         'pendingReason': message.pendingReason,
         'deliveredAt': message.deliveredAt?.toUtc().toIso8601String(),
+        'attemptCount': message.attemptCount,
+        'reconcileAttemptCount': message.reconcileAttemptCount,
+        'recoveryAction': message.recoveryAction.name,
+        'nextAttemptAt': message.nextAttemptAt?.toUtc().toIso8601String(),
+        'expiresAt': message.expiresAt?.toUtc().toIso8601String(),
+        'failureKind': message.failureKind?.name,
       };
 }

@@ -101,7 +101,7 @@ describeDatabase('HTTP API and browser security', () => {
       method: 'POST',
       url: '/api/v1/onboarding/resume',
       headers: { 'content-type': 'application/json' },
-      payload: JSON.stringify({ email: `${'a'.repeat(70_000)}@example.test` }),
+      payload: JSON.stringify({ email: `${'a'.repeat(100_000)}@example.test` }),
     });
     expect(malformed.statusCode).toBe(400);
     expect(unknown.statusCode).toBe(400);

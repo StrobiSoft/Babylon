@@ -22,12 +22,14 @@ class AuthController extends ChangeNotifier {
     required this.browser,
     required this.callbackFactory,
     required this.secureValues,
+    this.onAuthenticated,
   });
 
   final BabylonGateway api;
   final BrowserLauncher browser;
   final CallbackReceiver Function() callbackFactory;
   final SecureValueStore secureValues;
+  final Future<void> Function()? onAuthenticated;
   AuthStage stage = AuthStage.checkingBackend;
   String? error;
   Map<String, dynamic>? profile;
@@ -53,6 +55,7 @@ class AuthController extends ChangeNotifier {
       profile = await api.me();
       await loadDevices();
       stage = AuthStage.signedIn;
+      await onAuthenticated?.call();
     } on BabylonApiException catch (failure) {
       if (failure.statusCode == 401 || failure.statusCode == 403) {
         stage = AuthStage.signedOut;
@@ -302,6 +305,7 @@ class AuthController extends ChangeNotifier {
       deviceList = loadedDevices;
       stage = AuthStage.signedIn;
       notifyListeners();
+      await onAuthenticated?.call();
     } on BabylonApiException catch (failure) {
       if (!_isCurrentFlow(generation, receiver)) {
         await api.logout();

@@ -102,6 +102,55 @@ void main() {
     },
   );
 
+  test('401 refresh retries one delivery request with the same request ID', () async {
+    final store = MemoryStore()
+      ..values['babylon.refresh_token'] = 'old-refresh';
+    var deliveryCalls = 0;
+    final requestIds = <String>[];
+    final api = BabylonApiClient(
+      baseUri: Uri.parse('http://localhost:3000'),
+      tokenStore: store,
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/sessions/refresh')) {
+          return response(200, {
+            'data': {
+              'accessToken': 'new-access',
+              'refreshToken': 'new-refresh',
+            },
+          });
+        }
+        deliveryCalls += 1;
+        requestIds.add(
+          (jsonDecode(request.body) as Map<String, dynamic>)['requestId'] as String,
+        );
+        if (request.headers['authorization'] != 'Bearer new-access') {
+          return response(401, {
+            'error': {'code': 'UNAUTHORIZED', 'message': 'Lejárt'},
+          });
+        }
+        return response(202, {
+          'data': {
+            'requestId': requestIds.last,
+            'state': 'pending',
+            'expiresAt': '2026-08-22T00:00:00Z',
+          },
+        });
+      }),
+    );
+    const requestId = '00000000-0000-4000-8000-000000000021';
+
+    final state = await api.sendMessage(
+      requestId: requestId,
+      recipientId: '00000000-0000-4000-8000-000000000002',
+      payloadFormat: 'transport-v1',
+      payload: 'b3BhcXVl',
+    );
+
+    expect(state['state'], 'pending');
+    expect(deliveryCalls, 2);
+    expect(requestIds, everyElement(requestId));
+  });
+
   test(
     'failed refresh clears secure storage and logs the client out',
     () async {

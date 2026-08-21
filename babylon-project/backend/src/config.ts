@@ -26,6 +26,13 @@ const environmentSchema = z
     RECOVERY_TTL_SECONDS: positiveInteger.default(900),
     RECOVERY_COOLDOWN_SECONDS: positiveInteger.default(300),
     ADMIN_BOOTSTRAP_TOKEN: z.string().min(32).max(512),
+    MESSAGE_DELIVERY_BINDING_SECRET: z
+      .string()
+      .refine(
+        (value) =>
+          Buffer.byteLength(value, 'utf8') >= 32 && Buffer.byteLength(value, 'utf8') <= 512,
+        'must contain between 32 and 512 bytes',
+      ),
     SMTP_HOST: z.string().min(1),
     SMTP_PORT: z.coerce.number().int().min(1).max(65_535),
     EMAIL_FROM: z.string().min(3).max(254),
@@ -75,6 +82,7 @@ export interface Config {
   recoveryTtlSeconds: number;
   recoveryCooldownSeconds: number;
   adminBootstrapToken: string;
+  messageDeliveryBindingSecret: string;
   smtpHost: string;
   smtpPort: number;
   emailFrom: string;
@@ -190,6 +198,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): Config {
     recoveryTtlSeconds: parsed.data.RECOVERY_TTL_SECONDS,
     recoveryCooldownSeconds: parsed.data.RECOVERY_COOLDOWN_SECONDS,
     adminBootstrapToken: parsed.data.ADMIN_BOOTSTRAP_TOKEN,
+    messageDeliveryBindingSecret: parsed.data.MESSAGE_DELIVERY_BINDING_SECRET,
     smtpHost: parsed.data.SMTP_HOST,
     smtpPort: parsed.data.SMTP_PORT,
     emailFrom: parsed.data.EMAIL_FROM,

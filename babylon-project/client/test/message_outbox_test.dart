@@ -14,7 +14,7 @@ class MemoryOutboxStore implements MessageOutboxStore {
 
   @override
   Future<List<OutboxMessage>> pendingMessages() async => _messages.values
-      .where((message) => message.status != OutboxMessageStatus.delivered)
+      .where((message) => message.status != OutboxMessageStatus.delivered && message.status != OutboxMessageStatus.failed && message.status != OutboxMessageStatus.expired)
       .toList(growable: false);
 
   @override
@@ -34,6 +34,21 @@ OutboxMessage message() => OutboxMessage(
 
 void main() {
   group('MessageOutbox', () {
+    test('bounds retries and exposes an explicit terminal failure', () async {
+      final store = MemoryOutboxStore();
+      final outbox = MessageOutbox(store);
+      final original = message();
+      await outbox.queue(original);
+      for (var attempt = 0; attempt < 5; attempt += 1) {
+        await outbox.recordFailure(
+          original.requestId,
+          DeliveryFailureKind.backend,
+          DateTime.utc(2026, 8, 20, 12, 0, attempt),
+        );
+      }
+      expect((await store.get(original.requestId))!.status, OutboxMessageStatus.failed);
+      expect((await outbox.recoverableMessages()), isEmpty);
+    });
     test('keeps the client copy through sending and pending states', () async {
       final store = MemoryOutboxStore();
       final outbox = MessageOutbox(store);

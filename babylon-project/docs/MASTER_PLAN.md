@@ -29,23 +29,23 @@ New product capabilities are placed at the earliest stage where their prerequisi
 - [Babylon application README](../README.md)
 - [Architecture](ARCHITECTURE.md)
 - [Security architecture](SECURITY_ARCHITECTURE.md)
+- [Communication modes and scaling decisions](COMMUNICATION_MODES_AND_SCALING.md)
 - [Authentication state machine](AUTH_STATE_MACHINE.md)
 - [Language system architecture](LANGUAGE_SYSTEM_ARCHITECTURE.md)
 - [Language-system implementation roadmap — GitHub Issue #1](https://github.com/StrobiSoft/Babylon/issues/1)
 
 ---
 
-# Stage II — Guaranteed delivery and pending processing
+# Stage II — Guaranteed delivery and baseline chat
 
 **Approximate project range: 40% → 50%**
 
-1. Complete `translation_pending` end-to-end by wiring the existing encrypted pending queue and retry worker into the real runtime and delivery path once the production model processor is available.
-2. Activate the already bounded automatic retry worker in the real runtime once the production model processor is available.
-3. Keep the client-side copy until delivery acknowledgement arrives.
-4. Implement delivery acknowledgement semantics.
-5. Delete transient server-side content after successful delivery.
-6. Expire and securely delete abandoned jobs in the running system.
-7. Complete handling of the public delivery states:
+1. Implement the first real **Soft Chat** client flow on top of the completed delivery foundation: recipient selection, message composer, send, receive and local conversation display. Soft Chat is the default path and performs no translation, wording-style transformation or other model-mediated processing.
+2. Ensure the composer architecture treats every non-default transformation mode as explicit opt-in state and keeps the currently active mode continuously visible before send. Do not expose a mode as selectable until its processing path is actually functional.
+3. Build a repeatable Soft Chat load-test harness and establish the first empirical capacity baseline, including concurrent users, messages/second, p95/p99 latency, PostgreSQL pressure, API CPU/RAM, errors/retries and saturation behaviour. Include 100, 1,000, 5,000 and 10,000-user checkpoints where the test environment permits; higher checkpoints are evidence-driven rather than assumed capacity claims.
+4. Complete `translation_pending` end-to-end by wiring the existing encrypted pending queue and retry worker into the real runtime and delivery path once the production model processor is available.
+5. Activate the already bounded automatic retry worker in the real runtime once the production model processor is available.
+6. Complete handling of the public delivery states:
    - `delivered`
    - `delivered_after_repair`
    - `delivered_via_fallback`
@@ -53,9 +53,9 @@ New product capabilities are placed at the earliest stage where their prerequisi
    - `translation_pending`
    - `invalid_input`
 
-**Dependency note:** Stage II items 1–2 require the real model processor/runtime integration planned in Stage III. Until that dependency is available, the next actionable Stage II work is item 3.
+**Dependency note:** Stage II items 4–5 require the real model processor/runtime integration planned in Stage III. Items 1–3 do not depend on the production model runtime and should be completed first. The transient delivery chain itself is complete once PR #22 passes its final PostgreSQL 17 validation and independent review.
 
-**Stage exit criterion:** no accepted message can disappear silently; every accepted message reaches a delivered or explicit pending state.
+**Stage exit criterion:** two real clients can exchange ordinary Soft Chat messages end-to-end without AI/model availability, no accepted message can disappear silently, and every accepted processed message reaches a delivered or explicit pending state.
 
 ---
 
@@ -90,18 +90,19 @@ New product capabilities are placed at the earliest stage where their prerequisi
 3. Test mixed-language input.
 4. Test misspellings and noisy input.
 5. Test short and long messages.
-6. Test formal, everyday and casual styles as a separate output dimension: the user-selected style must be interpreted and applied by the AI language layer without changing semantic content or the locked recipient language.
+6. Test formal, everyday and casual styles as a separate output dimension: the user-selected style must be interpreted and applied by the AI language layer without changing semantic content or the explicitly selected target language.
 7. Test wrong-language model output and recovery.
 8. Measure latency.
 9. Measure RAM usage.
 10. Measure CPU / acceleration load.
 11. Measure concurrent-request behaviour.
 12. Run extended stability tests.
-13. Select final primary and secondary production model roles from evidence.
-14. Record exact model versions, quantization and acceleration path.
-15. Update architecture records with the measured deployment decision.
+13. Benchmark **mixed Soft Chat + AI traffic** separately from pure model throughput and prove that AI saturation does not unnecessarily make Soft Chat unavailable.
+14. Select final primary and secondary production model roles from evidence.
+15. Record exact model versions, quantization and acceleration path.
+16. Update architecture records with the measured deployment decision.
 
-**Stage exit criterion:** production model ordering and execution configuration are evidence-based and reproducible.
+**Stage exit criterion:** production model ordering and execution configuration are evidence-based and reproducible, with model-assisted capacity measured separately from baseline Soft Chat capacity.
 
 ---
 
@@ -109,25 +110,26 @@ New product capabilities are placed at the earliest stage where their prerequisi
 
 **Approximate project range: 70% → 80%**
 
-1. Complete recipient selection and recipient-profile resolution.
-2. Load and lock the recipient delivery language at the API boundary.
-3. Complete client → API → language agent → gateway → model routing.
-4. Return only independently validated results to the delivery path.
-5. Complete recipient delivery and acknowledgement flow.
+1. Complete recipient-profile resolution beyond the baseline Soft Chat recipient selection.
+2. Load recipient language/profile information for UI and for **explicitly selected translation modes**; recipient language alone must never silently force translation of a Soft Chat message.
+3. Complete client → API → optional language agent → gateway → model routing for modes that explicitly request model processing. Soft Chat bypasses the language/model pipeline.
+4. Return only independently validated model results to the delivery path when a model-assisted mode is active.
+5. Complete the remaining recipient delivery and acknowledgement integration for model-assisted paths without changing the already verified Soft Chat delivery semantics.
 6. Complete client-side conversation logging without creating central server-side conversation history.
 7. Add first-release image and general file attachments: users can send and receive attached images and files alongside ordinary messages. Attachment binaries are transported unchanged. Attachment filenames/image filenames are preserved exactly and are never passed through the translation or wording-style pipeline. Text visibly embedded inside an image is not OCR-extracted or translated during ordinary message delivery. Attached document contents are likewise not translated automatically merely because the document is attached.
 8. Complete profile-image handling.
 9. Add the conversation partner language/flag UI indicator.
-10. Complete user-controlled wording-style selection as an AI-managed output layer: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
-11. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation is explicitly required by the selected mode.
-12. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the ordinary text-processing path.
-13. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
-14. Integrate voice calling without translation, according to the product decision.
-15. Complete the remaining Android user flows required for the intended first release.
+10. Complete user-controlled wording-style selection as an explicit AI-managed output mode: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
+11. Preserve the communication-mode visibility invariant: whenever translation, wording-style or another model-assisted mode is active, that state remains conspicuously visible at the composer until changed; Soft Chat remains the default zero-transformation state.
+12. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation or another AI-assisted mode is explicitly selected. Cross-language Soft Chat likewise remains untranslated unless translation is explicitly selected.
+13. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the currently visible communication mode.
+14. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
+15. Integrate voice calling without translation, according to the product decision.
+16. Complete the remaining Android user flows required for the intended first release.
 
 **Attachment translation rule:** ordinary image/file delivery is a transport feature, not a language-processing feature. Filenames, image filenames, text embedded in images and attached document contents remain exactly as supplied by the sender unless a future, separately invoked document/image translation feature is explicitly designed and authorized.
 
-**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including ordinary text communication, image/file attachment exchange and first-release untranslated voice messaging.
+**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including default Soft Chat, explicitly selected model-assisted text modes, image/file attachment exchange and first-release untranslated voice messaging.
 
 ---
 
@@ -136,11 +138,11 @@ New product capabilities are placed at the earliest stage where their prerequisi
 **Approximate project range: 80% → 90%**
 
 1. Test prompt-injection and instruction-confusion attacks.
-2. Prove that the sender cannot override recipient delivery language.
+2. Prove that the sender cannot override security/product language policy in model-assisted modes.
 3. Prove that clients cannot request arbitrary model IDs.
 4. Prove that model output cannot alter product/security policy.
-5. Verify wrong-language output is never delivered.
-6. Test complete model-engine outage.
+5. Verify wrong-language output is never delivered when translation mode requires a specific target language.
+6. Test complete model-engine outage and prove Soft Chat remains available unless an independent delivery dependency is also unavailable.
 7. Test processing timeouts and retry exhaustion.
 8. Verify translation-job encryption.
 9. Verify expiry and deletion of transient jobs.
@@ -153,10 +155,12 @@ New product capabilities are placed at the earliest stage where their prerequisi
 16. Prove that no client can directly reach Ollama or the model gateway.
 17. Define and verify image/file attachment security and lifecycle rules: authenticated upload/download, transport protection, bounded file size, allowed/blocked content handling, malware-aware validation where appropriate, transient server-side retention where required, deletion/expiry semantics, and preservation of the sender-supplied filename without translating it.
 18. Define and verify voice-media security and lifecycle rules: authenticated access, transport protection, bounded size/duration, transient server-side retention where required, and deletion/expiry semantics without creating a central voice-message archive.
-19. Run the complete authentication/security regression suite.
-20. Resolve all release-blocking security findings.
+19. Validate public-scale realtime transport so large connected-user counts do not depend on aggressive empty polling; preserve Stage II ACK/idempotency/restart/E2EE boundaries when introducing server-push/realtime transport.
+20. Define measured GREEN/YELLOW/RED capacity thresholds and an expansion runbook covering local horizontal scaling and optional rented/cloud burst capacity before public-scale release.
+21. Run the complete authentication/security regression suite.
+22. Resolve all release-blocking security findings.
 
-**Stage exit criterion:** the complete functional system operates behind a verified production security boundary, including the first-release file/image and voice-message paths.
+**Stage exit criterion:** the complete functional system operates behind a verified production security boundary, including the first-release file/image and voice-message paths, and the deployment has evidence-based capacity/expansion controls rather than a single-machine assumption.
 
 ---
 
@@ -172,27 +176,29 @@ No new foundational feature should normally enter this stage. The focus is provi
 4. Test registration, login, passkey, logout and re-login.
 5. Test network interruption and recovery.
 6. Test Pepper/backend/model restart scenarios.
-7. Test multilingual message delivery.
-8. Test long messages and malformed/invalid input.
-9. Test model failure, pending state and eventual acknowledgement.
-10. Test client close/reopen and retained local state.
-11. Test image/file attachment upload, interrupted transfer, retry, delivery, download/open flow, expiry/deletion and filename preservation. Confirm that filenames and text embedded in images are not translated automatically.
-12. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
-13. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the normal text-processing path.
-14. Perform complete UI/UX defect review.
-15. Fix crashes and edge cases.
-16. Run security regression again after fixes.
-17. Run performance regression after fixes.
-18. Update documentation to the actually implemented topology and behaviour.
-19. Remove obsolete planning language from normative documentation.
-20. Record final architecture decisions and benchmark results.
-21. Finalize Android release configuration.
-22. Produce the Android release build.
-23. Rebuild from a clean environment to prove reproducibility.
-24. Test the Release Candidate comprehensively.
-25. Fix remaining release-blocking defects.
-26. Repeat the full release test suite.
-27. Freeze the verified release build.
+7. Test Soft Chat independently from model-assisted multilingual delivery.
+8. Test multilingual translation-mode message delivery.
+9. Test long messages and malformed/invalid input.
+10. Test model failure, pending state and eventual acknowledgement while confirming ordinary Soft Chat remains independent of model availability.
+11. Test client close/reopen and retained local state.
+12. Test image/file attachment upload, interrupted transfer, retry, delivery, download/open flow, expiry/deletion and filename preservation. Confirm that filenames and text embedded in images are not translated automatically.
+13. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
+14. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the currently visible communication mode.
+15. Run measured load tests at the release-candidate topology and compare against the recorded capacity baseline/thresholds.
+16. Perform complete UI/UX defect review.
+17. Fix crashes and edge cases.
+18. Run security regression again after fixes.
+19. Run performance regression after fixes.
+20. Update documentation to the actually implemented topology and behaviour.
+21. Remove obsolete planning language from normative documentation.
+22. Record final architecture decisions and benchmark results.
+23. Finalize Android release configuration.
+24. Produce the Android release build.
+25. Rebuild from a clean environment to prove reproducibility.
+26. Test the Release Candidate comprehensively.
+27. Fix remaining release-blocking defects.
+28. Repeat the full release test suite.
+29. Freeze the verified release build.
 
 **Stage exit criterion — Babylon Project = 100% / DONE:** the functionally complete Android release package has been repeatedly verified and is ready to enter the Google Play publication process.
 
@@ -220,13 +226,13 @@ This capability is intentionally outside the first-release 100% definition. Its 
 | -------------------: | ------------------------------------------------------------------------- |
 |                  30% | Baseline when this master plan was created                                |
 |                  40% | Language engine complete                                                  |
-|                  50% | Guaranteed delivery/pending processing complete                           |
+|                  50% | Guaranteed delivery and baseline Soft Chat complete                       |
 |                  60% | Real Pepper-hosted local AI integrated                                    |
 |                  70% | Production model strategy benchmarked and selected                        |
 |                  80% | Complete intended communication product integrated                        |
-|                  90% | Production/security boundary verified                                     |
+|                  90% | Production/security/scaling boundary verified                             |
 |                 100% | Verified Android release build ready for Google Play publication workflow |
 
 ## Current next task
 
-**Stage II / Item 3 — Keep the client-side copy until delivery acknowledgement arrives.**
+**Stage II / Item 1 — Implement the first real Soft Chat client flow on top of the completed delivery foundation, after PR #22 passes PostgreSQL 17 CI and independent review.**

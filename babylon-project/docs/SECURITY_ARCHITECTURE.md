@@ -85,3 +85,9 @@ key IDs plus active and grace-period verification keys.
 Production TLS/domain, platform links, release signing, enterprise SMTP, SIEM transport, legal
 retention, organization/role authorization, administrator passkey step-up and device attestation need
 external policy/infrastructure. Interfaces exist; placeholder security claims are intentionally absent.
+
+## Transient delivery privacy boundary
+
+Message envelopes are operational delivery data, not audit or conversation history. Pending payloads have a maximum lifetime; delivered and expired rows have no payload. Cleanup is batch-bounded, and content-free terminal tombstones are retained only long enough for late sender reconciliation. The server never logs the payload field. The server-visible routing metadata is limited to sender, recipient, stable request ID, format marker, state, failure code, and lifecycle timestamps.
+
+The client receipt ledger stores only sender/request identity, processing state, and a retention timestamp. Its retention extends beyond authoritative payload expiry to cover late fetch/ACK behavior, after which startup or subsequent inbound activity prunes it. The production consumer contract requires durable idempotency on that identity; arbitrary callbacks are not represented as exactly-once operations.
