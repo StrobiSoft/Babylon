@@ -22,11 +22,36 @@ typedef RetryWakeupScheduler = void Function(
   Future<void> Function() callback,
 );
 
-/// Durable receipt ledger used to make inbound delivery idempotent across restarts.
-/// Implementations must commit the key before returning `true`.
-abstract interface class InboundAcceptanceStore {
-  Future<bool> accept(String senderId, String requestId);
+enum InboundAcceptanceState { registered, completed }
+
+class InboundDeliveryIdentity {
+  const InboundDeliveryIdentity({required this.senderId, required this.requestId});
+
+  final String senderId;
+  final String requestId;
+
+  String get key => '$senderId\u0000$requestId';
 }
+
+/// Durable receipt ledger for the inbound registration/completion state machine.
+/// It deliberately stores identity and state only, never the message payload.
+abstract interface class InboundAcceptanceStore {
+  Future<InboundAcceptanceState> register(InboundDeliveryIdentity identity);
+  Future<void> complete(InboundDeliveryIdentity identity);
+}
+
+/// The content layer's durable, idempotent acceptance operation.
+///
+/// Implementations MUST transactionally deduplicate by [identity]. If the process
+/// dies after this method commits but before the receipt ledger reaches
+/// [InboundAcceptanceState.completed], it will be called again with the same
+/// identity. This explicit contract avoids pretending an arbitrary callback can
+/// provide exactly-once side effects across that crash boundary.
+typedef DurableInboundConsumer = Future<void> Function(
+  InboundDeliveryIdentity identity,
+  String payload,
+  String payloadFormat,
+);
 
 class MessageDeliveryCoordinator {
   MessageDeliveryCoordinator({
@@ -48,6 +73,7 @@ class MessageDeliveryCoordinator {
   final DateTime Function() _now;
   final RetryWakeupScheduler _scheduleWakeup;
   final Set<String> _inFlight = <String>{};
+  final Set<String> _inboundInFlight = <String>{};
   int _scheduleGeneration = 0;
 
   static DateTime _utcNow() => DateTime.now().toUtc();
@@ -107,20 +133,30 @@ class MessageDeliveryCoordinator {
     await _scheduleNextWakeup();
   }
 
-  Future<void> receiveAndAcknowledge(
-    Future<void> Function(String payload, String payloadFormat) consume,
-  ) async {
+  Future<void> receiveAndAcknowledge(DurableInboundConsumer consume) async {
     for (final message in await gateway.pendingMessages()) {
-      final requestId = message['requestId'] as String;
-      final senderId = message['senderId'] as String;
-      final newlyAccepted = await inboundAcceptances.accept(senderId, requestId);
-      if (newlyAccepted) {
-        await consume(message['payload'] as String, message['payloadFormat'] as String);
-      }
-      await gateway.acknowledgeMessage(
-        requestId,
-        senderId,
+      final identity = InboundDeliveryIdentity(
+        requestId: message['requestId'] as String,
+        senderId: message['senderId'] as String,
       );
+      // This guard only avoids concurrent duplicate work. Restart correctness and
+      // user-visible deduplication come from the durable state/consumer contracts.
+      if (!_inboundInFlight.add(identity.key)) continue;
+      try {
+        final state = await inboundAcceptances.register(identity);
+        if (state != InboundAcceptanceState.completed) {
+          await consume(
+            identity,
+            message['payload'] as String,
+            message['payloadFormat'] as String,
+          );
+          await inboundAcceptances.complete(identity);
+        }
+        // A registered receipt is never ACKable. Completion is persisted first.
+        await gateway.acknowledgeMessage(identity.requestId, identity.senderId);
+      } finally {
+        _inboundInFlight.remove(identity.key);
+      }
     }
   }
 

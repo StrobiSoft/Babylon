@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:babylon_client/src/api_client.dart';
+import 'package:babylon_client/src/file_inbound_acceptance_store.dart';
 import 'package:babylon_client/src/message_delivery.dart';
 import 'package:babylon_client/src/message_outbox.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -29,11 +34,23 @@ class OutboxMemoryStore implements MessageOutboxStore {
 }
 
 class InboundMemoryStore implements InboundAcceptanceStore {
-  final accepted = <String>{};
+  final states = <String, InboundAcceptanceState>{};
 
   @override
-  Future<bool> accept(String senderId, String requestId) async =>
-      accepted.add('$senderId/$requestId');
+  Future<InboundAcceptanceState> register(
+    InboundDeliveryIdentity identity,
+  ) async {
+    return states.putIfAbsent(
+      identity.key,
+      () => InboundAcceptanceState.registered,
+    );
+  }
+
+  @override
+  Future<void> complete(InboundDeliveryIdentity identity) async {
+    if (!states.containsKey(identity.key)) throw StateError('not registered');
+    states[identity.key] = InboundAcceptanceState.completed;
+  }
 }
 
 OutboxMessage item() => OutboxMessage(
@@ -46,7 +63,88 @@ OutboxMessage item() => OutboxMessage(
 );
 
 void main() {
-  test('durable inbound acceptance prevents duplicate consumption after uncertain ACK and restart', () async {
+  test('file receipt ledger recovers registered work without storing payload', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'babylon-inbound-test-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    const identity = InboundDeliveryIdentity(
+      senderId: '00000000-0000-4000-8000-000000000032',
+      requestId: '00000000-0000-4000-8000-000000000031',
+    );
+
+    final first = await FileInboundAcceptanceStore.open(directory);
+    expect(await first.register(identity), InboundAcceptanceState.registered);
+
+    final restarted = await FileInboundAcceptanceStore.open(directory);
+    expect(await restarted.register(identity), InboundAcceptanceState.registered);
+    await restarted.complete(identity);
+
+    final completedRestart = await FileInboundAcceptanceStore.open(directory);
+    expect(
+      await completedRestart.register(identity),
+      InboundAcceptanceState.completed,
+    );
+    final ledger = await File(
+      '${directory.path}${Platform.pathSeparator}inbound-acceptances.json',
+    ).readAsString();
+    expect(jsonDecode(ledger)['version'], 2);
+    expect(ledger, isNot(contains('opaque secret payload')));
+  });
+
+  test('failed consumption remains registered and retries after restart without an early ACK', (
+    ) async {
+    final acceptanceStore = InboundMemoryStore();
+    final gateway = FakeGateway()
+      ..pendingMessageRows = [
+        {
+          'requestId': '00000000-0000-4000-8000-000000000031',
+          'senderId': '00000000-0000-4000-8000-000000000032',
+          'payload': 'opaque',
+          'payloadFormat': 'transport-v1',
+        },
+      ];
+    var consumptions = 0;
+    MessageDeliveryCoordinator coordinator() => MessageDeliveryCoordinator(
+      outbox: MessageOutbox(OutboxMemoryStore()),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: acceptanceStore,
+      now: () => DateTime.utc(2026, 8, 20, 12),
+      scheduleWakeup: (_, _) {},
+    );
+
+    await expectLater(
+      coordinator().receiveAndAcknowledge((_, _, _) async {
+        consumptions += 1;
+        throw StateError('local durable acceptance failed');
+      }),
+      throwsStateError,
+    );
+    expect(consumptions, 1);
+    expect(gateway.acknowledgeCalls, 0);
+    expect(
+      acceptanceStore.states.values.single,
+      InboundAcceptanceState.registered,
+    );
+
+    await coordinator().receiveAndAcknowledge(
+      (_, _, _) async => consumptions += 1,
+    );
+    expect(
+      consumptions,
+      2,
+      reason: 'registered work must be replayed after restart',
+    );
+    expect(gateway.acknowledgeCalls, 1);
+    expect(
+      acceptanceStore.states.values.single,
+      InboundAcceptanceState.completed,
+    );
+  });
+
+  test('durable completion prevents duplicate consumption after ACK failure and restart', (
+    ) async {
     final acceptanceStore = InboundMemoryStore();
     final gateway = FakeGateway()
       ..pendingMessageRows = [
@@ -64,21 +162,56 @@ void main() {
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
       inboundAcceptances: acceptanceStore,
-      now: () => DateTime.utc(2026, 8, 20, 12),
       scheduleWakeup: (_, _) {},
     );
 
     await expectLater(
-      coordinator().receiveAndAcknowledge((_, _) async => consumptions += 1),
+      coordinator().receiveAndAcknowledge((_, _, _) async => consumptions += 1),
       throwsA(isA<BabylonApiException>()),
     );
-    expect(consumptions, 1);
-
     gateway.acknowledgeFailure = null;
-    await coordinator().receiveAndAcknowledge((_, _) async => consumptions += 1);
-    await coordinator().receiveAndAcknowledge((_, _) async => consumptions += 1);
+    await coordinator().receiveAndAcknowledge((_, _, _) async => consumptions += 1);
+    await coordinator().receiveAndAcknowledge((_, _, _) async => consumptions += 1);
     expect(consumptions, 1, reason: 'duplicates after restart must not be user-visible');
     expect(gateway.acknowledgeCalls, 3, reason: 'late and duplicate ACKs remain safe');
+  });
+
+  test('concurrent duplicate fetches cannot invoke local consumption twice', () async {
+    final acceptanceStore = InboundMemoryStore();
+    final gateway = FakeGateway()
+      ..pendingMessageRows = [
+        {
+          'requestId': '00000000-0000-4000-8000-000000000031',
+          'senderId': '00000000-0000-4000-8000-000000000032',
+          'payload': 'opaque',
+          'payloadFormat': 'transport-v1',
+        },
+      ];
+    final coordinator = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(OutboxMemoryStore()),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: acceptanceStore,
+      scheduleWakeup: (_, _) {},
+    );
+    final consumeStarted = Completer<void>();
+    final releaseConsume = Completer<void>();
+    var consumptions = 0;
+    Future<void> consume(InboundDeliveryIdentity _, String __, String ___) async {
+      consumptions += 1;
+      consumeStarted.complete();
+      await releaseConsume.future;
+    }
+
+    final first = coordinator.receiveAndAcknowledge(consume);
+    await consumeStarted.future;
+    final duplicate = coordinator.receiveAndAcknowledge(consume);
+    await duplicate;
+    releaseConsume.complete();
+    await first;
+
+    expect(consumptions, 1);
+    expect(gateway.acknowledgeCalls, 1);
   });
 
   test('uncertain send schedules durable retry with stable request ID across restart', () async {
