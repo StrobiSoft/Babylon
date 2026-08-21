@@ -83,11 +83,12 @@ class SoftChatController extends ChangeNotifier {
 
   Future<void> send(ComposerDraft draft) async {
     final recipient = draft.recipientId.trim();
-    final text = draft.text.trim();
-    if (recipient.isEmpty || text.isEmpty) throw ArgumentError('Recipient and message are required.');
+    if (recipient.isEmpty || draft.text.trim().isEmpty) {
+      throw ArgumentError('Recipient and message are required.');
+    }
     if (draft.mode != ComposerMode.softChat) throw StateError('Unsupported composer mode.');
     final message = OutboxMessage(
-      requestId: _requestId(), recipientId: recipient, sourceText: text,
+      requestId: _requestId(), recipientId: recipient, sourceText: draft.text,
       targetLanguage: 'none', createdAt: _now(),
     );
     try {

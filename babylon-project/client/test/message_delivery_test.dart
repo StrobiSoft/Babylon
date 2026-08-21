@@ -387,7 +387,7 @@ void main() {
     };
     now = now.add(const Duration(seconds: 5));
     await scheduledCallback!();
-    expect(store.values.containsKey(item().requestId), isFalse);
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
   });
 
   test('accepted delivery status failures retry status only across restart', () async {
@@ -450,7 +450,7 @@ void main() {
     await restartCallback!();
     expect(gateway.messageSendCalls, 1);
     expect(gateway.messageStatusCalls, 2);
-    expect(store.values.containsKey(item().requestId), isFalse);
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
   });
 
   test('accepted delivery auth pause resumes status-only reconciliation', () async {
@@ -491,7 +491,7 @@ void main() {
     await coordinator.resumeAfterAuthentication();
     expect(gateway.messageSendCalls, 1, reason: 'accepted payload must never be resent');
     expect(gateway.messageStatusCalls, 2);
-    expect(store.values.containsKey(item().requestId), isFalse);
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
   });
 
   test('final 401 pauses across restart and resumes with the stable request ID', () async {
