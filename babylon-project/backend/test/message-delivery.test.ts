@@ -103,6 +103,21 @@ describe('transient message delivery lifecycle', () => {
     expect(states.map((state) => state.state)).toEqual(['delivered', 'delivered']);
   });
 
+  it('expires the requested status row even when bulk cleanup ordering would not reach it', async () => {
+    const due = { ...row(), expires_at: new Date(now.getTime() - 1) };
+    const expired = { ...due, state: 'expired', payload: null };
+    const db = new ScriptedDatabase([[due], [expired]]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+
+    const state = await service.status(senderUserId, requestId);
+
+    expect(state.state).toBe('expired');
+    expect(db.calls).toHaveLength(2);
+    expect(db.calls[0]).toContain('FOR UPDATE');
+    expect(db.calls[1]).toContain("state = 'expired', payload = NULL");
+    expect(db.calls[1]).toContain('sender_user_id = $1 AND request_id = $2');
+  });
+
   it('bounds expiry and terminal deletion cleanup batches and deletes payloads on expiry', async () => {
     const db = new ScriptedDatabase([[], []]);
     const service = new MessageDeliveryService(db, clock, bindingSecret);
