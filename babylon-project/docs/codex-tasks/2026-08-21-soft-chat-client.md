@@ -5,13 +5,13 @@ Implement the first real Soft Chat client flow on top of the already merged Stag
 
 ## Required scope
 1. Recipient selection/input suitable for the current backend contract.
-2. Message composer for ordinary text messages.
+2. Message composer for ordinary text messages, including normal Unicode emoji input. Emoji-only messages must be valid where the existing message contract permits ordinary non-empty text.
 3. Send through the existing delivery API/outbox/ACK path; do not bypass the verified delivery foundation.
-4. Receive and display incoming messages locally.
-5. Display sent and received messages in a minimal local conversation view.
+4. Receive and display incoming messages locally, preserving Unicode emoji exactly as sent.
+5. Display sent and received messages in a minimal local conversation view, including mixed text+emoji and emoji-only content.
 6. Represent user-visible delivery state cleanly: sending, delivered, explicit pending, failure and retryable state where the existing backend contract supports it.
 7. Preserve the existing durable/idempotent delivery semantics and restart-safe outbox behavior.
-8. Structure composer state so future explicit translation/style modes can be added without redesigning the basic composer, but do not expose any non-functional mode selector.
+8. Structure composer/message-content state so future explicit translation/style modes and future non-text expressive content such as stickers/sticker packs can be added without redesigning the basic composer, but do not implement or expose sticker functionality in this task and do not expose any non-functional mode selector.
 
 ## Explicitly out of scope
 - AI/model processing
@@ -19,10 +19,11 @@ Implement the first real Soft Chat client flow on top of the already merged Stag
 - wording-style transformation
 - file/image attachments
 - DHP/protected attachments
+- stickers or sticker packs beyond preserving an extensible content model
 - voice messages or calls
 - unrelated backend feature work
 
-Soft Chat is the zero-transformation default path. It must not invoke the language/model pipeline.
+Soft Chat is the zero-transformation default path. It must not invoke the language/model pipeline. Unicode emoji are ordinary user-authored message content and must not be stripped, normalized into different semantics, translated, or routed through AI merely because they are present.
 
 ## Dependency rule — mandatory repository default
 Read and obey `AGENTS.md`. If implementation reveals a missing backend API, field, contract, client dependency or other component dependency:
@@ -32,7 +33,7 @@ Read and obey `AGENTS.md`. If implementation reveals a missing backend API, fiel
 - deviate from this rule only if the repository owner explicitly authorizes an exception for that case.
 
 ## Validation
-Add focused unit/widget/integration tests appropriate to the change, including send/receive, pending/error handling and supported restart/local-state behavior. Run and report exact results for:
+Add focused unit/widget/integration tests appropriate to the change, including send/receive, pending/error handling, supported restart/local-state behavior, mixed text+emoji, and emoji-only messages. Run and report exact results for:
 - `flutter analyze`
 - `flutter test`
 - Android debug build
@@ -44,4 +45,4 @@ Do not claim end-to-end completion from mocks alone. Where two-real-client verif
 Work only on branch `codex/stage4-soft-chat-client`. Push recoverable commits after coherent slices. Keep the PR draft until implementation and validation are complete. Do not merge. Post a completion comment containing commit SHAs, changed areas, exact validation results, remaining limitations, and any dependency that required owner review.
 
 ## Definition of done
-Two real Babylon clients can exchange an ordinary text Soft Chat message using the existing guaranteed delivery foundation, with local conversation display and truthful delivery state, while Android and Windows client builds remain green. No AI, translation, attachment or voice feature is introduced as part of this task.
+Two real Babylon clients can exchange an ordinary Soft Chat message—including mixed text+emoji and emoji-only content—using the existing guaranteed delivery foundation, with local conversation display and truthful delivery state, while Android and Windows client builds remain green. No AI, translation, attachment, sticker, or voice feature is introduced as part of this task.
