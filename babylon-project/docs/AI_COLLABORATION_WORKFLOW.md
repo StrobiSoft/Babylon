@@ -94,6 +94,11 @@ This makes the repository and PR conversation the coordination layer; the human 
 - Implementation and review should remain separable roles for high-risk changes.
 - A failed or uncertain operation must not be converted into a stronger success claim by either agent.
 - Human approval remains the final merge gate.
+- A known in-scope correctness, security, data-integrity, reliability, or
+  robustness issue that can reasonably be solved and validated now must not be
+  deferred for convenience or prioritization. Deferral requires a genuine
+  external dependency, explicit architectural boundary, or other unavoidable
+  blocker; record and evaluate that dependency separately from solvable work.
 
 ## Why this is a project milestone
 

@@ -115,7 +115,12 @@ class MessageDeliveryCoordinator {
         );
         await _applyState(requestId, state);
       } on BabylonApiException catch (error) {
-        await outbox.recordFailure(requestId, _failureKind(error), _now());
+        final kind = _failureKind(error);
+        if (_isAccessFailure(kind)) {
+          await outbox.pauseForAccessFailure(requestId, kind);
+        } else {
+          await outbox.recordFailure(requestId, kind, _now());
+        }
       }
     } finally {
       _inFlight.remove(requestId);
@@ -134,10 +139,22 @@ class MessageDeliveryCoordinator {
         );
         continue;
       }
+      if (_isPausedForAccess(message)) continue;
       if (message.nextAttemptAt case final next? when next.isAfter(now)) continue;
       await _resume(message);
     }
     await _scheduleNextWakeup();
+  }
+
+  /// Called only after the authentication layer has established a valid new
+  /// session. It is also the explicit retry gate for a retained 403 failure.
+  Future<void> resumeAfterAuthentication() async {
+    for (final message in await outbox.recoverableMessages()) {
+      if (!_isPausedForAccess(message)) continue;
+      await outbox.resumeAfterAccessRestored(message.requestId);
+      final resumed = await outbox.find(message.requestId);
+      if (resumed != null) await _resume(resumed);
+    }
   }
 
   Future<void> receiveAndAcknowledge(DurableInboundConsumer consume) async {
@@ -182,7 +199,12 @@ class MessageDeliveryCoordinator {
       try {
         await _applyState(requestId, await gateway.messageStatus(requestId));
       } on BabylonApiException catch (error) {
-        await outbox.recordReconcileFailure(requestId, _failureKind(error), _now());
+        final kind = _failureKind(error);
+        if (_isAccessFailure(kind)) {
+          await outbox.pauseForAccessFailure(requestId, kind);
+        } else {
+          await outbox.recordReconcileFailure(requestId, kind, _now());
+        }
       }
     } finally {
       _inFlight.remove(requestId);
@@ -202,6 +224,7 @@ class MessageDeliveryCoordinator {
         );
         continue;
       }
+      if (_isPausedForAccess(message)) continue;
       if (message.nextAttemptAt case final next? when next.isAfter(now)) continue;
       await _resume(message);
     }
@@ -271,11 +294,23 @@ class MessageDeliveryCoordinator {
 
   DeliveryFailureKind _failureKind(BabylonApiException error) => error.statusCode == 0
       ? DeliveryFailureKind.network
-      : error.statusCode >= 500 || error.statusCode == 401 || error.statusCode == 403
+      : error.statusCode == 401
+      ? DeliveryFailureKind.authenticationRequired
+      : error.statusCode == 403
+      ? DeliveryFailureKind.authorizationDenied
+      : error.statusCode >= 500
       ? DeliveryFailureKind.backend
       : error.code.startsWith('MODEL_')
       ? DeliveryFailureKind.model
       : DeliveryFailureKind.permanent;
+
+  bool _isAccessFailure(DeliveryFailureKind kind) =>
+      kind == DeliveryFailureKind.authenticationRequired ||
+      kind == DeliveryFailureKind.authorizationDenied;
+
+  bool _isPausedForAccess(OutboxMessage message) =>
+      message.failureKind == DeliveryFailureKind.authenticationRequired ||
+      message.failureKind == DeliveryFailureKind.authorizationDenied;
 
   bool _isExpired(OutboxMessage message, DateTime now) =>
       message.expiresAt != null && !message.expiresAt!.isAfter(now);

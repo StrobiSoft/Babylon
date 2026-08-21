@@ -47,6 +47,7 @@ Future<void> main() async {
     browser: SystemBrowserLauncher(),
     callbackFactory: () => LoopbackCallbackServer(),
     secureValues: tokenStore,
+    onAuthenticated: delivery.resumeAfterAuthentication,
   );
   runApp(
     OutboxScope(

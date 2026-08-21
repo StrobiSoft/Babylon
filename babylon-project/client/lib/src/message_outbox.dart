@@ -7,7 +7,14 @@ enum OutboxMessageStatus {
   failed,
 }
 
-enum DeliveryFailureKind { network, backend, model, permanent }
+enum DeliveryFailureKind {
+  network,
+  backend,
+  authenticationRequired,
+  authorizationDenied,
+  model,
+  permanent,
+}
 
 enum OutboxRecoveryAction { send, reconcile }
 
@@ -237,6 +244,43 @@ class MessageOutbox {
             : now.add(Duration(seconds: 1 << (attempts - 1).clamp(0, 6))),
         clearNextAttemptAt: terminal,
         pendingReason: kind.name,
+      ),
+    );
+  }
+
+  /// Persists a non-timed recovery state without spending the transient retry
+  /// budget. Only an explicit authenticated-session signal may resume it.
+  Future<void> pauseForAccessFailure(
+    String requestId,
+    DeliveryFailureKind kind,
+  ) async {
+    if (kind != DeliveryFailureKind.authenticationRequired &&
+        kind != DeliveryFailureKind.authorizationDenied) {
+      throw ArgumentError.value(kind, 'kind', 'An access failure is required.');
+    }
+    final message = await _required(requestId);
+    await _store.put(
+      message.copyWith(
+        status: OutboxMessageStatus.pending,
+        failureKind: kind,
+        pendingReason: kind.name,
+        clearNextAttemptAt: true,
+      ),
+    );
+  }
+
+  Future<void> resumeAfterAccessRestored(String requestId) async {
+    final message = await _required(requestId);
+    if (message.failureKind != DeliveryFailureKind.authenticationRequired &&
+        message.failureKind != DeliveryFailureKind.authorizationDenied) {
+      return;
+    }
+    await _store.put(
+      message.copyWith(
+        status: OutboxMessageStatus.queued,
+        clearPendingReason: true,
+        clearNextAttemptAt: true,
+        clearFailureKind: true,
       ),
     );
   }

@@ -450,7 +450,48 @@ void main() {
     expect(store.values.containsKey(item().requestId), isFalse);
   });
 
-  test('temporary authorization failure remains retryable', () async {
+  test('accepted delivery auth pause resumes status-only reconciliation', () async {
+    final store = OutboxMemoryStore();
+    final gateway = FakeGateway()
+      ..messageState = {
+        'state': 'pending',
+        'expiresAt': '2026-08-21T12:00:00Z',
+      };
+    var now = DateTime.utc(2026, 8, 20, 12);
+    Future<void> Function()? scheduledCallback;
+    final coordinator = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(store),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
+      now: () => now,
+      scheduleWakeup: (_, callback) => scheduledCallback = callback,
+    );
+    await coordinator.send(item());
+    gateway.messageStatusFailure = BabylonApiException(401, 'UNAUTHORIZED', 'safe');
+    now = now.add(const Duration(seconds: 5));
+    await scheduledCallback!();
+
+    final paused = store.values[item().requestId]!;
+    expect(paused.failureKind, DeliveryFailureKind.authenticationRequired);
+    expect(paused.recoveryAction, OutboxRecoveryAction.reconcile);
+    expect(paused.reconcileAttemptCount, 0);
+    expect(paused.nextAttemptAt, isNull);
+    expect(gateway.messageSendCalls, 1);
+
+    gateway.messageStatusFailure = null;
+    gateway.messageState = {
+      'state': 'delivered',
+      'deliveredAt': '2026-08-20T12:00:05Z',
+      'expiresAt': '2026-08-21T12:00:00Z',
+    };
+    await coordinator.resumeAfterAuthentication();
+    expect(gateway.messageSendCalls, 1, reason: 'accepted payload must never be resent');
+    expect(gateway.messageStatusCalls, 2);
+    expect(store.values.containsKey(item().requestId), isFalse);
+  });
+
+  test('final 401 pauses across restart and resumes with the stable request ID', () async {
     final store = OutboxMemoryStore();
     final gateway = FakeGateway()
       ..messageFailure = BabylonApiException(401, 'UNAUTHORIZED', 'safe');
@@ -469,35 +510,64 @@ void main() {
     final retained = store.values[item().requestId]!;
     expect(retained.status, OutboxMessageStatus.pending);
     expect(retained.sourceText, 'private text');
-    expect(retained.failureKind, DeliveryFailureKind.backend);
-    expect(scheduled, isTrue);
+    expect(retained.failureKind, DeliveryFailureKind.authenticationRequired);
+    expect(retained.pendingReason, 'authenticationRequired');
+    expect(retained.attemptCount, 0);
+    expect(retained.nextAttemptAt, isNull);
+    expect(scheduled, isFalse);
+
+    final restarted = MessageDeliveryCoordinator(
+      outbox: MessageOutbox(store),
+      gateway: gateway,
+      encoder: const Utf8MessageEnvelopeEncoder(),
+      inboundAcceptances: InboundMemoryStore(),
+      now: () => DateTime.utc(2026, 8, 20, 12),
+      scheduleWakeup: (_, _) => scheduled = true,
+    );
+    await restarted.recover();
+    expect(gateway.messageSendCalls, 1, reason: 'restart must preserve the pause');
+    gateway.messageFailure = null;
+    gateway.messageState = {
+      'state': 'pending',
+      'expiresAt': '2026-08-21T12:00:00Z',
+    };
+    await restarted.resumeAfterAuthentication();
+    expect(gateway.messageSendCalls, 2);
+    expect(gateway.lastMessageRequestId, item().requestId);
+    expect(store.values[item().requestId]!.attemptCount, 0);
+    expect(
+      store.values[item().requestId]!.recoveryAction,
+      OutboxRecoveryAction.reconcile,
+    );
   });
 
-  test('persistent authorization denial stops at policy bound without deleting content', () async {
+  test('403 pauses without an automatic resend loop or transient budget use', () async {
     final store = OutboxMemoryStore();
     final gateway = FakeGateway()
       ..messageFailure = BabylonApiException(403, 'FORBIDDEN', 'safe');
-    var now = DateTime.utc(2026, 8, 20, 12);
+    final now = DateTime.utc(2026, 8, 20, 12);
+    var scheduled = false;
     final coordinator = MessageDeliveryCoordinator(
       outbox: MessageOutbox(store),
       gateway: gateway,
       encoder: const Utf8MessageEnvelopeEncoder(),
       inboundAcceptances: InboundMemoryStore(),
       now: () => now,
-      scheduleWakeup: (_, _) {},
+      scheduleWakeup: (_, _) => scheduled = true,
     );
 
     await coordinator.send(item());
-    for (var attempt = 1; attempt < 5; attempt += 1) {
-      now = store.values[item().requestId]!.nextAttemptAt!;
-      await coordinator.retry(item().requestId);
-    }
+    await coordinator.recover();
 
     final retained = store.values[item().requestId]!;
-    expect(gateway.messageSendCalls, 5);
-    expect(retained.status, OutboxMessageStatus.failed);
+    expect(gateway.messageSendCalls, 1);
+    expect(retained.status, OutboxMessageStatus.pending);
     expect(retained.nextAttemptAt, isNull);
     expect(retained.sourceText, 'private text');
+    expect(retained.attemptCount, 0);
+    expect(retained.failureKind, DeliveryFailureKind.authorizationDenied);
+    expect(retained.pendingReason, 'authorizationDenied');
+    expect(scheduled, isFalse);
   });
 
   test('explicit delivered state removes only the acknowledged outbox item', () async {
