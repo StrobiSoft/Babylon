@@ -42,8 +42,10 @@ class FakeCallback implements CallbackReceiver {
 
 class FakeGateway implements BabylonGateway {
   int messageSendCalls = 0;
+  int messageStatusCalls = 0;
   String? lastMessageRequestId;
   BabylonApiException? messageFailure;
+  BabylonApiException? messageStatusFailure;
   Map<String, dynamic> messageState = {'state': 'pending'};
   bool healthy = true;
   bool authenticated = false;
@@ -134,8 +136,12 @@ class FakeGateway implements BabylonGateway {
     return {'requestId': requestId, ...messageState};
   }
   @override
-  Future<Map<String, dynamic>> messageStatus(String requestId) async =>
-      {'requestId': requestId, ...messageState};
+  Future<Map<String, dynamic>> messageStatus(String requestId) async {
+    messageStatusCalls += 1;
+    final failure = messageStatusFailure;
+    if (failure != null) throw failure;
+    return {'requestId': requestId, ...messageState};
+  }
   @override
   Future<List<Map<String, dynamic>>> pendingMessages({int limit = 50}) async => const [];
   @override
