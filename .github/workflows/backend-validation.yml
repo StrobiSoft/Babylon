@@ -14,6 +14,22 @@ on:
 jobs:
   validate-backend:
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: babylon_test
+          POSTGRES_PASSWORD: babylon_test_password
+          POSTGRES_DB: babylon_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U babylon_test -d babylon_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://babylon_test:babylon_test_password@127.0.0.1:5432/babylon_test
     defaults:
       run:
         working-directory: babylon-project
