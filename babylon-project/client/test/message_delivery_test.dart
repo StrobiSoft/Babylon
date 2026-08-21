@@ -197,7 +197,7 @@ void main() {
     final consumeStarted = Completer<void>();
     final releaseConsume = Completer<void>();
     var consumptions = 0;
-    Future<void> consume(InboundDeliveryIdentity _, String __, String ___) async {
+    Future<void> consume(InboundDeliveryIdentity _, String _, String _) async {
       consumptions += 1;
       consumeStarted.complete();
       await releaseConsume.future;
