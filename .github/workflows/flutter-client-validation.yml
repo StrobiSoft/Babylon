@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           cd android
           for attempt in 1 2 3; do
-            if ./gradlew :app:dependencies --configuration debugRuntimeClasspath --no-daemon; then
+            if gradle :app:dependencies --configuration debugRuntimeClasspath --no-daemon; then
               exit 0
             fi
             if [ "$attempt" -eq 3 ]; then
