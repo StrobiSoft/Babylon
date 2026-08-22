@@ -76,7 +76,7 @@ void main() {
       requestId: '00000000-0000-4000-8000-000000000031',
       expiresAt: DateTime.utc(2026, 8, 21),
     );
-    final now = () => DateTime.utc(2026, 8, 20);
+    DateTime now() => DateTime.utc(2026, 8, 20);
 
     final first = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(await first.register(identity), InboundAcceptanceState.registered);
