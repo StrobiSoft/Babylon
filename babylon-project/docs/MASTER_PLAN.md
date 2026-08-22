@@ -32,6 +32,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 - [Communication modes and scaling decisions](COMMUNICATION_MODES_AND_SCALING.md)
 - [Authentication state machine](AUTH_STATE_MACHINE.md)
 - [Language system architecture](LANGUAGE_SYSTEM_ARCHITECTURE.md)
+- [Voice calling and conference specification](VOICE_CALLING_AND_CONFERENCE_SPEC.md)
 - [Language-system implementation roadmap — GitHub Issue #1](https://github.com/StrobiSoft/Babylon/issues/1)
 
 ---
@@ -131,7 +132,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 14. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation or another AI-assisted mode is explicitly selected. Cross-language Soft Chat likewise remains untranslated unless translation is explicitly selected.
 15. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the currently visible communication mode.
 16. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
-17. Integrate voice calling without translation, according to the product decision.
+17. Integrate voice calling without translation according to the product decision and the dedicated [Voice calling and conference specification](VOICE_CALLING_AND_CONFERENCE_SPEC.md). Treat the first 1:1 call as the two-participant case of a multi-participant call-session model; include a visible mute control, telephone-number-based Babylon dialing independent of contact status, non-contact caller identity, and architecture that preserves both later conference-entry paths (merge an incoming caller into the current call, and explicitly invite a participant). Direct Babylon blocking also blocks direct Babylon calls, while voluntary conference participation with a blocked participant remains possible only after a clear pre-join warning and never implicitly removes the block or creates a contact relationship.
 18. Complete the remaining Android user flows required for the intended first release.
 
 **Expressive-content rule:** Unicode emoji are baseline user-authored text content and must survive input, transport, persistence and rendering unchanged. Future stickers/sticker packs are separate expressive content types and must remain additive and optional; their future introduction must not require breaking ordinary text/emoji message compatibility.
