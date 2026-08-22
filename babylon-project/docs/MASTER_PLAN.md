@@ -46,6 +46,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 4. Complete `translation_pending` end-to-end by wiring the existing encrypted pending queue and retry worker into the real runtime and delivery path once the production model processor is available.
 5. Activate the already bounded automatic retry worker in the real runtime once the production model processor is available.
 6. Complete handling of the public delivery states:
+
    - `delivered`
    - `delivered_after_repair`
    - `delivered_via_fallback`
@@ -118,6 +119,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 6. Complete client-side conversation logging without creating central server-side conversation history.
 7. Add first-release image and general file attachments: users can send and receive attached images and files alongside ordinary messages. Attachment binaries are transported unchanged. Attachment filenames/image filenames are preserved exactly and are never passed through the translation or wording-style pipeline. Text visibly embedded inside an image is not OCR-extracted or translated during ordinary message delivery. Attached document contents are likewise not translated automatically merely because the document is attached.
 8. At the attachment integration point, preserve a modular protection-layer design so later protection choices do not require replacing the ordinary attachment transport. The first-release attachment UX and transport contracts must be able to represent independent, combinable protection flags without silently enabling them. Record the currently intended options as follows:
+
    - **DHP — Discrete Handling Protocol:** an explicitly selected enhanced-handling path for sensitive objects, separate from ordinary attachment delivery. The user-facing name intentionally emphasizes separate handling while also carrying a discretion/privacy association. The internal BAB/Bishop container mechanics remain implementation details and are not exposed as required user knowledge.
    - **Visual watermark / trace layer:** an optional image/visual-content protection mode that can add recipient- or transfer-specific visible or otherwise recoverable marking to discourage redistribution and improve traceability. It is not applicable to every file type and must therefore remain independent from DHP.
    - **View-once / self-expiring access:** an optional object-access policy in which opening starts or completes a short-lived access lifecycle and prevents ordinary reopening after the permitted view. Its implementation must be described in terms of access/key/cache lifecycle rather than claiming that already displayed pixels can be physically retracted.
