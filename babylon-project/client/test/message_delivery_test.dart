@@ -76,15 +76,16 @@ void main() {
       requestId: '00000000-0000-4000-8000-000000000031',
       expiresAt: DateTime.utc(2026, 8, 21),
     );
+    DateTime now() => DateTime.utc(2026, 8, 20);
 
-    final first = await FileInboundAcceptanceStore.open(directory);
+    final first = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(await first.register(identity), InboundAcceptanceState.registered);
 
-    final restarted = await FileInboundAcceptanceStore.open(directory);
+    final restarted = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(await restarted.register(identity), InboundAcceptanceState.registered);
     await restarted.complete(identity);
 
-    final completedRestart = await FileInboundAcceptanceStore.open(directory);
+    final completedRestart = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(
       await completedRestart.register(identity),
       InboundAcceptanceState.completed,
