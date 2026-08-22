@@ -32,6 +32,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 - [Communication modes and scaling decisions](COMMUNICATION_MODES_AND_SCALING.md)
 - [Authentication state machine](AUTH_STATE_MACHINE.md)
 - [Language system architecture](LANGUAGE_SYSTEM_ARCHITECTURE.md)
+- [Voice calling and conference specification](VOICE_CALLING_AND_CONFERENCE_SPEC.md)
 - [Language-system implementation roadmap — GitHub Issue #1](https://github.com/StrobiSoft/Babylon/issues/1)
 
 ---
@@ -40,8 +41,8 @@ New product capabilities are placed at the earliest stage where their prerequisi
 
 **Approximate project range: 40% → 50%**
 
-1. Implement the first real **Soft Chat** client flow on top of the completed delivery foundation: recipient selection, message composer, send, receive and local conversation display. Soft Chat is the default path and performs no translation, wording-style transformation or other model-mediated processing.
-2. Ensure the composer architecture treats every non-default transformation mode as explicit opt-in state and keeps the currently active mode continuously visible before send. Do not expose a mode as selectable until its processing path is actually functional.
+1. Implement the first real **Soft Chat** client flow on top of the completed delivery foundation: recipient selection, message composer, send, receive and local conversation display. Soft Chat is the default path and performs no translation, wording-style transformation or other model-mediated processing. The baseline composer and renderer must support ordinary Unicode emoji from the start, including mixed text+emoji and emoji-only messages, preserving them exactly as user-authored content rather than routing them through translation or AI processing.
+2. Ensure the composer architecture treats every non-default transformation mode as explicit opt-in state and keeps the currently active mode continuously visible before send. Do not expose a mode as selectable until its processing path is actually functional. Keep the message-content model extensible beyond plain text so later expressive message types such as stickers/sticker packs can be added without redesigning the core composer or delivery contract; this is an extensibility requirement, not authorization to implement stickers in the baseline slice.
 3. Build a repeatable Soft Chat load-test harness and establish the first empirical capacity baseline, including concurrent users, messages/second, p95/p99 latency, PostgreSQL pressure, API CPU/RAM, errors/retries and saturation behaviour. Include 100, 1,000, 5,000 and 10,000-user checkpoints where the test environment permits; higher checkpoints are evidence-driven rather than assumed capacity claims.
 4. Complete `translation_pending` end-to-end by wiring the existing encrypted pending queue and retry worker into the real runtime and delivery path once the production model processor is available.
 5. Activate the already bounded automatic retry worker in the real runtime once the production model processor is available.
@@ -55,7 +56,7 @@ New product capabilities are placed at the earliest stage where their prerequisi
 
 **Dependency note:** Stage II items 4–5 require the real model processor/runtime integration planned in Stage III. Items 1–3 do not depend on the production model runtime and should be completed first. The transient delivery chain itself is complete once PR #22 passes its final PostgreSQL 17 validation and independent review.
 
-**Stage exit criterion:** two real clients can exchange ordinary Soft Chat messages end-to-end without AI/model availability, no accepted message can disappear silently, and every accepted processed message reaches a delivered or explicit pending state.
+**Stage exit criterion:** two real clients can exchange ordinary Soft Chat messages end-to-end, including Unicode emoji content, without AI/model availability, no accepted message can disappear silently, and every accepted processed message reaches a delivered or explicit pending state.
 
 ---
 
@@ -123,22 +124,24 @@ New product capabilities are placed at the earliest stage where their prerequisi
    - **View-once / self-expiring access:** an optional object-access policy in which opening starts or completes a short-lived access lifecycle and prevents ordinary reopening after the permitted view. Its implementation must be described in terms of access/key/cache lifecycle rather than claiming that already displayed pixels can be physically retracted.
    - **Screenshot/event alert:** where the operating system provides sufficiently reliable support, the client may detect or react to screenshot/capture events for protected visual content and surface an appropriate event/notification. Platform limitations must be explicit; unsupported platforms must not pretend to provide detection.
    - These layers may be selected independently or combined where the file type and platform support them. DHP must not become a monolithic bundle that forces watermarking, view-once behaviour or capture alerts.
+9. Extend expressive messaging beyond the Stage II Unicode-emoji baseline only when product value justifies it. Preserve an explicit future path for **stickers and sticker packs** as distinct message content rather than pretending they are ordinary text characters. If implemented, sticker identity/versioning, pack lifecycle, local caching, sender/recipient rendering, safety/moderation implications and optional downloadable-pack behavior must be designed explicitly. The content model must remain open to later expressive-message ideas without making any unimplemented idea part of the release contract.
+10. Complete profile-image handling.
+11. Add the conversation partner language/flag UI indicator.
+12. Complete user-controlled wording-style selection as an explicit AI-managed output mode: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
+13. Preserve the communication-mode visibility invariant: whenever translation, wording-style or another model-assisted mode is active, that state remains conspicuously visible at the composer until changed; Soft Chat remains the default zero-transformation state.
+14. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation or another AI-assisted mode is explicitly selected. Cross-language Soft Chat likewise remains untranslated unless translation is explicitly selected.
+15. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the currently visible communication mode.
+16. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
+17. Integrate voice calling without translation according to the product decision and the dedicated [Voice calling and conference specification](VOICE_CALLING_AND_CONFERENCE_SPEC.md). Treat the first 1:1 call as the two-participant case of a multi-participant call-session model; include a visible mute control, telephone-number-based Babylon dialing independent of contact status, non-contact caller identity, and architecture that preserves both later conference-entry paths (merge an incoming caller into the current call, and explicitly invite a participant). Direct Babylon blocking also blocks direct Babylon calls, while voluntary conference participation with a blocked participant remains possible only after a clear pre-join warning and never implicitly removes the block or creates a contact relationship.
+18. Complete the remaining Android user flows required for the intended first release.
 
-9. Complete profile-image handling.
-10. Add the conversation partner language/flag UI indicator.
-11. Complete user-controlled wording-style selection as an explicit AI-managed output mode: formal, everyday and casual are first-release modes; the client selects the mode, the language agent conveys that choice to the approved local model, and the model may alter wording/register only—not meaning, recipient, delivery language or product/security policy. Keep slang as a later extension.
-12. Preserve the communication-mode visibility invariant: whenever translation, wording-style or another model-assisted mode is active, that state remains conspicuously visible at the composer until changed; Soft Chat remains the default zero-transformation state.
-13. Ensure same-language communication bypasses unnecessary translation/model work unless AI wording-style transformation or another AI-assisted mode is explicitly selected. Cross-language Soft Chat likewise remains untranslated unless translation is explicitly selected.
-14. Add client-side voice dictation as an input peripheral: microphone speech recognition inserts editable text into the normal message composer; dictation never sends automatically, and after user review/editing the submitted message follows the currently visible communication mode.
-15. Add first-release voice messages without translation: record, send, receive and play the sender's original audio. When recipient and sender delivery languages differ, clearly warn that voice-message translation is not yet available and that the recipient will hear the original language; do not prohibit sending.
-16. Integrate voice calling without translation, according to the product decision.
-17. Complete the remaining Android user flows required for the intended first release.
+**Expressive-content rule:** Unicode emoji are baseline user-authored text content and must survive input, transport, persistence and rendering unchanged. Future stickers/sticker packs are separate expressive content types and must remain additive and optional; their future introduction must not require breaking ordinary text/emoji message compatibility.
 
 **Attachment translation rule:** ordinary image/file delivery is a transport feature, not a language-processing feature. Filenames, image filenames, text embedded in images and attached document contents remain exactly as supplied by the sender unless a future, separately invoked document/image translation feature is explicitly designed and authorized.
 
 **Protected-attachment decision gate:** DHP, watermarking, view-once semantics and screenshot/capture handling are recorded product directions, not implementation authorization for an unreviewed security protocol. Before implementation begins, define the exact cryptographic/container semantics, key lifecycle, platform capabilities, performance cost and user-visible guarantees. If a material architectural choice is ambiguous, stop and obtain an explicit product decision rather than silently selecting one.
 
-**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including default Soft Chat, explicitly selected model-assisted text modes, image/file attachment exchange and first-release untranslated voice messaging.
+**Stage exit criterion:** two real Babylon users can complete the intended communication flow end-to-end, including default Soft Chat with emoji, explicitly selected model-assisted text modes, image/file attachment exchange and first-release untranslated voice messaging. Sticker/sticker-pack support is required only if explicitly promoted into the first-release scope by a later product decision.
 
 ---
 
@@ -185,29 +188,30 @@ No new foundational feature should normally enter this stage. The focus is provi
 4. Test registration, login, passkey, logout and re-login.
 5. Test network interruption and recovery.
 6. Test Pepper/backend/model restart scenarios.
-7. Test Soft Chat independently from model-assisted multilingual delivery.
+7. Test Soft Chat independently from model-assisted multilingual delivery, including mixed text+emoji and emoji-only message round trips.
 8. Test multilingual translation-mode message delivery.
 9. Test long messages and malformed/invalid input.
 10. Test model failure, pending state and eventual acknowledgement while confirming ordinary Soft Chat remains independent of model availability.
 11. Test client close/reopen and retained local state.
 12. Test image/file attachment upload, interrupted transfer, retry, delivery, download/open flow, expiry/deletion and filename preservation. Confirm that filenames and text embedded in images are not translated automatically. Where optional protection layers are implemented, include DHP, watermark/trace, view-once and supported screenshot/capture-event combinations in release-candidate testing.
-13. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
-14. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the currently visible communication mode.
-15. Run measured load tests at the release-candidate topology and compare against the recorded capacity baseline/thresholds.
-16. Perform complete UI/UX defect review.
-17. Fix crashes and edge cases.
-18. Run security regression again after fixes.
-19. Run performance regression after fixes.
-20. Update documentation to the actually implemented topology and behaviour.
-21. Remove obsolete planning language from normative documentation.
-22. Record final architecture decisions and benchmark results.
-23. Finalize Android release configuration.
-24. Produce the Android release build.
-25. Rebuild from a clean environment to prove reproducibility.
-26. Test the Release Candidate comprehensively.
-27. Fix remaining release-blocking defects.
-28. Repeat the full release test suite.
-29. Freeze the verified release build.
+13. If stickers/sticker packs have been explicitly promoted into release scope, test their identity/versioning, caching, rendering, unavailable-pack behavior and compatibility with ordinary text/emoji conversations.
+14. Test voice-message recording, interrupted upload, delivery, playback, expiry/deletion and cross-language warning behaviour.
+15. Test client-side dictation review/edit/send behaviour and confirm that dictation cannot bypass the currently visible communication mode.
+16. Run measured load tests at the release-candidate topology and compare against the recorded capacity baseline/thresholds.
+17. Perform complete UI/UX defect review.
+18. Fix crashes and edge cases.
+19. Run security regression again after fixes.
+20. Run performance regression after fixes.
+21. Update documentation to the actually implemented topology and behaviour.
+22. Remove obsolete planning language from normative documentation.
+23. Record final architecture decisions and benchmark results.
+24. Finalize Android release configuration.
+25. Produce the Android release build.
+26. Rebuild from a clean environment to prove reproducibility.
+27. Test the Release Candidate comprehensively.
+28. Fix remaining release-blocking defects.
+29. Repeat the full release test suite.
+30. Freeze the verified release build.
 
 **Stage exit criterion — Babylon Project = 100% / DONE:** the functionally complete Android release package has been repeatedly verified and is ready to enter the Google Play publication process.
 
