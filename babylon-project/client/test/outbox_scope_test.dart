@@ -15,6 +15,9 @@ class _MemoryStore implements MessageOutboxStore {
   Future<OutboxMessage?> get(String requestId) async => messages[requestId];
 
   @override
+  Future<List<OutboxMessage>> allMessages() async => messages.values.toList();
+
+  @override
   Future<List<OutboxMessage>> pendingMessages() async => messages.values.toList();
 
   @override

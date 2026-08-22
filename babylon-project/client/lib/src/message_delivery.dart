@@ -264,7 +264,6 @@ class MessageDeliveryCoordinator {
           requestId,
           DateTime.parse(state['deliveredAt'] as String),
         );
-        await outbox.removeAcknowledged(requestId);
       case 'expired':
         await outbox.markTerminal(
           requestId,

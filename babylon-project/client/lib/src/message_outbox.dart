@@ -91,6 +91,7 @@ abstract interface class MessageOutboxStore {
   Future<void> put(OutboxMessage message);
   Future<OutboxMessage?> get(String requestId);
   Future<List<OutboxMessage>> pendingMessages();
+  Future<List<OutboxMessage>> allMessages();
   Future<void> delete(String requestId);
 }
 
@@ -202,6 +203,7 @@ class MessageOutbox {
   }
 
   Future<List<OutboxMessage>> recoverableMessages() => _store.pendingMessages();
+  Future<List<OutboxMessage>> allMessages() => _store.allMessages();
   Future<OutboxMessage?> find(String requestId) => _store.get(requestId);
 
   Future<void> markTerminal(String requestId, OutboxMessageStatus status, String reason) async {

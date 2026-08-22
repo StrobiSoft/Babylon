@@ -45,6 +45,8 @@ class FakeGateway implements BabylonGateway {
   int messageStatusCalls = 0;
   int acknowledgeCalls = 0;
   String? lastMessageRequestId;
+  String? lastMessagePayload;
+  String? lastMessagePayloadFormat;
   BabylonApiException? messageFailure;
   BabylonApiException? messageStatusFailure;
   BabylonApiException? acknowledgeFailure;
@@ -134,6 +136,8 @@ class FakeGateway implements BabylonGateway {
     required String payloadFormat, required String payload}) async {
     messageSendCalls += 1;
     lastMessageRequestId = requestId;
+    lastMessagePayload = payload;
+    lastMessagePayloadFormat = payloadFormat;
     final failure = messageFailure;
     if (failure != null) throw failure;
     return {'requestId': requestId, ...messageState};

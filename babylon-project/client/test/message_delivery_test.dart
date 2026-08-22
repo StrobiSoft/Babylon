@@ -20,6 +20,9 @@ class OutboxMemoryStore implements MessageOutboxStore {
   Future<OutboxMessage?> get(String id) async => values[id];
 
   @override
+  Future<List<OutboxMessage>> allMessages() async => values.values.toList();
+
+  @override
   Future<List<OutboxMessage>> pendingMessages() async => values.values
       .where(
         (message) =>
@@ -73,15 +76,16 @@ void main() {
       requestId: '00000000-0000-4000-8000-000000000031',
       expiresAt: DateTime.utc(2026, 8, 21),
     );
+    DateTime now() => DateTime.utc(2026, 8, 20);
 
-    final first = await FileInboundAcceptanceStore.open(directory);
+    final first = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(await first.register(identity), InboundAcceptanceState.registered);
 
-    final restarted = await FileInboundAcceptanceStore.open(directory);
+    final restarted = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(await restarted.register(identity), InboundAcceptanceState.registered);
     await restarted.complete(identity);
 
-    final completedRestart = await FileInboundAcceptanceStore.open(directory);
+    final completedRestart = await FileInboundAcceptanceStore.open(directory, now: now);
     expect(
       await completedRestart.register(identity),
       InboundAcceptanceState.completed,
@@ -384,7 +388,7 @@ void main() {
     };
     now = now.add(const Duration(seconds: 5));
     await scheduledCallback!();
-    expect(store.values.containsKey(item().requestId), isFalse);
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
   });
 
   test('accepted delivery status failures retry status only across restart', () async {
@@ -447,7 +451,7 @@ void main() {
     await restartCallback!();
     expect(gateway.messageSendCalls, 1);
     expect(gateway.messageStatusCalls, 2);
-    expect(store.values.containsKey(item().requestId), isFalse);
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
   });
 
   test('accepted delivery auth pause resumes status-only reconciliation', () async {
@@ -488,7 +492,7 @@ void main() {
     await coordinator.resumeAfterAuthentication();
     expect(gateway.messageSendCalls, 1, reason: 'accepted payload must never be resent');
     expect(gateway.messageStatusCalls, 2);
-    expect(store.values.containsKey(item().requestId), isFalse);
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
   });
 
   test('final 401 pauses across restart and resumes with the stable request ID', () async {
@@ -570,7 +574,7 @@ void main() {
     expect(scheduled, isFalse);
   });
 
-  test('explicit delivered state removes only the acknowledged outbox item', () async {
+  test('explicit delivered state retains the acknowledged local conversation item', () async {
     final store = OutboxMemoryStore();
     final gateway = FakeGateway()
       ..messageState = {
@@ -594,8 +598,9 @@ void main() {
       ),
     );
     await coordinator.send(item());
-    expect(store.values.containsKey(item().requestId), isFalse);
-    expect(store.values.values.single.sourceText, 'other');
+    expect(store.values[item().requestId]!.status, OutboxMessageStatus.delivered);
+    expect(store.values[item().requestId]!.deliveredAt, DateTime.utc(2026, 8, 20, 12));
+    expect(store.values.values.where((message) => message.sourceText == 'other'), hasLength(1));
   });
 
   test('permanent failure reaches terminal state without retry scheduling', () async {

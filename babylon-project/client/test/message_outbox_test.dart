@@ -13,6 +13,9 @@ class MemoryOutboxStore implements MessageOutboxStore {
   Future<OutboxMessage?> get(String requestId) async => _messages[requestId];
 
   @override
+  Future<List<OutboxMessage>> allMessages() async => _messages.values.toList();
+
+  @override
   Future<List<OutboxMessage>> pendingMessages() async => _messages.values
       .where((message) => message.status != OutboxMessageStatus.delivered && message.status != OutboxMessageStatus.failed && message.status != OutboxMessageStatus.expired)
       .toList(growable: false);
