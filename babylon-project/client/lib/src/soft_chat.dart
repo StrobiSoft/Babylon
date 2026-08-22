@@ -7,10 +7,17 @@ import 'package:flutter/foundation.dart';
 import 'message_delivery.dart';
 import 'message_outbox.dart';
 
-enum ComposerMode { softChat }
+enum ComposerMode { softChat, translation }
+
+extension ComposerModePresentation on ComposerMode {
+  String get label => switch (this) {
+    ComposerMode.softChat => 'Soft Chat',
+    ComposerMode.translation => 'Translation',
+  };
+}
 
 class ComposerDraft {
-  const ComposerDraft({this.recipientId = '', this.text = '', this.mode = ComposerMode.softChat});
+  const ComposerDraft({this.recipientId = '', this.text = '', required this.mode});
   final String recipientId;
   final String text;
   final ComposerMode mode;
@@ -59,6 +66,17 @@ class SoftChatController extends ChangeNotifier {
   List<ReceivedChatMessage> received = const [];
   Object? receiveError;
   bool refreshing = false;
+  ComposerMode _activeComposerMode = ComposerMode.softChat;
+
+  static const selectableComposerModes = <ComposerMode>[ComposerMode.softChat];
+  ComposerMode get activeComposerMode => _activeComposerMode;
+
+  void selectComposerMode(ComposerMode mode) {
+    if (!selectableComposerModes.contains(mode)) throw StateError('${mode.label} is not available.');
+    if (_activeComposerMode == mode) return;
+    _activeComposerMode = mode;
+    notifyListeners();
+  }
 
   Future<void> refresh() async {
     if (refreshing) return;
@@ -86,7 +104,9 @@ class SoftChatController extends ChangeNotifier {
     if (recipient.isEmpty || draft.text.trim().isEmpty) {
       throw ArgumentError('Recipient and message are required.');
     }
-    if (draft.mode != ComposerMode.softChat) throw StateError('Unsupported composer mode.');
+    if (!selectableComposerModes.contains(draft.mode) || draft.mode != _activeComposerMode) {
+      throw StateError('Composer mode is unavailable or is not active.');
+    }
     final message = OutboxMessage(
       requestId: _requestId(), recipientId: recipient, sourceText: draft.text,
       targetLanguage: 'none', createdAt: _now(),
