@@ -44,7 +44,8 @@ void main() {
       final requestIds = <String>[];
       for (final payload in payloads) {
         await clientA.chat.send(
-          ComposerDraft(recipientId: profileB['id'] as String, text: payload),
+          ComposerDraft(recipientId: profileB['id'] as String, text: payload,
+            mode: ComposerMode.softChat),
         );
         final sent = clientA.chat.sent.last;
         expect(sent.status, OutboxMessageStatus.pending);

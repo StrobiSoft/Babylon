@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:babylon_client/src/app.dart';
+import 'package:babylon_client/src/auth_controller.dart';
 import 'package:babylon_client/src/file_received_chat_store.dart';
 import 'package:babylon_client/src/message_delivery.dart';
 import 'package:babylon_client/src/message_outbox.dart';
 import 'package:babylon_client/src/outbox_storage_crypto.dart';
 import 'package:babylon_client/src/soft_chat.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fakes.dart';
@@ -88,6 +91,7 @@ void main() {
           const ComposerDraft(
             recipientId: ' recipient ',
             text: '🫡👩🏽‍💻🏳️‍🌈',
+            mode: ComposerMode.softChat,
           ),
         );
 
@@ -109,7 +113,8 @@ void main() {
       );
 
       await controller.send(
-        const ComposerDraft(recipientId: 'recipient', text: content),
+        const ComposerDraft(recipientId: 'recipient', text: content,
+          mode: ComposerMode.softChat),
       );
 
       expect(_decodedPayload(gateway), content);
@@ -175,5 +180,45 @@ void main() {
         );
       },
     );
+  });
+
+  group('composer mode state', () {
+    test('defaults to Soft Chat and rejects the unavailable translation mode', () async {
+      final gateway = FakeGateway();
+      final outbox = MessageOutbox(_OutboxStore());
+      final controller = SoftChatController(outbox: outbox,
+        delivery: _delivery(outbox, gateway, _AcceptanceStore()),
+        receivedStore: MemoryReceivedChatStore());
+
+      expect(controller.activeComposerMode, ComposerMode.softChat);
+      expect(SoftChatController.selectableComposerModes, [ComposerMode.softChat]);
+      expect(() => controller.selectComposerMode(ComposerMode.translation), throwsStateError);
+      await expectLater(controller.send(const ComposerDraft(recipientId: 'recipient',
+        text: 'must not be transformed', mode: ComposerMode.translation)), throwsStateError);
+      expect(controller.activeComposerMode, ComposerMode.softChat);
+      expect(gateway.messageSendCalls, 0);
+      expect(await outbox.allMessages(), isEmpty);
+    });
+  });
+
+  testWidgets('keeps the active Soft Chat mode visible before send', (tester) async {
+    final gateway = FakeGateway()..authenticated = true;
+    final outbox = MessageOutbox(_OutboxStore());
+    final chat = SoftChatController(outbox: outbox,
+      delivery: _delivery(outbox, gateway, _AcceptanceStore()),
+      receivedStore: MemoryReceivedChatStore());
+    final auth = AuthController(api: gateway, browser: FakeBrowser(),
+      callbackFactory: FakeCallback.new, secureValues: MemoryStore());
+
+    await tester.pumpWidget(BabylonApp(controller: auth, chatController: chat,
+      versionLoader: () async => '1.0.0'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('show-auth')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('active-composer-mode')), findsOneWidget);
+    expect(find.text('Mode: Soft Chat'), findsOneWidget);
+    expect(find.textContaining('Translation'), findsNothing);
+    expect(find.byKey(const Key('send-message')), findsOneWidget);
   });
 }

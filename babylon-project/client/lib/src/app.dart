@@ -555,6 +555,11 @@ class _SoftChatPanelState extends State<_SoftChatPanel> {
             : ListView(children: rows)),
           TextField(key: const Key('recipient-id'), controller: recipient,
             decoration: const InputDecoration(labelText: 'Recipient user ID')),
+          Align(alignment: Alignment.centerLeft, child: Chip(
+            key: const Key('active-composer-mode'),
+            avatar: const Icon(Icons.chat_bubble_outline, size: 18),
+            label: Text('Mode: ${widget.controller.activeComposerMode.label}'),
+          )),
           Row(children: [
             Expanded(child: TextField(key: const Key('message-text'), controller: message,
               decoration: InputDecoration(labelText: 'Message', errorText: composerError),
@@ -569,7 +574,8 @@ class _SoftChatPanelState extends State<_SoftChatPanel> {
 
   Future<void> _send() async {
     try {
-      await widget.controller.send(ComposerDraft(recipientId: recipient.text, text: message.text));
+      await widget.controller.send(ComposerDraft(recipientId: recipient.text, text: message.text,
+        mode: widget.controller.activeComposerMode));
       message.clear();
       if (mounted) setState(() => composerError = null);
     } catch (_) {
