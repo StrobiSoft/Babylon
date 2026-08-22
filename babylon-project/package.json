@@ -20,7 +20,8 @@
     "migrate": "tsx backend/src/migrate-cli.ts",
     "start": "node backend/dist/main.js",
     "test": "vitest run --coverage",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "load:soft-chat": "vitest run backend/test/soft-chat-load.e2e.test.ts --reporter=verbose"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
