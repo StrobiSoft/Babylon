@@ -48,6 +48,7 @@ The end state can be the same multi-participant room, but Babylon must model the
 Example: A and B are already talking. C calls A. A may choose, after seeing who is calling, to add C to the existing call rather than ending the A–B call.
 
 The UI should be able to distinguish choices such as:
+
 - decline the incoming call;
 - hold the current call and answer separately, where supported;
 - add/merge the incoming caller into the current call.
@@ -72,6 +73,7 @@ This is an invitation into an existing call session, not an independent incoming
 A Babylon block protects the user from direct Babylon communication by the blocked person.
 
 When A has blocked B:
+
 - B cannot send A direct Babylon messages;
 - B cannot start a direct Babylon voice call to A;
 - a direct Babylon communication attempt must not silently change or weaken the block;
@@ -118,6 +120,7 @@ This supports legitimate mediated conversations—such as dispute resolution or 
 ## Architecture and dependency gate
 
 Before implementation begins, verify the real dependencies for:
+
 - call signaling and realtime session state;
 - NAT traversal and any STUN/TURN requirements;
 - the one-to-one versus multi-party media topology;
