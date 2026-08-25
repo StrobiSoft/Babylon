@@ -38,6 +38,9 @@ defaults to 50 ms; the report records the resulting pending-fetch request count.
 `SOFT_CHAT_LOAD_COMPARISON=1` only for a bounded, explicitly requested comparison matrix: it runs
 every listed stage even if an earlier stage misses a quality threshold, while preserving all FAIL
 results and never adding stages beyond the requested list.
+`SOFT_CHAT_LOAD_POOL_MAX` is a benchmark-only override for the harness-owned PostgreSQL pool and
+defaults to the production value of 20. It accepts integers from 1 through 200, is recorded in the
+JSON report, and does not change the production database class or its default.
 
 For the focused 100/500 comparison on Pepper, use:
 
