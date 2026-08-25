@@ -26,6 +26,7 @@ const maxP99Ms = Number(process.env.SOFT_CHAT_LOAD_MAX_P99_MS ?? '2000');
 const outputRoot = resolve(process.env.SOFT_CHAT_LOAD_OUTPUT_DIR ?? 'load-results/soft-chat');
 const comparisonRun = process.env.SOFT_CHAT_LOAD_COMPARISON === '1';
 const pollIntervalMs = Number(process.env.SOFT_CHAT_LOAD_POLL_INTERVAL_MS ?? '50');
+const requestedPoolMax = Number(process.env.SOFT_CHAT_LOAD_POOL_MAX ?? '20');
 const requestedModes = (process.env.SOFT_CHAT_LOAD_MODES ?? 'shared-phased,independent-streaming')
   .split(',')
   .map((value) => value.trim()) as LoadMode[];
@@ -223,6 +224,10 @@ suite('Soft Chat production-path capacity', () => {
     parsed.searchParams.set('options', `-csearch_path=${schema}`);
     isolatedDatabaseUrl = parsed.toString();
     database = new PostgresDatabase(isolatedDatabaseUrl);
+    if (!Number.isInteger(requestedPoolMax) || requestedPoolMax < 1 || requestedPoolMax > 200) {
+      throw new Error('SOFT_CHAT_LOAD_POOL_MAX must be an integer between 1 and 200.');
+    }
+    database.pool.options.max = requestedPoolMax;
     await runMigrations(database, resolve('backend/migrations'));
 
     const backendPort = await freePort();
@@ -917,6 +922,7 @@ suite('Soft Chat production-path capacity', () => {
         requestedModes,
         comparisonRun,
         pollIntervalMs,
+        configuredPoolMax: requestedPoolMax,
         stages,
         stopReason: stages.some((stage) => stage.result === 'FAIL')
           ? 'one or more modes stopped after its first failed stage'
