@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -7,7 +7,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { SMTPServer } from 'smtp-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AuthService } from '../src/auth-service.js';
-import { pkceChallenge, secureRandom, systemClock } from '../src/crypto.js';
+import { addSeconds, hash, pkceChallenge, secureRandom, systemClock } from '../src/crypto.js';
 import { PostgresDatabase } from '../src/database.js';
 import { SmtpMailer } from '../src/mailer.js';
 import { MessageDeliveryService } from '../src/message-delivery.js';
@@ -24,9 +24,45 @@ const requestedStages = (process.env.SOFT_CHAT_LOAD_STAGES ?? '100,500,1000,2000
 const maxErrorRate = Number(process.env.SOFT_CHAT_LOAD_MAX_ERROR_RATE ?? '0.01');
 const maxP99Ms = Number(process.env.SOFT_CHAT_LOAD_MAX_P99_MS ?? '2000');
 const outputRoot = resolve(process.env.SOFT_CHAT_LOAD_OUTPUT_DIR ?? 'load-results/soft-chat');
+const comparisonRun = process.env.SOFT_CHAT_LOAD_COMPARISON === '1';
+const pollIntervalMs = Number(process.env.SOFT_CHAT_LOAD_POLL_INTERVAL_MS ?? '50');
+const requestedModes = (process.env.SOFT_CHAT_LOAD_MODES ?? 'shared-phased,independent-streaming')
+  .split(',')
+  .map((value) => value.trim()) as LoadMode[];
+
+type LoadMode = 'shared-phased' | 'independent-streaming';
+interface LatencySummary {
+  count: number;
+  p50: number;
+  p95: number;
+  p99: number;
+  max: number;
+}
+interface PoolSample {
+  at: string;
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+}
+interface PostgresDiagnostics {
+  activityAvailable: boolean;
+  activityError?: string;
+  statementsAvailable: boolean;
+  statementsError?: string;
+  waitEvents: { waitEventType: string | null; waitEvent: string | null; samples: number }[];
+  maxLockWaitingQueries: number;
+  lockWaitingQueries: {
+    query: string;
+    waitEvent: string | null;
+    waitDurationMs: number;
+    blockingPids: number[];
+  }[];
+  topQueries: { query: string; calls: number; totalExecTimeMs: number }[];
+}
 
 type ErrorCounts = Record<string, number>;
 interface StageResult {
+  mode: LoadMode;
   requestedConcurrentClients: number;
   authenticatedClients: number;
   messagesAttempted: number;
@@ -35,7 +71,23 @@ interface StageResult {
   ackSucceeded: number;
   ackFailed: number;
   throughputMessagesPerSecond: number;
-  latencyMs: { p50: number; p95: number; p99: number };
+  latencyMs: {
+    authentication: LatencySummary;
+    accept: LatencySummary;
+    pendingFetch: LatencySummary;
+    acknowledge: LatencySummary;
+    sendToVisible: LatencySummary;
+    visibleToAck: LatencySummary;
+    sendToAck: LatencySummary;
+  };
+  pool: {
+    maxTotalCount: number;
+    minIdleCount: number;
+    maxWaitingCount: number;
+    samples: PoolSample[];
+  };
+  postgres: PostgresDiagnostics;
+  pendingFetchRequests: number;
   duplicateDeliveries: number;
   exactlyOnceViolations: number;
   errors: ErrorCounts;
@@ -63,6 +115,17 @@ const freePort = () =>
   });
 const percentile = (sorted: number[], fraction: number) =>
   sorted.length === 0 ? 0 : sorted[Math.ceil(sorted.length * fraction) - 1]!;
+const summarize = (values: number[]): LatencySummary => {
+  const sorted = [...values].sort((left, right) => left - right);
+  return {
+    count: sorted.length,
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    p99: percentile(sorted, 0.99),
+    max: sorted.at(-1) ?? 0,
+  };
+};
+const delay = (milliseconds: number) => new Promise<void>((done) => setTimeout(done, milliseconds));
 const increment = (counts: ErrorCounts, name: string) => (counts[name] = (counts[name] ?? 0) + 1);
 const decodeQuotedPrintable = (value: string) =>
   value
@@ -70,6 +133,65 @@ const decodeQuotedPrintable = (value: string) =>
     .replace(/=([0-9A-F]{2})/gi, (_match, hex: string) =>
       String.fromCharCode(Number.parseInt(hex, 16)),
     );
+
+interface ServiceTimings {
+  authentication: number[];
+  accept: number[];
+  pendingFetch: number[];
+  acknowledge: number[];
+}
+
+let activeTimings: ServiceTimings | undefined;
+
+class InstrumentedAuthService extends AuthService {
+  override async authenticate(accessToken: string) {
+    const started = performance.now();
+    try {
+      return await super.authenticate(accessToken);
+    } finally {
+      activeTimings?.authentication.push(performance.now() - started);
+    }
+  }
+}
+
+class InstrumentedDeliveryService extends MessageDeliveryService {
+  override async accept(input: Parameters<MessageDeliveryService['accept']>[0]) {
+    const started = performance.now();
+    try {
+      return await super.accept(input);
+    } finally {
+      activeTimings?.accept.push(performance.now() - started);
+    }
+  }
+
+  override async listPending(recipientUserId: string, limit: number) {
+    const started = performance.now();
+    try {
+      return await super.listPending(recipientUserId, limit);
+    } finally {
+      activeTimings?.pendingFetch.push(performance.now() - started);
+    }
+  }
+
+  override async acknowledge(recipientUserId: string, requestId: string, senderUserId: string) {
+    const started = performance.now();
+    try {
+      return await super.acknowledge(recipientUserId, requestId, senderUserId);
+    } finally {
+      activeTimings?.acknowledge.push(performance.now() - started);
+    }
+  }
+}
+
+interface LoadIdentity {
+  accessToken: string;
+  userId: string;
+}
+
+interface IndependentClient {
+  sender: LoadIdentity;
+  recipient: LoadIdentity;
+}
 
 suite('Soft Chat production-path capacity', () => {
   let adminDatabase: PostgresDatabase;
@@ -123,7 +245,7 @@ suite('Soft Chat production-path capacity', () => {
     config.publicBackendUrl = baseUrl;
     config.webauthnOrigins = [baseUrl];
     config.smtpPort = smtpPort;
-    const service = new AuthService(
+    const service = new InstrumentedAuthService(
       database,
       config,
       systemClock,
@@ -135,7 +257,7 @@ suite('Soft Chat production-path capacity', () => {
       config,
       database,
       service,
-      delivery: new MessageDeliveryService(
+      delivery: new InstrumentedDeliveryService(
         database,
         systemClock,
         config.messageDeliveryBindingSecret,
@@ -264,23 +386,253 @@ suite('Soft Chat production-path capacity', () => {
     });
   }
 
-  async function runStage(
+  async function seedIndependentClients(
     count: number,
-    sender: { accessToken: string; userId: string },
-    recipient: { accessToken: string; userId: string },
+    label: string,
+  ): Promise<IndependentClient[]> {
+    const now = systemClock.now();
+    const accessExpiresAt = addSeconds(now, 30 * 60);
+    const sessionExpiresAt = addSeconds(now, 60 * 60);
+    const rows = Array.from({ length: count * 2 }, (_, index) => {
+      const role = index % 2 === 0 ? 'sender' : 'recipient';
+      const pair = Math.floor(index / 2);
+      const accessToken = randomBytes(32).toString('base64url');
+      return {
+        role,
+        pair,
+        accessToken,
+        userId: randomUUID(),
+        deviceId: randomUUID(),
+        familyId: randomUUID(),
+        sessionId: randomUUID(),
+        email: `load-${label}-${pair}-${role}@example.test`,
+        deviceHash: hash(`load-device-${label}-${pair}-${role}`).toString('base64'),
+        accessTokenHash: hash(accessToken).toString('base64'),
+      };
+    });
+    const payload = JSON.stringify(rows);
+    await database.transaction(async (client) => {
+      await client.query(
+        `INSERT INTO users(id,email,status,email_verified_at,created_at,updated_at)
+         SELECT user_id::uuid,email,'active',$2,$2,$2
+           FROM jsonb_to_recordset($1::jsonb) AS x(user_id text,email text)`,
+        [payload, now],
+      );
+      await client.query(
+        `INSERT INTO devices
+         (id,user_id,name,platform,client_device_key_hash,created_at,last_used_at)
+         SELECT device_id::uuid,user_id::uuid,'Independent load client','linux',
+                decode(device_hash,'base64'),$2,$2
+           FROM jsonb_to_recordset($1::jsonb)
+             AS x(device_id text,user_id text,device_hash text)`,
+        [payload, now],
+      );
+      await client.query(
+        `INSERT INTO refresh_token_families(id,user_id,device_id,created_at)
+         SELECT family_id::uuid,user_id::uuid,device_id::uuid,$2
+           FROM jsonb_to_recordset($1::jsonb)
+             AS x(family_id text,user_id text,device_id text)`,
+        [payload, now],
+      );
+      await client.query(
+        `INSERT INTO sessions
+         (id,user_id,device_id,family_id,access_token_hash,access_expires_at,created_at,last_used_at,
+          last_refreshed_at,inactivity_expires_at,expires_at,authentication_method,assurance_level,
+          authenticated_at,step_up_at,security_version)
+         SELECT x.session_id::uuid,x.user_id::uuid,x.device_id::uuid,x.family_id::uuid,
+                decode(x.access_token_hash,'base64'),$2,$3,$3,$3,$2,$4,
+                'webauthn_uv','aal2',$3,$3,u.security_version
+           FROM jsonb_to_recordset($1::jsonb)
+             AS x(session_id text,user_id text,device_id text,family_id text,access_token_hash text)
+           JOIN users u ON u.id=x.user_id::uuid`,
+        [payload, accessExpiresAt, now, sessionExpiresAt],
+      );
+    });
+    return Array.from({ length: count }, (_, index) => {
+      const sender = rows[index * 2]!;
+      const recipient = rows[index * 2 + 1]!;
+      return {
+        sender: { accessToken: sender.accessToken, userId: sender.userId },
+        recipient: { accessToken: recipient.accessToken, userId: recipient.userId },
+      };
+    });
+  }
+
+  async function startDiagnostics() {
+    const poolSamples: PoolSample[] = [];
+    const waitCounts = new Map<string, number>();
+    const lockWaitingQueries = new Map<string, PostgresDiagnostics['lockWaitingQueries'][number]>();
+    let maxLockWaitingQueries = 0;
+    let activityError: string | undefined;
+    let statementsError: string | undefined;
+    const statementBaseline = new Map<string, { calls: number; totalExecTimeMs: number }>();
+    try {
+      const extension = await adminDatabase.query<{ installed: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements') installed`,
+      );
+      if (extension.rows[0]?.installed) {
+        const baseline = await adminDatabase.query<{
+          queryid: string;
+          calls: string;
+          total_exec_time: number;
+        }>(
+          `SELECT queryid::text,calls::text,total_exec_time FROM pg_stat_statements
+            WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database())`,
+        );
+        for (const row of baseline.rows) {
+          statementBaseline.set(row.queryid, {
+            calls: Number(row.calls),
+            totalExecTimeMs: row.total_exec_time,
+          });
+        }
+      } else {
+        statementsError = 'pg_stat_statements extension is not installed';
+      }
+    } catch (error) {
+      statementsError = String(error);
+    }
+    let sampling = false;
+    const poolTimer = setInterval(() => {
+      poolSamples.push({
+        at: new Date().toISOString(),
+        totalCount: database.pool.totalCount,
+        idleCount: database.pool.idleCount,
+        waitingCount: database.pool.waitingCount,
+      });
+    }, 25);
+    const postgresTimer = setInterval(() => {
+      if (sampling) return;
+      sampling = true;
+      void adminDatabase
+        .query<{
+          pid: number;
+          wait_event_type: string | null;
+          wait_event: string | null;
+          query: string;
+          wait_duration_ms: string;
+          blocking_pids: number[];
+        }>(
+          `SELECT pid,wait_event_type,wait_event,left(query,500) query,
+                  extract(epoch FROM (clock_timestamp()-query_start))*1000 wait_duration_ms,
+                  pg_blocking_pids(pid) blocking_pids
+             FROM pg_stat_activity
+            WHERE datname=current_database() AND pid<>pg_backend_pid()
+              AND state<>'idle'`,
+        )
+        .then((result) => {
+          let lockWaiting = 0;
+          for (const row of result.rows) {
+            const key = JSON.stringify([row.wait_event_type, row.wait_event]);
+            waitCounts.set(key, (waitCounts.get(key) ?? 0) + 1);
+            if (row.wait_event_type === 'Lock') {
+              lockWaiting += 1;
+              lockWaitingQueries.set(`${row.pid}:${row.query}`, {
+                query: row.query,
+                waitEvent: row.wait_event,
+                waitDurationMs: Number(row.wait_duration_ms),
+                blockingPids: row.blocking_pids,
+              });
+            }
+          }
+          maxLockWaitingQueries = Math.max(maxLockWaitingQueries, lockWaiting);
+        })
+        .catch((error: unknown) => {
+          activityError = String(error);
+        })
+        .finally(() => {
+          sampling = false;
+        });
+    }, 250);
+    return async () => {
+      clearInterval(poolTimer);
+      clearInterval(postgresTimer);
+      while (sampling) await delay(10);
+      let topQueries: PostgresDiagnostics['topQueries'] = [];
+      if (!statementsError) {
+        try {
+          const result = await adminDatabase.query<{
+            queryid: string;
+            query: string;
+            calls: string;
+            total_exec_time: number;
+          }>(
+            `SELECT queryid::text,left(query,500) query,calls::text,total_exec_time
+               FROM pg_stat_statements
+              WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+                AND query NOT ILIKE '%pg_stat%'`,
+          );
+          topQueries = result.rows
+            .map((row) => {
+              const baseline = statementBaseline.get(row.queryid) ?? {
+                calls: 0,
+                totalExecTimeMs: 0,
+              };
+              return {
+                query: row.query,
+                calls: Number(row.calls) - baseline.calls,
+                totalExecTimeMs: row.total_exec_time - baseline.totalExecTimeMs,
+              };
+            })
+            .filter((row) => row.calls > 0)
+            .sort((left, right) => right.totalExecTimeMs - left.totalExecTimeMs)
+            .slice(0, 15);
+        } catch (error) {
+          statementsError = String(error);
+        }
+      }
+      const waitEvents = [...waitCounts.entries()].map(([key, samples]) => {
+        const [waitEventType, waitEvent] = JSON.parse(key) as [string | null, string | null];
+        return { waitEventType, waitEvent, samples };
+      });
+      return {
+        poolSamples,
+        postgres: {
+          activityAvailable: !activityError,
+          ...(activityError ? { activityError } : {}),
+          statementsAvailable: !statementsError,
+          ...(statementsError ? { statementsError } : {}),
+          waitEvents,
+          maxLockWaitingQueries,
+          lockWaitingQueries: [...lockWaitingQueries.values()].slice(0, 25),
+          topQueries,
+        } satisfies PostgresDiagnostics,
+      };
+    };
+  }
+
+  async function runStage(
+    mode: LoadMode,
+    count: number,
+    shared?: { sender: LoadIdentity; recipient: LoadIdentity },
   ): Promise<StageResult> {
     const started = new Date();
     const errors: ErrorCounts = {};
-    const latencies = new Map<string, number>();
+    const timings: ServiceTimings = {
+      authentication: [],
+      accept: [],
+      pendingFetch: [],
+      acknowledge: [],
+    };
+    activeTimings = timings;
     const startedMessages = new Map<string, number>();
+    const visibleMessages = new Map<string, number>();
+    const acknowledgedMessages = new Map<string, number>();
     const expectedPayloads = new Map<string, string>();
     const seen = new Set<string>();
     let authenticatedClients = 0;
+    const authenticatedIndices: number[] = [];
     let messagesSucceeded = 0;
     let ackSucceeded = 0;
     let duplicateDeliveries = 0;
     let contentViolations = 0;
+    let pendingFetchRequests = 0;
     let unhealthy = false;
+    const independent =
+      mode === 'independent-streaming'
+        ? await seedIndependentClients(count, `${Date.now()}-${count}`)
+        : undefined;
+    if (mode === 'shared-phased' && !shared) throw new Error('Shared identities are required.');
+    const stopDiagnostics = await startDiagnostics();
     const healthTimer = setInterval(() => {
       void fetch(`${baseUrl}/health/ready`)
         .then((response) => {
@@ -292,92 +644,186 @@ suite('Soft Chat production-path capacity', () => {
     await Promise.all(
       Array.from({ length: count }, async (_, index) => {
         try {
-          await authorized(
-            '/api/v1/me',
-            index % 2 === 0 ? sender.accessToken : recipient.accessToken,
-          );
+          if (independent) {
+            await Promise.all([
+              authorized('/api/v1/me', independent[index]!.sender.accessToken),
+              authorized('/api/v1/me', independent[index]!.recipient.accessToken),
+            ]);
+          } else {
+            await authorized(
+              '/api/v1/me',
+              index % 2 === 0 ? shared!.sender.accessToken : shared!.recipient.accessToken,
+            );
+          }
           authenticatedClients += 1;
+          authenticatedIndices.push(index);
         } catch (error) {
           increment(errors, `authentication:${String(error)}`);
         }
       }),
     );
 
-    const requestIds = Array.from({ length: authenticatedClients }, () => randomUUID());
-    await Promise.all(
-      requestIds.map(async (requestId, index) => {
-        startedMessages.set(requestId, performance.now());
-        const text =
-          index % 3 === 0
-            ? 'Pepper load ordinary text'
-            : index % 3 === 1
-              ? '🫡👩🏽‍💻'
-              : 'Pepper load Hello 🌍!';
-        const payload = Buffer.from(text, 'utf8').toString('base64');
-        expectedPayloads.set(requestId, payload);
-        try {
-          await authorized('/api/v1/messages', sender.accessToken, {
-            method: 'POST',
-            body: JSON.stringify({
-              requestId,
-              recipientId: recipient.userId,
-              payloadFormat: 'transport-v1',
-              payload,
-            }),
-          });
-          messagesSucceeded += 1;
-        } catch (error) {
-          increment(errors, `send:${String(error)}`);
-        }
-      }),
-    );
-
-    while (ackSucceeded < messagesSucceeded && !unhealthy) {
-      let items: Record<string, unknown>[];
-      try {
-        const pending = await authorized(
-          '/api/v1/messages/pending?limit=100',
-          recipient.accessToken,
-        );
-        items = (pending.items as Record<string, unknown>[] | undefined) ?? [];
-      } catch (error) {
-        increment(errors, `receive:${String(error)}`);
-        break;
+    const requests = authenticatedIndices.map((index) => ({ index, requestId: randomUUID() }));
+    const prepareMessage = (requestId: string, index: number) => {
+      startedMessages.set(requestId, performance.now());
+      const text =
+        index % 3 === 0
+          ? 'Pepper load ordinary text'
+          : index % 3 === 1
+            ? '🫡👩🏽‍💻'
+            : 'Pepper load Hello 🌍!';
+      const payload = Buffer.from(text, 'utf8').toString('base64');
+      expectedPayloads.set(requestId, payload);
+      return payload;
+    };
+    const acknowledgeItem = async (
+      item: Record<string, unknown>,
+      recipient: LoadIdentity,
+      sender: LoadIdentity,
+    ) => {
+      const requestId = item.requestId as string;
+      if (seen.has(requestId)) duplicateDeliveries += 1;
+      seen.add(requestId);
+      visibleMessages.set(requestId, visibleMessages.get(requestId) ?? performance.now());
+      if (item.payload !== expectedPayloads.get(requestId)) {
+        increment(errors, 'receive:PAYLOAD_ALTERED');
+        contentViolations += 1;
       }
-      if (items.length === 0) break;
+      try {
+        await authorized(`/api/v1/messages/${requestId}/ack`, recipient.accessToken, {
+          method: 'POST',
+          body: JSON.stringify({ senderId: sender.userId }),
+        });
+        if (!acknowledgedMessages.has(requestId)) {
+          ackSucceeded += 1;
+          acknowledgedMessages.set(requestId, performance.now());
+        }
+      } catch (error) {
+        increment(errors, `ack:${String(error)}`);
+      }
+    };
+
+    if (independent) {
       await Promise.all(
-        items.map(async (item) => {
-          const requestId = item.requestId as string;
-          if (seen.has(requestId)) duplicateDeliveries += 1;
-          seen.add(requestId);
-          if (item.payload !== expectedPayloads.get(requestId)) {
-            increment(errors, 'receive:PAYLOAD_ALTERED');
-            contentViolations += 1;
-          }
-          try {
-            await authorized(`/api/v1/messages/${requestId}/ack`, recipient.accessToken, {
-              method: 'POST',
-              body: JSON.stringify({ senderId: sender.userId }),
-            });
-            if (!latencies.has(requestId)) {
-              ackSucceeded += 1;
-              latencies.set(requestId, performance.now() - startedMessages.get(requestId)!);
+        requests.map(async ({ requestId, index }) => {
+          const client = independent[index]!;
+          const payload = prepareMessage(requestId, index);
+          const receive = (async () => {
+            const deadline = performance.now() + 30_000;
+            while (!acknowledgedMessages.has(requestId) && performance.now() < deadline) {
+              try {
+                pendingFetchRequests += 1;
+                const pending = await authorized(
+                  '/api/v1/messages/pending?limit=100',
+                  client.recipient.accessToken,
+                );
+                const item = ((pending.items as Record<string, unknown>[] | undefined) ?? []).find(
+                  (candidate) => candidate.requestId === requestId,
+                );
+                if (item) {
+                  await acknowledgeItem(item, client.recipient, client.sender);
+                  return;
+                }
+              } catch (error) {
+                increment(errors, `receive:${String(error)}`);
+                return;
+              }
+              await delay(pollIntervalMs);
             }
+            increment(errors, 'receive:TIMEOUT');
+          })();
+          try {
+            await authorized('/api/v1/messages', client.sender.accessToken, {
+              method: 'POST',
+              body: JSON.stringify({
+                requestId,
+                recipientId: client.recipient.userId,
+                payloadFormat: 'transport-v1',
+                payload,
+              }),
+            });
+            messagesSucceeded += 1;
           } catch (error) {
-            increment(errors, `ack:${String(error)}`);
+            increment(errors, `send:${String(error)}`);
+          }
+          await receive;
+        }),
+      );
+    } else {
+      await Promise.all(
+        requests.map(async ({ requestId, index }) => {
+          const payload = prepareMessage(requestId, index);
+          try {
+            await authorized('/api/v1/messages', shared!.sender.accessToken, {
+              method: 'POST',
+              body: JSON.stringify({
+                requestId,
+                recipientId: shared!.recipient.userId,
+                payloadFormat: 'transport-v1',
+                payload,
+              }),
+            });
+            messagesSucceeded += 1;
+          } catch (error) {
+            increment(errors, `send:${String(error)}`);
           }
         }),
       );
+      while (ackSucceeded < messagesSucceeded && !unhealthy) {
+        let items: Record<string, unknown>[];
+        try {
+          pendingFetchRequests += 1;
+          const pending = await authorized(
+            '/api/v1/messages/pending?limit=100',
+            shared!.recipient.accessToken,
+          );
+          items = (pending.items as Record<string, unknown>[] | undefined) ?? [];
+        } catch (error) {
+          increment(errors, `receive:${String(error)}`);
+          break;
+        }
+        if (items.length === 0) break;
+        await Promise.all(
+          items.map((item) => acknowledgeItem(item, shared!.recipient, shared!.sender)),
+        );
+      }
     }
     clearInterval(healthTimer);
+    activeTimings = undefined;
+    const diagnostics = await stopDiagnostics();
     const finished = new Date();
     const durationMs = finished.getTime() - started.getTime();
-    const sorted = [...latencies.values()].sort((a, b) => a - b);
+    const sendToVisible = [...visibleMessages].map(
+      ([requestId, visible]) => visible - startedMessages.get(requestId)!,
+    );
+    const visibleToAck = [...acknowledgedMessages].map(
+      ([requestId, acknowledged]) => acknowledged - visibleMessages.get(requestId)!,
+    );
+    const sendToAck = [...acknowledgedMessages].map(
+      ([requestId, acknowledged]) => acknowledged - startedMessages.get(requestId)!,
+    );
+    const latencyMs = {
+      authentication: summarize(timings.authentication),
+      accept: summarize(timings.accept),
+      pendingFetch: summarize(timings.pendingFetch),
+      acknowledge: summarize(timings.acknowledge),
+      sendToVisible: summarize(sendToVisible),
+      visibleToAck: summarize(visibleToAck),
+      sendToAck: summarize(sendToAck),
+    };
+    const poolSamples = diagnostics.poolSamples;
+    const pool = {
+      maxTotalCount: Math.max(0, ...poolSamples.map((sample) => sample.totalCount)),
+      minIdleCount:
+        poolSamples.length === 0 ? 0 : Math.min(...poolSamples.map((sample) => sample.idleCount)),
+      maxWaitingCount: Math.max(0, ...poolSamples.map((sample) => sample.waitingCount)),
+      samples: poolSamples,
+    };
     const messagesFailed = authenticatedClients - messagesSucceeded;
     const ackFailed = messagesSucceeded - ackSucceeded;
     const errorRate =
       (messagesFailed + ackFailed) / Math.max(1, authenticatedClients + messagesSucceeded);
-    const p99 = percentile(sorted, 0.99);
+    const p99 = latencyMs.sendToAck.p99;
     const authFailureRate = (count - authenticatedClients) / count;
     const failures: string[] = [];
     if (unhealthy) failures.push('backend health check failed');
@@ -394,6 +840,7 @@ suite('Soft Chat production-path capacity', () => {
       failures.push(`${duplicateDeliveries} duplicate deliveries observed`);
     if (contentViolations > 0) failures.push(`${contentViolations} altered payloads observed`);
     return {
+      mode,
       requestedConcurrentClients: count,
       authenticatedClients,
       messagesAttempted: authenticatedClients,
@@ -404,7 +851,10 @@ suite('Soft Chat production-path capacity', () => {
       throughputMessagesPerSecond: Number(
         (ackSucceeded / Math.max(0.001, durationMs / 1000)).toFixed(2),
       ),
-      latencyMs: { p50: percentile(sorted, 0.5), p95: percentile(sorted, 0.95), p99 },
+      latencyMs,
+      pool,
+      postgres: diagnostics.postgres,
+      pendingFetchRequests,
       duplicateDeliveries,
       exactlyOnceViolations: duplicateDeliveries + contentViolations,
       errors,
@@ -421,37 +871,56 @@ suite('Soft Chat production-path capacity', () => {
     async () => {
       const runStarted = new Date();
       const runId = runStarted.toISOString().replaceAll(':', '-').replaceAll('.', '-');
-      const sender = await register(`load-sender-${runId}@example.test`, 0);
-      const recipient = await register(`load-recipient-${runId}@example.test`, 1);
+      for (const mode of requestedModes) {
+        if (!['shared-phased', 'independent-streaming'].includes(mode)) {
+          throw new Error(`Unsupported SOFT_CHAT_LOAD_MODES value: ${mode}`);
+        }
+      }
       const stages: StageResult[] = [];
-      for (const requested of requestedStages) {
-        const result = await runStage(requested, sender, recipient);
-        stages.push(result);
-        if (result.result === 'FAIL') break;
+      for (const mode of requestedModes) {
+        const shared =
+          mode === 'shared-phased'
+            ? {
+                sender: await register(`load-sender-${runId}@example.test`, 0),
+                recipient: await register(`load-recipient-${runId}@example.test`, 1),
+              }
+            : undefined;
+        for (const requested of requestedStages) {
+          const result = await runStage(mode, requested, shared);
+          stages.push(result);
+          if (result.result === 'FAIL' && !comparisonRun) break;
+        }
       }
       const report = {
         harness: 'Babylon Soft Chat production delivery/ACK capacity',
         startedAt: runStarted.toISOString(),
         finishedAt: new Date().toISOString(),
         databaseIsolation: `ephemeral PostgreSQL schema ${schema} (dropped after run)`,
-        clientModel:
-          'virtual HTTP clients sharing two accounts authenticated by real invitation/email/WebAuthn/PKCE exchange',
+        clientModels: {
+          'shared-phased':
+            'Control: two real WebAuthn accounts/sessions shared by every virtual client; all sends finish before batched pending/ACK processing starts.',
+          'independent-streaming':
+            'Diagnostic: test-only users, devices, and authenticated sessions are seeded only in the ephemeral schema; every virtual sender/recipient pair has independent rows and continuously polls/ACKs while sending. This measures already-authenticated independent clients, not passkey enrollment capacity.',
+        },
         thresholds: { maxErrorRate, maxP99Ms },
         requestedStages,
+        requestedModes,
+        comparisonRun,
+        pollIntervalMs,
         stages,
-        stopReason:
-          stages.at(-1)?.result === 'FAIL'
-            ? stages.at(-1)!.reason
-            : 'all requested stages completed',
+        stopReason: stages.some((stage) => stage.result === 'FAIL')
+          ? 'one or more modes stopped after its first failed stage'
+          : 'all requested stages completed',
       };
       await mkdir(outputRoot, { recursive: true });
       const base = resolve(outputRoot, `soft-chat-load-${runId}`);
       await writeFile(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
       const header =
-        'started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,p50_ms,p95_ms,p99_ms,duplicates,exactly_once_violations,duration_ms,result,reason\n';
+        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_lock_waiting,duplicates,exactly_once_violations,duration_ms,result,reason\n';
       const csv = stages
         .map((stage) =>
           [
+            stage.mode,
             stage.startedAt,
             stage.finishedAt,
             stage.requestedConcurrentClients,
@@ -462,9 +931,19 @@ suite('Soft Chat production-path capacity', () => {
             stage.ackSucceeded,
             stage.ackFailed,
             stage.throughputMessagesPerSecond,
-            stage.latencyMs.p50,
-            stage.latencyMs.p95,
-            stage.latencyMs.p99,
+            stage.pendingFetchRequests,
+            stage.latencyMs.authentication.p99,
+            stage.latencyMs.accept.p99,
+            stage.latencyMs.pendingFetch.p99,
+            stage.latencyMs.acknowledge.p99,
+            stage.latencyMs.sendToVisible.p99,
+            stage.latencyMs.visibleToAck.p99,
+            stage.latencyMs.sendToAck.p99,
+            stage.latencyMs.sendToAck.max,
+            stage.pool.maxTotalCount,
+            stage.pool.minIdleCount,
+            stage.pool.maxWaitingCount,
+            stage.postgres.maxLockWaitingQueries,
             stage.duplicateDeliveries,
             stage.exactlyOnceViolations,
             stage.durationMs,
@@ -477,7 +956,7 @@ suite('Soft Chat production-path capacity', () => {
       const summary = stages
         .map(
           (stage) =>
-            `${stage.result} ${stage.requestedConcurrentClients} clients: ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, p99 ${stage.latencyMs.p99.toFixed(1)}ms — ${stage.reason}`,
+            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, lock wait max ${stage.postgres.maxLockWaitingQueries} — ${stage.reason}`,
         )
         .join('\n');
       await writeFile(
@@ -485,6 +964,7 @@ suite('Soft Chat production-path capacity', () => {
         `Babylon Soft Chat load run ${runStarted.toISOString()}\n${summary}\nStop: ${report.stopReason}\n`,
       );
       expect(stages.length).toBeGreaterThan(0);
+      expect(stages.every((stage) => stage.result === 'PASS')).toBe(true);
     },
     30 * 60_000,
   );
