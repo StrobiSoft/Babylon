@@ -410,7 +410,17 @@ suite('Soft Chat production-path capacity', () => {
         accessTokenHash: hash(accessToken).toString('base64'),
       };
     });
-    const payload = JSON.stringify(rows);
+    const payload = JSON.stringify(
+      rows.map((row) => ({
+        user_id: row.userId,
+        device_id: row.deviceId,
+        family_id: row.familyId,
+        session_id: row.sessionId,
+        email: row.email,
+        device_hash: row.deviceHash,
+        access_token_hash: row.accessTokenHash,
+      })),
+    );
     await database.transaction(async (client) => {
       await client.query(
         `INSERT INTO users(id,email,status,email_verified_at,created_at,updated_at)
