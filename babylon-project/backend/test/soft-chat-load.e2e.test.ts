@@ -694,9 +694,7 @@ suite('Soft Chat production-path capacity', () => {
       const milliseconds = (nanoseconds: number) => nanoseconds / 1_000_000;
       const runtime: RuntimeDiagnostics = {
         cpuPercent:
-          runtimeDurationMs === 0
-            ? 0
-            : ((cpu.user + cpu.system) / 1000 / runtimeDurationMs) * 100,
+          runtimeDurationMs === 0 ? 0 : ((cpu.user + cpu.system) / 1000 / runtimeDurationMs) * 100,
         eventLoopUtilizationPercent: eventLoop.utilization * 100,
         eventLoopDelayMs:
           eventLoopSamples === 0
