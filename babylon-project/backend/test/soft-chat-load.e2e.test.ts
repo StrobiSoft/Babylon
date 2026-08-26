@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { SMTPServer } from 'smtp-server';
@@ -68,6 +69,11 @@ interface PostgresDiagnostics {
 
 type AcquisitionStage = 'authentication' | 'accept' | 'pendingFetch' | 'acknowledge';
 type AcquisitionSummaries = Record<AcquisitionStage, LatencySummary>;
+interface RuntimeDiagnostics {
+  cpuPercent: number;
+  eventLoopUtilizationPercent: number;
+  eventLoopDelayMs: LatencySummary;
+}
 interface WindowDiagnostics {
   startedAt: string;
   finishedAt: string;
@@ -80,6 +86,7 @@ interface WindowDiagnostics {
     samples: PoolSample[];
   };
   postgres: PostgresDiagnostics;
+  runtime: RuntimeDiagnostics;
 }
 
 type ErrorCounts = Record<string, number>;
@@ -114,6 +121,7 @@ interface StageResult {
     samples: PoolSample[];
   };
   postgres: PostgresDiagnostics;
+  runtime: RuntimeDiagnostics;
   pendingFetchRequests: number;
   duplicateDeliveries: number;
   exactlyOnceViolations: number;
@@ -614,6 +622,11 @@ suite('Soft Chat production-path capacity', () => {
     } catch (error) {
       statementsError = String(error);
     }
+    const runtimeStartedAt = performance.now();
+    const cpuStarted = process.cpuUsage();
+    const eventLoopStarted = performance.eventLoopUtilization();
+    const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
+    eventLoopDelay.enable();
     let sampling = false;
     const poolTimer = setInterval(() => {
       poolSamples.push({
@@ -673,6 +686,29 @@ suite('Soft Chat production-path capacity', () => {
     return async () => {
       clearInterval(poolTimer);
       clearInterval(postgresTimer);
+      eventLoopDelay.disable();
+      const runtimeDurationMs = performance.now() - runtimeStartedAt;
+      const cpu = process.cpuUsage(cpuStarted);
+      const eventLoop = performance.eventLoopUtilization(eventLoopStarted);
+      const eventLoopSamples = Number(eventLoopDelay.count);
+      const milliseconds = (nanoseconds: number) => nanoseconds / 1_000_000;
+      const runtime: RuntimeDiagnostics = {
+        cpuPercent:
+          runtimeDurationMs === 0
+            ? 0
+            : ((cpu.user + cpu.system) / 1000 / runtimeDurationMs) * 100,
+        eventLoopUtilizationPercent: eventLoop.utilization * 100,
+        eventLoopDelayMs:
+          eventLoopSamples === 0
+            ? { count: 0, p50: 0, p95: 0, p99: 0, max: 0 }
+            : {
+                count: eventLoopSamples,
+                p50: milliseconds(eventLoopDelay.percentile(50)),
+                p95: milliseconds(eventLoopDelay.percentile(95)),
+                p99: milliseconds(eventLoopDelay.percentile(99)),
+                max: milliseconds(eventLoopDelay.max),
+              },
+      };
       while (sampling) await delay(10);
       let topQueries: PostgresDiagnostics['topQueries'] = [];
       if (!statementsError) {
@@ -713,6 +749,7 @@ suite('Soft Chat production-path capacity', () => {
       });
       return {
         poolSamples,
+        runtime,
         postgres: {
           activityAvailable: !activityError,
           ...(activityError ? { activityError } : {}),
@@ -902,6 +939,7 @@ suite('Soft Chat production-path capacity', () => {
       pool: summarizePool(reconnectDiagnostics.poolSamples),
       poolAtWarmupEnd,
       postgres: reconnectDiagnostics.postgres,
+      runtime: reconnectDiagnostics.runtime,
     };
 
     const timings = emptyServiceTimings();
@@ -1038,6 +1076,7 @@ suite('Soft Chat production-path capacity', () => {
       connectionAcquisitionWaitMs: summarizeAcquisition(timings),
       pool,
       postgres: diagnostics.postgres,
+      runtime: diagnostics.runtime,
       pendingFetchRequests,
       duplicateDeliveries,
       exactlyOnceViolations: duplicateDeliveries + contentViolations,
@@ -1105,7 +1144,7 @@ suite('Soft Chat production-path capacity', () => {
       const base = resolve(outputRoot, `soft-chat-load-${runId}`);
       await writeFile(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
       const header =
-        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,duplicates,exactly_once_violations,duration_ms,result,reason\n';
+        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,reconnect_node_cpu_percent,reconnect_event_loop_utilization_percent,reconnect_event_loop_delay_p99_ms,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,node_cpu_percent,event_loop_utilization_percent,event_loop_delay_p99_ms,duplicates,exactly_once_violations,duration_ms,result,reason\n';
       const csv = stages
         .map((stage) =>
           [
@@ -1124,6 +1163,9 @@ suite('Soft Chat production-path capacity', () => {
             stage.reconnectRamp.authenticationLatencyMs.p99,
             stage.reconnectRamp.pool.maxWaitingCount,
             stage.reconnectRamp.postgres.maxActiveConnections,
+            stage.reconnectRamp.runtime.cpuPercent,
+            stage.reconnectRamp.runtime.eventLoopUtilizationPercent,
+            stage.reconnectRamp.runtime.eventLoopDelayMs.p99,
             stage.latencyMs.authentication.p99,
             stage.latencyMs.accept.p99,
             stage.latencyMs.pendingFetch.p99,
@@ -1141,6 +1183,9 @@ suite('Soft Chat production-path capacity', () => {
             stage.pool.maxWaitingCount,
             stage.postgres.maxActiveConnections,
             stage.postgres.maxLockWaitingQueries,
+            stage.runtime.cpuPercent,
+            stage.runtime.eventLoopUtilizationPercent,
+            stage.runtime.eventLoopDelayMs.p99,
             stage.duplicateDeliveries,
             stage.exactlyOnceViolations,
             stage.durationMs,
@@ -1153,7 +1198,7 @@ suite('Soft Chat production-path capacity', () => {
       const summary = stages
         .map(
           (stage) =>
-            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: reconnect auth p99 ${stage.reconnectRamp.authenticationLatencyMs.p99.toFixed(1)}ms, reconnect pool waiting max ${stage.reconnectRamp.pool.maxWaitingCount}; steady ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, connection wait p99 auth/accept/pending/ACK ${stage.connectionAcquisitionWaitMs.authentication.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.accept.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.pendingFetch.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.acknowledge.p99.toFixed(1)}ms, lock wait max ${stage.postgres.maxLockWaitingQueries} — ${stage.reason}`,
+            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: reconnect auth p99 ${stage.reconnectRamp.authenticationLatencyMs.p99.toFixed(1)}ms, reconnect pool waiting max ${stage.reconnectRamp.pool.maxWaitingCount}; steady ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, connection wait p99 auth/accept/pending/ACK ${stage.connectionAcquisitionWaitMs.authentication.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.accept.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.pendingFetch.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.acknowledge.p99.toFixed(1)}ms, lock wait max ${stage.postgres.maxLockWaitingQueries}, Node CPU ${stage.runtime.cpuPercent.toFixed(1)}%, event-loop utilization ${stage.runtime.eventLoopUtilizationPercent.toFixed(1)}%, event-loop delay p99 ${stage.runtime.eventLoopDelayMs.p99.toFixed(1)}ms — ${stage.reason}`,
         )
         .join('\n');
       await writeFile(
