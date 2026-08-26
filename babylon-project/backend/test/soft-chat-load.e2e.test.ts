@@ -1,10 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { fork, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { SMTPServer } from 'smtp-server';
@@ -32,6 +34,7 @@ const pollIntervalMs = Number(process.env.SOFT_CHAT_LOAD_POLL_INTERVAL_MS ?? '50
 const requestedPoolMax = Number(process.env.SOFT_CHAT_LOAD_POOL_MAX ?? '20');
 const clientRampMs = Number(process.env.SOFT_CHAT_LOAD_CLIENT_RAMP_MS ?? '0');
 const warmupMs = Number(process.env.SOFT_CHAT_LOAD_WARMUP_MS ?? '0');
+const separateServerProcess = process.env.SOFT_CHAT_LOAD_SEPARATE_SERVER === '1';
 const requestedModes = (process.env.SOFT_CHAT_LOAD_MODES ?? 'shared-phased,independent-streaming')
   .split(',')
   .map((value) => value.trim()) as LoadMode[];
@@ -87,6 +90,7 @@ interface WindowDiagnostics {
   };
   postgres: PostgresDiagnostics;
   runtime: RuntimeDiagnostics;
+  driverRuntime: RuntimeDiagnostics;
 }
 
 type ErrorCounts = Record<string, number>;
@@ -122,6 +126,7 @@ interface StageResult {
   };
   postgres: PostgresDiagnostics;
   runtime: RuntimeDiagnostics;
+  driverRuntime: RuntimeDiagnostics;
   pendingFetchRequests: number;
   duplicateDeliveries: number;
   exactlyOnceViolations: number;
@@ -303,10 +308,102 @@ interface IndependentClient {
   recipient: LoadIdentity;
 }
 
+interface RemoteWindowResult {
+  timings: ServiceTimings;
+  poolSamples: PoolSample[];
+  runtime: RuntimeDiagnostics;
+}
+
+interface ServerProcessController {
+  process: ChildProcess;
+  request<T>(type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample'): Promise<T>;
+  close(): Promise<void>;
+}
+
+async function startServerProcess(input: {
+  databaseUrl: string;
+  backendPort: number;
+  smtpPort: number;
+}): Promise<ServerProcessController> {
+  const childPath = fileURLToPath(new URL('./soft-chat-load-server-process.ts', import.meta.url));
+  const child = fork(childPath, [], {
+    execArgv: ['--import', 'tsx'],
+    env: {
+      ...process.env,
+      SOFT_CHAT_LOAD_CHILD_DATABASE_URL: input.databaseUrl,
+      SOFT_CHAT_LOAD_CHILD_BACKEND_PORT: String(input.backendPort),
+      SOFT_CHAT_LOAD_CHILD_SMTP_PORT: String(input.smtpPort),
+      SOFT_CHAT_LOAD_CHILD_POOL_MAX: String(requestedPoolMax),
+    },
+    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+  });
+  let sequence = 0;
+  const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+  let readyResolve: (() => void) | undefined;
+  let readyReject: ((error: Error) => void) | undefined;
+  const ready = new Promise<void>((resolveReady, rejectReady) => {
+    readyResolve = resolveReady;
+    readyReject = rejectReady;
+  });
+  child.on('message', (message: unknown) => {
+    const response = message as {
+      type?: string;
+      id?: number;
+      value?: unknown;
+      error?: string;
+    };
+    if (response.type === 'ready') {
+      readyResolve?.();
+      return;
+    }
+    if (response.id === undefined) return;
+    const waiter = pending.get(response.id);
+    if (!waiter) return;
+    pending.delete(response.id);
+    if (response.error) waiter.reject(new Error(response.error));
+    else waiter.resolve(response.value);
+  });
+  child.once('error', (error) => readyReject?.(error));
+  child.once('exit', (code, signal) => {
+    const error = new Error(`Soft Chat server process exited (${code ?? signal ?? 'unknown'}).`);
+    readyReject?.(error);
+    for (const waiter of pending.values()) waiter.reject(error);
+    pending.clear();
+  });
+  await ready;
+
+  const request = <T>(
+    type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample' | 'shutdown',
+  ) =>
+    new Promise<T>((resolveRequest, rejectRequest) => {
+      const id = ++sequence;
+      pending.set(id, {
+        resolve: (value) => resolveRequest(value as T),
+        reject: rejectRequest,
+      });
+      child.send({ id, type }, (error) => {
+        if (!error) return;
+        pending.delete(id);
+        rejectRequest(error);
+      });
+    });
+
+  return {
+    process: child,
+    request,
+    async close() {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      await request<null>('shutdown');
+      await new Promise<void>((done) => child.once('exit', () => done()));
+    },
+  };
+}
+
 suite('Soft Chat production-path capacity', () => {
   let adminDatabase: PostgresDatabase;
   let database: PostgresDatabase;
-  let app: Awaited<ReturnType<typeof buildServer>>;
+  let app: Awaited<ReturnType<typeof buildServer>> | undefined;
+  let serverProcess: ServerProcessController | undefined;
   let smtp: SMTPServer;
   let callbackServer: Server;
   let browser: Browser;
@@ -365,25 +462,38 @@ suite('Soft Chat production-path capacity', () => {
     config.publicBackendUrl = baseUrl;
     config.webauthnOrigins = [baseUrl];
     config.smtpPort = smtpPort;
-    const service = new InstrumentedAuthService(
-      database,
-      config,
-      systemClock,
-      secureRandom,
-      new SmtpMailer(config),
-      new SimpleWebAuthnProvider(config),
-    );
-    app = await buildServer({
-      config,
-      database,
-      service,
-      delivery: new InstrumentedDeliveryService(
+    if (separateServerProcess) {
+      if (requestedModes.some((mode) => mode !== 'independent-streaming')) {
+        throw new Error(
+          'SOFT_CHAT_LOAD_SEPARATE_SERVER=1 currently supports independent-streaming only.',
+        );
+      }
+      serverProcess = await startServerProcess({
+        databaseUrl: isolatedDatabaseUrl,
+        backendPort,
+        smtpPort,
+      });
+    } else {
+      const service = new InstrumentedAuthService(
         database,
+        config,
         systemClock,
-        config.messageDeliveryBindingSecret,
-      ),
-    });
-    await app.listen({ host: '127.0.0.1', port: backendPort });
+        secureRandom,
+        new SmtpMailer(config),
+        new SimpleWebAuthnProvider(config),
+      );
+      app = await buildServer({
+        config,
+        database,
+        service,
+        delivery: new InstrumentedDeliveryService(
+          database,
+          systemClock,
+          config.messageDeliveryBindingSecret,
+        ),
+      });
+      await app.listen({ host: '127.0.0.1', port: backendPort });
+    }
     callbackServer = createServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1:43821');
       response.end('ok');
@@ -405,6 +515,7 @@ suite('Soft Chat production-path capacity', () => {
     await browser?.close();
     if (callbackServer) await new Promise<void>((done) => callbackServer.close(() => done()));
     if (smtp) await new Promise<void>((done) => smtp.close(() => done()));
+    await serverProcess?.close();
     await app?.close();
     await database?.close();
     if (adminDatabase && schema) await adminDatabase.query(`DROP SCHEMA ${schema} CASCADE`);
@@ -627,15 +738,18 @@ suite('Soft Chat production-path capacity', () => {
     const eventLoopStarted = performance.eventLoopUtilization();
     const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
     eventLoopDelay.enable();
+    if (serverProcess) await serverProcess.request<null>('start-window');
     let sampling = false;
-    const poolTimer = setInterval(() => {
-      poolSamples.push({
-        at: new Date().toISOString(),
-        totalCount: database.pool.totalCount,
-        idleCount: database.pool.idleCount,
-        waitingCount: database.pool.waitingCount,
-      });
-    }, 25);
+    const poolTimer = serverProcess
+      ? undefined
+      : setInterval(() => {
+          poolSamples.push({
+            at: new Date().toISOString(),
+            totalCount: database.pool.totalCount,
+            idleCount: database.pool.idleCount,
+            waitingCount: database.pool.waitingCount,
+          });
+        }, 25);
     const postgresTimer = setInterval(() => {
       if (sampling) return;
       sampling = true;
@@ -684,7 +798,7 @@ suite('Soft Chat production-path capacity', () => {
         });
     }, 250);
     return async () => {
-      clearInterval(poolTimer);
+      if (poolTimer) clearInterval(poolTimer);
       clearInterval(postgresTimer);
       eventLoopDelay.disable();
       const runtimeDurationMs = performance.now() - runtimeStartedAt;
@@ -692,7 +806,7 @@ suite('Soft Chat production-path capacity', () => {
       const eventLoop = performance.eventLoopUtilization(eventLoopStarted);
       const eventLoopSamples = eventLoopDelay.count;
       const milliseconds = (nanoseconds: number) => nanoseconds / 1_000_000;
-      const runtime: RuntimeDiagnostics = {
+      const driverRuntime: RuntimeDiagnostics = {
         cpuPercent:
           runtimeDurationMs === 0 ? 0 : ((cpu.user + cpu.system) / 1000 / runtimeDurationMs) * 100,
         eventLoopUtilizationPercent: eventLoop.utilization * 100,
@@ -707,6 +821,9 @@ suite('Soft Chat production-path capacity', () => {
                 max: milliseconds(eventLoopDelay.max),
               },
       };
+      const remoteDiagnostics = serverProcess
+        ? await serverProcess.request<RemoteWindowResult>('stop-window')
+        : undefined;
       while (sampling) await delay(10);
       let topQueries: PostgresDiagnostics['topQueries'] = [];
       if (!statementsError) {
@@ -746,8 +863,10 @@ suite('Soft Chat production-path capacity', () => {
         return { waitEventType, waitEvent, samples };
       });
       return {
-        poolSamples,
-        runtime,
+        poolSamples: remoteDiagnostics?.poolSamples ?? poolSamples,
+        runtime: remoteDiagnostics?.runtime ?? driverRuntime,
+        driverRuntime,
+        serviceTimings: remoteDiagnostics?.timings,
         postgres: {
           activityAvailable: !activityError,
           ...(activityError ? { activityError } : {}),
@@ -773,12 +892,15 @@ suite('Soft Chat production-path capacity', () => {
     };
   }
 
-  const currentPoolSample = (): PoolSample => ({
-    at: new Date().toISOString(),
-    totalCount: database.pool.totalCount,
-    idleCount: database.pool.idleCount,
-    waitingCount: database.pool.waitingCount,
-  });
+  const currentPoolSample = async (): Promise<PoolSample> =>
+    serverProcess
+      ? serverProcess.request<PoolSample>('pool-sample')
+      : {
+          at: new Date().toISOString(),
+          totalCount: database.pool.totalCount,
+          idleCount: database.pool.idleCount,
+          waitingCount: database.pool.waitingCount,
+        };
 
   async function runStage(
     mode: LoadMode,
@@ -881,7 +1003,7 @@ suite('Soft Chat production-path capacity', () => {
     };
 
     const reconnectTimings = emptyServiceTimings();
-    activeTimings = reconnectTimings;
+    activeTimings = serverProcess ? undefined : reconnectTimings;
     const stopReconnectDiagnostics = await startDiagnostics();
     const reconnectStarted = new Date();
     await Promise.all(
@@ -918,15 +1040,19 @@ suite('Soft Chat production-path capacity', () => {
       }),
     );
     const reconnectAuthenticationLatency = summarize(initialAuthenticationLatencies);
+    const reconnectTimingSnapshot = serverProcess
+      ? await serverProcess.request<ServiceTimings>('snapshot-timings')
+      : reconnectTimings;
     const reconnectAuthenticationAcquisition = summarize(
-      reconnectTimings.connectionAcquisition.authentication,
+      reconnectTimingSnapshot.connectionAcquisition.authentication,
     );
     if (warmupMs > 0) await delay(warmupMs);
-    const poolAtWarmupEnd = currentPoolSample();
+    const poolAtWarmupEnd = await currentPoolSample();
     activeTimings = undefined;
     const reconnectFinished = new Date();
     const reconnectDiagnostics = await stopReconnectDiagnostics();
-    const reconnectAcquisition = summarizeAcquisition(reconnectTimings);
+    const effectiveReconnectTimings = reconnectDiagnostics.serviceTimings ?? reconnectTimings;
+    const reconnectAcquisition = summarizeAcquisition(effectiveReconnectTimings);
     reconnectAcquisition.authentication = reconnectAuthenticationAcquisition;
     const reconnectRamp: StageResult['reconnectRamp'] = {
       startedAt: reconnectStarted.toISOString(),
@@ -938,10 +1064,11 @@ suite('Soft Chat production-path capacity', () => {
       poolAtWarmupEnd,
       postgres: reconnectDiagnostics.postgres,
       runtime: reconnectDiagnostics.runtime,
+      driverRuntime: reconnectDiagnostics.driverRuntime,
     };
 
     const timings = emptyServiceTimings();
-    activeTimings = timings;
+    activeTimings = serverProcess ? undefined : timings;
     const stopSteadyDiagnostics = await startDiagnostics();
     const started = new Date();
     const requests = authenticatedIndices.map((index) => ({ index, requestId: randomUUID() }));
@@ -1018,6 +1145,7 @@ suite('Soft Chat production-path capacity', () => {
     clearInterval(healthTimer);
     activeTimings = undefined;
     const diagnostics = await stopSteadyDiagnostics();
+    const effectiveTimings = diagnostics.serviceTimings ?? timings;
     const sendToVisible = [...visibleMessages].map(
       ([requestId, visible]) => visible - startedMessages.get(requestId)!,
     );
@@ -1028,10 +1156,10 @@ suite('Soft Chat production-path capacity', () => {
       ([requestId, acknowledged]) => acknowledged - startedMessages.get(requestId)!,
     );
     const latencyMs = {
-      authentication: summarize(timings.authentication),
-      accept: summarize(timings.accept),
-      pendingFetch: summarize(timings.pendingFetch),
-      acknowledge: summarize(timings.acknowledge),
+      authentication: summarize(effectiveTimings.authentication),
+      accept: summarize(effectiveTimings.accept),
+      pendingFetch: summarize(effectiveTimings.pendingFetch),
+      acknowledge: summarize(effectiveTimings.acknowledge),
       sendToVisible: summarize(sendToVisible),
       visibleToAck: summarize(visibleToAck),
       sendToAck: summarize(sendToAck),
@@ -1071,10 +1199,11 @@ suite('Soft Chat production-path capacity', () => {
       ),
       latencyMs,
       reconnectRamp,
-      connectionAcquisitionWaitMs: summarizeAcquisition(timings),
+      connectionAcquisitionWaitMs: summarizeAcquisition(effectiveTimings),
       pool,
       postgres: diagnostics.postgres,
       runtime: diagnostics.runtime,
+      driverRuntime: diagnostics.driverRuntime,
       pendingFetchRequests,
       duplicateDeliveries,
       exactlyOnceViolations: duplicateDeliveries + contentViolations,
@@ -1127,6 +1256,7 @@ suite('Soft Chat production-path capacity', () => {
         requestedStages,
         requestedModes,
         comparisonRun,
+        separateServerProcess,
         pollIntervalMs,
         configuredPoolMax: requestedPoolMax,
         clientRampMs,
@@ -1142,7 +1272,7 @@ suite('Soft Chat production-path capacity', () => {
       const base = resolve(outputRoot, `soft-chat-load-${runId}`);
       await writeFile(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
       const header =
-        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,reconnect_node_cpu_percent,reconnect_event_loop_utilization_percent,reconnect_event_loop_delay_p99_ms,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,node_cpu_percent,event_loop_utilization_percent,event_loop_delay_p99_ms,duplicates,exactly_once_violations,duration_ms,result,reason\n';
+        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,reconnect_server_cpu_percent,reconnect_server_event_loop_utilization_percent,reconnect_server_event_loop_delay_p99_ms,reconnect_driver_cpu_percent,reconnect_driver_event_loop_utilization_percent,reconnect_driver_event_loop_delay_p99_ms,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,server_cpu_percent,server_event_loop_utilization_percent,server_event_loop_delay_p99_ms,driver_cpu_percent,driver_event_loop_utilization_percent,driver_event_loop_delay_p99_ms,duplicates,exactly_once_violations,duration_ms,result,reason\n';
       const csv = stages
         .map((stage) =>
           [
@@ -1164,6 +1294,9 @@ suite('Soft Chat production-path capacity', () => {
             stage.reconnectRamp.runtime.cpuPercent,
             stage.reconnectRamp.runtime.eventLoopUtilizationPercent,
             stage.reconnectRamp.runtime.eventLoopDelayMs.p99,
+            stage.reconnectRamp.driverRuntime.cpuPercent,
+            stage.reconnectRamp.driverRuntime.eventLoopUtilizationPercent,
+            stage.reconnectRamp.driverRuntime.eventLoopDelayMs.p99,
             stage.latencyMs.authentication.p99,
             stage.latencyMs.accept.p99,
             stage.latencyMs.pendingFetch.p99,
@@ -1184,6 +1317,9 @@ suite('Soft Chat production-path capacity', () => {
             stage.runtime.cpuPercent,
             stage.runtime.eventLoopUtilizationPercent,
             stage.runtime.eventLoopDelayMs.p99,
+            stage.driverRuntime.cpuPercent,
+            stage.driverRuntime.eventLoopUtilizationPercent,
+            stage.driverRuntime.eventLoopDelayMs.p99,
             stage.duplicateDeliveries,
             stage.exactlyOnceViolations,
             stage.durationMs,
@@ -1196,7 +1332,7 @@ suite('Soft Chat production-path capacity', () => {
       const summary = stages
         .map(
           (stage) =>
-            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: reconnect auth p99 ${stage.reconnectRamp.authenticationLatencyMs.p99.toFixed(1)}ms, reconnect pool waiting max ${stage.reconnectRamp.pool.maxWaitingCount}; steady ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, connection wait p99 auth/accept/pending/ACK ${stage.connectionAcquisitionWaitMs.authentication.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.accept.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.pendingFetch.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.acknowledge.p99.toFixed(1)}ms, lock wait max ${stage.postgres.maxLockWaitingQueries}, Node CPU ${stage.runtime.cpuPercent.toFixed(1)}%, event-loop utilization ${stage.runtime.eventLoopUtilizationPercent.toFixed(1)}%, event-loop delay p99 ${stage.runtime.eventLoopDelayMs.p99.toFixed(1)}ms — ${stage.reason}`,
+            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: reconnect auth p99 ${stage.reconnectRamp.authenticationLatencyMs.p99.toFixed(1)}ms, reconnect pool waiting max ${stage.reconnectRamp.pool.maxWaitingCount}; steady ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, connection wait p99 auth/accept/pending/ACK ${stage.connectionAcquisitionWaitMs.authentication.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.accept.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.pendingFetch.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.acknowledge.p99.toFixed(1)}ms, lock wait max ${stage.postgres.maxLockWaitingQueries}, server Node CPU ${stage.runtime.cpuPercent.toFixed(1)}%, server event-loop utilization ${stage.runtime.eventLoopUtilizationPercent.toFixed(1)}%, server event-loop delay p99 ${stage.runtime.eventLoopDelayMs.p99.toFixed(1)}ms, driver Node CPU ${stage.driverRuntime.cpuPercent.toFixed(1)}%, driver event-loop utilization ${stage.driverRuntime.eventLoopUtilizationPercent.toFixed(1)}%, driver event-loop delay p99 ${stage.driverRuntime.eventLoopDelayMs.p99.toFixed(1)}ms — ${stage.reason}`,
         )
         .join('\n');
       await writeFile(

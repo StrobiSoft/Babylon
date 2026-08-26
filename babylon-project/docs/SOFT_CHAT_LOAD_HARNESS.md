@@ -47,6 +47,12 @@ workers running for a fixed warm-up after the final client is ready. Both defaul
 historical control remains reproducible. Account/session/device seeding and diagnostic baseline
 queries occur before either measured window.
 
+Set `SOFT_CHAT_LOAD_SEPARATE_SERVER=1` for the `independent-streaming` isolation test to run the
+Fastify server and its PostgreSQL pool in a dedicated child process. The load driver remains in the
+Vitest process, while server and driver CPU/event-loop telemetry are reported separately. This is a
+benchmark-only process-boundary change: it does not change production startup, behavior, defaults,
+pool size, polling cadence, or the p99 threshold.
+
 For the focused 100/500 comparison on Pepper, use:
 
 ```bash
@@ -71,6 +77,7 @@ for run in 1 2 3; do
   SOFT_CHAT_LOAD_POLL_INTERVAL_MS=50 \
   SOFT_CHAT_LOAD_CLIENT_RAMP_MS=5000 \
   SOFT_CHAT_LOAD_WARMUP_MS=2000 \
+  SOFT_CHAT_LOAD_SEPARATE_SERVER=1 \
   SOFT_CHAT_LOAD_OUTPUT_DIR="load-results/soft-chat/reconnect-isolation-${run}" \
   TEST_DATABASE_URL='postgresql://babylon_test:babylon_test@127.0.0.1:5432/babylon_load' \
   PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/playwright/chrome \
