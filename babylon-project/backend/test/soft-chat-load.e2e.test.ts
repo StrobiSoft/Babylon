@@ -1,9 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { SMTPServer } from 'smtp-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AuthService } from '../src/auth-service.js';
@@ -27,6 +29,8 @@ const outputRoot = resolve(process.env.SOFT_CHAT_LOAD_OUTPUT_DIR ?? 'load-result
 const comparisonRun = process.env.SOFT_CHAT_LOAD_COMPARISON === '1';
 const pollIntervalMs = Number(process.env.SOFT_CHAT_LOAD_POLL_INTERVAL_MS ?? '50');
 const requestedPoolMax = Number(process.env.SOFT_CHAT_LOAD_POOL_MAX ?? '20');
+const clientRampMs = Number(process.env.SOFT_CHAT_LOAD_CLIENT_RAMP_MS ?? '0');
+const warmupMs = Number(process.env.SOFT_CHAT_LOAD_WARMUP_MS ?? '0');
 const requestedModes = (process.env.SOFT_CHAT_LOAD_MODES ?? 'shared-phased,independent-streaming')
   .split(',')
   .map((value) => value.trim()) as LoadMode[];
@@ -52,13 +56,30 @@ interface PostgresDiagnostics {
   statementsError?: string;
   waitEvents: { waitEventType: string | null; waitEvent: string | null; samples: number }[];
   maxLockWaitingQueries: number;
+  maxActiveConnections: number;
   lockWaitingQueries: {
     query: string;
     waitEvent: string | null;
-    waitDurationMs: number;
+    queryElapsedMs: number;
     blockingPids: number[];
   }[];
   topQueries: { query: string; calls: number; totalExecTimeMs: number }[];
+}
+
+type AcquisitionStage = 'authentication' | 'accept' | 'pendingFetch' | 'acknowledge';
+type AcquisitionSummaries = Record<AcquisitionStage, LatencySummary>;
+interface WindowDiagnostics {
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  connectionAcquisitionWaitMs: AcquisitionSummaries;
+  pool: {
+    maxTotalCount: number;
+    minIdleCount: number;
+    maxWaitingCount: number;
+    samples: PoolSample[];
+  };
+  postgres: PostgresDiagnostics;
 }
 
 type ErrorCounts = Record<string, number>;
@@ -81,6 +102,11 @@ interface StageResult {
     visibleToAck: LatencySummary;
     sendToAck: LatencySummary;
   };
+  reconnectRamp: WindowDiagnostics & {
+    authenticationLatencyMs: LatencySummary;
+    poolAtWarmupEnd: PoolSample;
+  };
+  connectionAcquisitionWaitMs: AcquisitionSummaries;
   pool: {
     maxTotalCount: number;
     minIdleCount: number;
@@ -140,17 +166,85 @@ interface ServiceTimings {
   accept: number[];
   pendingFetch: number[];
   acknowledge: number[];
+  connectionAcquisition: Record<AcquisitionStage, number[]>;
 }
 
 let activeTimings: ServiceTimings | undefined;
+const acquisitionStage = new AsyncLocalStorage<{
+  stage: AcquisitionStage;
+  timings: ServiceTimings | undefined;
+}>();
+
+const emptyServiceTimings = (): ServiceTimings => ({
+  authentication: [],
+  accept: [],
+  pendingFetch: [],
+  acknowledge: [],
+  connectionAcquisition: {
+    authentication: [],
+    accept: [],
+    pendingFetch: [],
+    acknowledge: [],
+  },
+});
+
+const summarizeAcquisition = (timings: ServiceTimings): AcquisitionSummaries => ({
+  authentication: summarize(timings.connectionAcquisition.authentication),
+  accept: summarize(timings.connectionAcquisition.accept),
+  pendingFetch: summarize(timings.connectionAcquisition.pendingFetch),
+  acknowledge: summarize(timings.connectionAcquisition.acknowledge),
+});
+
+class InstrumentedPostgresDatabase extends PostgresDatabase {
+  private recordConnectionAcquisition(started: number) {
+    const context = acquisitionStage.getStore();
+    if (context) {
+      context.timings?.connectionAcquisition[context.stage].push(performance.now() - started);
+    }
+  }
+
+  override async query<R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[],
+  ): Promise<QueryResult<R>> {
+    const started = performance.now();
+    const client = await this.pool.connect();
+    this.recordConnectionAcquisition(started);
+    try {
+      return await client.query<R>(text, values);
+    } finally {
+      client.release();
+    }
+  }
+
+  override async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    const started = performance.now();
+    const client = await this.pool.connect();
+    this.recordConnectionAcquisition(started);
+    try {
+      await client.query('BEGIN');
+      const result = await work(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
 
 class InstrumentedAuthService extends AuthService {
   override async authenticate(accessToken: string) {
     const started = performance.now();
+    const timings = activeTimings;
     try {
-      return await super.authenticate(accessToken);
+      return await acquisitionStage.run({ stage: 'authentication', timings }, () =>
+        super.authenticate(accessToken),
+      );
     } finally {
-      activeTimings?.authentication.push(performance.now() - started);
+      timings?.authentication.push(performance.now() - started);
     }
   }
 }
@@ -158,28 +252,35 @@ class InstrumentedAuthService extends AuthService {
 class InstrumentedDeliveryService extends MessageDeliveryService {
   override async accept(input: Parameters<MessageDeliveryService['accept']>[0]) {
     const started = performance.now();
+    const timings = activeTimings;
     try {
-      return await super.accept(input);
+      return await acquisitionStage.run({ stage: 'accept', timings }, () => super.accept(input));
     } finally {
-      activeTimings?.accept.push(performance.now() - started);
+      timings?.accept.push(performance.now() - started);
     }
   }
 
   override async listPending(recipientUserId: string, limit: number) {
     const started = performance.now();
+    const timings = activeTimings;
     try {
-      return await super.listPending(recipientUserId, limit);
+      return await acquisitionStage.run({ stage: 'pendingFetch', timings }, () =>
+        super.listPending(recipientUserId, limit),
+      );
     } finally {
-      activeTimings?.pendingFetch.push(performance.now() - started);
+      timings?.pendingFetch.push(performance.now() - started);
     }
   }
 
   override async acknowledge(recipientUserId: string, requestId: string, senderUserId: string) {
     const started = performance.now();
+    const timings = activeTimings;
     try {
-      return await super.acknowledge(recipientUserId, requestId, senderUserId);
+      return await acquisitionStage.run({ stage: 'acknowledge', timings }, () =>
+        super.acknowledge(recipientUserId, requestId, senderUserId),
+      );
     } finally {
-      activeTimings?.acknowledge.push(performance.now() - started);
+      timings?.acknowledge.push(performance.now() - started);
     }
   }
 }
@@ -223,9 +324,15 @@ suite('Soft Chat production-path capacity', () => {
     await adminDatabase.query(`CREATE SCHEMA ${schema}`);
     parsed.searchParams.set('options', `-csearch_path=${schema}`);
     isolatedDatabaseUrl = parsed.toString();
-    database = new PostgresDatabase(isolatedDatabaseUrl);
+    database = new InstrumentedPostgresDatabase(isolatedDatabaseUrl);
     if (!Number.isInteger(requestedPoolMax) || requestedPoolMax < 1 || requestedPoolMax > 200) {
       throw new Error('SOFT_CHAT_LOAD_POOL_MAX must be an integer between 1 and 200.');
+    }
+    if (!Number.isFinite(clientRampMs) || clientRampMs < 0) {
+      throw new Error('SOFT_CHAT_LOAD_CLIENT_RAMP_MS must be a non-negative number.');
+    }
+    if (!Number.isFinite(warmupMs) || warmupMs < 0) {
+      throw new Error('SOFT_CHAT_LOAD_WARMUP_MS must be a non-negative number.');
     }
     database.pool.options.max = requestedPoolMax;
     await runMigrations(database, resolve('backend/migrations'));
@@ -478,6 +585,7 @@ suite('Soft Chat production-path capacity', () => {
     const waitCounts = new Map<string, number>();
     const lockWaitingQueries = new Map<string, PostgresDiagnostics['lockWaitingQueries'][number]>();
     let maxLockWaitingQueries = 0;
+    let maxActiveConnections = 0;
     let activityError: string | undefined;
     let statementsError: string | undefined;
     const statementBaseline = new Map<string, { calls: number; totalExecTimeMs: number }>();
@@ -521,22 +629,26 @@ suite('Soft Chat production-path capacity', () => {
       void adminDatabase
         .query<{
           pid: number;
+          state: string;
           wait_event_type: string | null;
           wait_event: string | null;
           query: string;
-          wait_duration_ms: string;
+          query_elapsed_ms: string;
           blocking_pids: number[];
+          connection_count: string;
         }>(
-          `SELECT pid,wait_event_type,wait_event,left(query,500) query,
-                  extract(epoch FROM (clock_timestamp()-query_start))*1000 wait_duration_ms,
-                  pg_blocking_pids(pid) blocking_pids
+          `SELECT pid,state,wait_event_type,wait_event,left(query,500) query,
+                  extract(epoch FROM (clock_timestamp()-query_start))*1000 query_elapsed_ms,
+                  pg_blocking_pids(pid) blocking_pids,
+                  count(*) OVER ()::text connection_count
              FROM pg_stat_activity
-            WHERE datname=current_database() AND pid<>pg_backend_pid()
-              AND state<>'idle'`,
+            WHERE datname=current_database() AND pid<>pg_backend_pid()`,
         )
         .then((result) => {
           let lockWaiting = 0;
           for (const row of result.rows) {
+            maxActiveConnections = Math.max(maxActiveConnections, Number(row.connection_count));
+            if (row.state === 'idle') continue;
             const key = JSON.stringify([row.wait_event_type, row.wait_event]);
             waitCounts.set(key, (waitCounts.get(key) ?? 0) + 1);
             if (row.wait_event_type === 'Lock') {
@@ -544,7 +656,7 @@ suite('Soft Chat production-path capacity', () => {
               lockWaitingQueries.set(`${row.pid}:${row.query}`, {
                 query: row.query,
                 waitEvent: row.wait_event,
-                waitDurationMs: Number(row.wait_duration_ms),
+                queryElapsedMs: Number(row.query_elapsed_ms),
                 blockingPids: row.blocking_pids,
               });
             }
@@ -608,6 +720,7 @@ suite('Soft Chat production-path capacity', () => {
           ...(statementsError ? { statementsError } : {}),
           waitEvents,
           maxLockWaitingQueries,
+          maxActiveConnections,
           lockWaitingQueries: [...lockWaitingQueries.values()].slice(0, 25),
           topQueries,
         } satisfies PostgresDiagnostics,
@@ -615,20 +728,29 @@ suite('Soft Chat production-path capacity', () => {
     };
   }
 
+  function summarizePool(poolSamples: PoolSample[]) {
+    return {
+      maxTotalCount: Math.max(0, ...poolSamples.map((sample) => sample.totalCount)),
+      minIdleCount:
+        poolSamples.length === 0 ? 0 : Math.min(...poolSamples.map((sample) => sample.idleCount)),
+      maxWaitingCount: Math.max(0, ...poolSamples.map((sample) => sample.waitingCount)),
+      samples: poolSamples,
+    };
+  }
+
+  const currentPoolSample = (): PoolSample => ({
+    at: new Date().toISOString(),
+    totalCount: database.pool.totalCount,
+    idleCount: database.pool.idleCount,
+    waitingCount: database.pool.waitingCount,
+  });
+
   async function runStage(
     mode: LoadMode,
     count: number,
     shared?: { sender: LoadIdentity; recipient: LoadIdentity },
   ): Promise<StageResult> {
-    const started = new Date();
     const errors: ErrorCounts = {};
-    const timings: ServiceTimings = {
-      authentication: [],
-      accept: [],
-      pendingFetch: [],
-      acknowledge: [],
-    };
-    activeTimings = timings;
     const startedMessages = new Map<string, number>();
     const visibleMessages = new Map<string, number>();
     const acknowledgedMessages = new Map<string, number>();
@@ -642,12 +764,14 @@ suite('Soft Chat production-path capacity', () => {
     let contentViolations = 0;
     let pendingFetchRequests = 0;
     let unhealthy = false;
+    let workersRunning = true;
+    const workerPromises: Promise<void>[] = [];
+    const initialAuthenticationLatencies: number[] = [];
     const independent =
       mode === 'independent-streaming'
         ? await seedIndependentClients(count, `${Date.now()}-${count}`)
         : undefined;
     if (mode === 'shared-phased' && !shared) throw new Error('Shared identities are required.');
-    const stopDiagnostics = await startDiagnostics();
     const healthTimer = setInterval(() => {
       void fetch(`${baseUrl}/health/ready`)
         .then((response) => {
@@ -655,30 +779,6 @@ suite('Soft Chat production-path capacity', () => {
         })
         .catch(() => (unhealthy = true));
     }, 1000);
-
-    await Promise.all(
-      Array.from({ length: count }, async (_, index) => {
-        try {
-          if (independent) {
-            await Promise.all([
-              authorized('/api/v1/me', independent[index]!.sender.accessToken),
-              authorized('/api/v1/me', independent[index]!.recipient.accessToken),
-            ]);
-          } else {
-            await authorized(
-              '/api/v1/me',
-              index % 2 === 0 ? shared!.sender.accessToken : shared!.recipient.accessToken,
-            );
-          }
-          authenticatedClients += 1;
-          authenticatedIndices.push(index);
-        } catch (error) {
-          increment(errors, `authentication:${String(error)}`);
-        }
-      }),
-    );
-
-    const requests = authenticatedIndices.map((index) => ({ index, requestId: randomUUID() }));
     const prepareMessage = (requestId: string, index: number) => {
       startedMessages.set(requestId, performance.now());
       const text =
@@ -718,35 +818,103 @@ suite('Soft Chat production-path capacity', () => {
       }
     };
 
+    const startIndependentWorker = (index: number) => {
+      const client = independent![index]!;
+      workerPromises.push(
+        (async () => {
+          while (workersRunning && !unhealthy) {
+            try {
+              pendingFetchRequests += 1;
+              const pending = await authorized(
+                '/api/v1/messages/pending?limit=100',
+                client.recipient.accessToken,
+              );
+              const items = (pending.items as Record<string, unknown>[] | undefined) ?? [];
+              for (const item of items) {
+                if (expectedPayloads.has(item.requestId as string)) {
+                  await acknowledgeItem(item, client.recipient, client.sender);
+                }
+              }
+            } catch (error) {
+              increment(errors, `receive:${String(error)}`);
+              return;
+            }
+            await delay(pollIntervalMs);
+          }
+        })(),
+      );
+    };
+
+    const reconnectTimings = emptyServiceTimings();
+    activeTimings = reconnectTimings;
+    const stopReconnectDiagnostics = await startDiagnostics();
+    const reconnectStarted = new Date();
+    await Promise.all(
+      Array.from({ length: count }, async (_, index) => {
+        if (clientRampMs > 0) await delay((index * clientRampMs) / count);
+        try {
+          if (independent) {
+            const authenticate = async (identity: LoadIdentity) => {
+              const started = performance.now();
+              try {
+                await authorized('/api/v1/me', identity.accessToken);
+              } finally {
+                initialAuthenticationLatencies.push(performance.now() - started);
+              }
+            };
+            await Promise.all([
+              authenticate(independent[index]!.sender),
+              authenticate(independent[index]!.recipient),
+            ]);
+          } else {
+            const started = performance.now();
+            await authorized(
+              '/api/v1/me',
+              index % 2 === 0 ? shared!.sender.accessToken : shared!.recipient.accessToken,
+            );
+            initialAuthenticationLatencies.push(performance.now() - started);
+          }
+          authenticatedClients += 1;
+          authenticatedIndices.push(index);
+          if (independent) startIndependentWorker(index);
+        } catch (error) {
+          increment(errors, `authentication:${String(error)}`);
+        }
+      }),
+    );
+    const reconnectAuthenticationLatency = summarize(initialAuthenticationLatencies);
+    const reconnectAuthenticationAcquisition = summarize(
+      reconnectTimings.connectionAcquisition.authentication,
+    );
+    if (warmupMs > 0) await delay(warmupMs);
+    const poolAtWarmupEnd = currentPoolSample();
+    activeTimings = undefined;
+    const reconnectFinished = new Date();
+    const reconnectDiagnostics = await stopReconnectDiagnostics();
+    const reconnectAcquisition = summarizeAcquisition(reconnectTimings);
+    reconnectAcquisition.authentication = reconnectAuthenticationAcquisition;
+    const reconnectRamp: StageResult['reconnectRamp'] = {
+      startedAt: reconnectStarted.toISOString(),
+      finishedAt: reconnectFinished.toISOString(),
+      durationMs: reconnectFinished.getTime() - reconnectStarted.getTime(),
+      authenticationLatencyMs: reconnectAuthenticationLatency,
+      connectionAcquisitionWaitMs: reconnectAcquisition,
+      pool: summarizePool(reconnectDiagnostics.poolSamples),
+      poolAtWarmupEnd,
+      postgres: reconnectDiagnostics.postgres,
+    };
+
+    const timings = emptyServiceTimings();
+    activeTimings = timings;
+    const stopSteadyDiagnostics = await startDiagnostics();
+    const started = new Date();
+    const requests = authenticatedIndices.map((index) => ({ index, requestId: randomUUID() }));
+
     if (independent) {
       await Promise.all(
         requests.map(async ({ requestId, index }) => {
           const client = independent[index]!;
           const payload = prepareMessage(requestId, index);
-          const receive = (async () => {
-            const deadline = performance.now() + 30_000;
-            while (!acknowledgedMessages.has(requestId) && performance.now() < deadline) {
-              try {
-                pendingFetchRequests += 1;
-                const pending = await authorized(
-                  '/api/v1/messages/pending?limit=100',
-                  client.recipient.accessToken,
-                );
-                const item = ((pending.items as Record<string, unknown>[] | undefined) ?? []).find(
-                  (candidate) => candidate.requestId === requestId,
-                );
-                if (item) {
-                  await acknowledgeItem(item, client.recipient, client.sender);
-                  return;
-                }
-              } catch (error) {
-                increment(errors, `receive:${String(error)}`);
-                return;
-              }
-              await delay(pollIntervalMs);
-            }
-            increment(errors, 'receive:TIMEOUT');
-          })();
           try {
             await authorized('/api/v1/messages', client.sender.accessToken, {
               method: 'POST',
@@ -761,9 +929,13 @@ suite('Soft Chat production-path capacity', () => {
           } catch (error) {
             increment(errors, `send:${String(error)}`);
           }
-          await receive;
         }),
       );
+      const deadline = performance.now() + 30_000;
+      while (ackSucceeded < messagesSucceeded && performance.now() < deadline && !unhealthy) {
+        await delay(10);
+      }
+      if (ackSucceeded < messagesSucceeded) increment(errors, 'receive:TIMEOUT');
     } else {
       await Promise.all(
         requests.map(async ({ requestId, index }) => {
@@ -803,11 +975,13 @@ suite('Soft Chat production-path capacity', () => {
         );
       }
     }
-    clearInterval(healthTimer);
-    activeTimings = undefined;
-    const diagnostics = await stopDiagnostics();
     const finished = new Date();
     const durationMs = finished.getTime() - started.getTime();
+    workersRunning = false;
+    await Promise.all(workerPromises);
+    clearInterval(healthTimer);
+    activeTimings = undefined;
+    const diagnostics = await stopSteadyDiagnostics();
     const sendToVisible = [...visibleMessages].map(
       ([requestId, visible]) => visible - startedMessages.get(requestId)!,
     );
@@ -826,14 +1000,7 @@ suite('Soft Chat production-path capacity', () => {
       visibleToAck: summarize(visibleToAck),
       sendToAck: summarize(sendToAck),
     };
-    const poolSamples = diagnostics.poolSamples;
-    const pool = {
-      maxTotalCount: Math.max(0, ...poolSamples.map((sample) => sample.totalCount)),
-      minIdleCount:
-        poolSamples.length === 0 ? 0 : Math.min(...poolSamples.map((sample) => sample.idleCount)),
-      maxWaitingCount: Math.max(0, ...poolSamples.map((sample) => sample.waitingCount)),
-      samples: poolSamples,
-    };
+    const pool = summarizePool(diagnostics.poolSamples);
     const messagesFailed = authenticatedClients - messagesSucceeded;
     const ackFailed = messagesSucceeded - ackSucceeded;
     const errorRate =
@@ -867,6 +1034,8 @@ suite('Soft Chat production-path capacity', () => {
         (ackSucceeded / Math.max(0.001, durationMs / 1000)).toFixed(2),
       ),
       latencyMs,
+      reconnectRamp,
+      connectionAcquisitionWaitMs: summarizeAcquisition(timings),
       pool,
       postgres: diagnostics.postgres,
       pendingFetchRequests,
@@ -923,16 +1092,20 @@ suite('Soft Chat production-path capacity', () => {
         comparisonRun,
         pollIntervalMs,
         configuredPoolMax: requestedPoolMax,
+        clientRampMs,
+        warmupMs,
         stages,
         stopReason: stages.some((stage) => stage.result === 'FAIL')
-          ? 'one or more modes stopped after its first failed stage'
+          ? comparisonRun
+            ? 'comparison completed all requested stages with one or more threshold failures'
+            : 'a mode stopped after its first threshold failure'
           : 'all requested stages completed',
       };
       await mkdir(outputRoot, { recursive: true });
       const base = resolve(outputRoot, `soft-chat-load-${runId}`);
       await writeFile(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
       const header =
-        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_lock_waiting,duplicates,exactly_once_violations,duration_ms,result,reason\n';
+        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,duplicates,exactly_once_violations,duration_ms,result,reason\n';
       const csv = stages
         .map((stage) =>
           [
@@ -948,6 +1121,9 @@ suite('Soft Chat production-path capacity', () => {
             stage.ackFailed,
             stage.throughputMessagesPerSecond,
             stage.pendingFetchRequests,
+            stage.reconnectRamp.authenticationLatencyMs.p99,
+            stage.reconnectRamp.pool.maxWaitingCount,
+            stage.reconnectRamp.postgres.maxActiveConnections,
             stage.latencyMs.authentication.p99,
             stage.latencyMs.accept.p99,
             stage.latencyMs.pendingFetch.p99,
@@ -956,9 +1132,14 @@ suite('Soft Chat production-path capacity', () => {
             stage.latencyMs.visibleToAck.p99,
             stage.latencyMs.sendToAck.p99,
             stage.latencyMs.sendToAck.max,
+            stage.connectionAcquisitionWaitMs.authentication.p99,
+            stage.connectionAcquisitionWaitMs.accept.p99,
+            stage.connectionAcquisitionWaitMs.pendingFetch.p99,
+            stage.connectionAcquisitionWaitMs.acknowledge.p99,
             stage.pool.maxTotalCount,
             stage.pool.minIdleCount,
             stage.pool.maxWaitingCount,
+            stage.postgres.maxActiveConnections,
             stage.postgres.maxLockWaitingQueries,
             stage.duplicateDeliveries,
             stage.exactlyOnceViolations,
@@ -972,7 +1153,7 @@ suite('Soft Chat production-path capacity', () => {
       const summary = stages
         .map(
           (stage) =>
-            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, lock wait max ${stage.postgres.maxLockWaitingQueries} — ${stage.reason}`,
+            `${stage.result} ${stage.mode} ${stage.requestedConcurrentClients} clients: reconnect auth p99 ${stage.reconnectRamp.authenticationLatencyMs.p99.toFixed(1)}ms, reconnect pool waiting max ${stage.reconnectRamp.pool.maxWaitingCount}; steady ${stage.ackSucceeded}/${stage.messagesAttempted} delivered+ACK, ${stage.throughputMessagesPerSecond} msg/s, send→ACK p99 ${stage.latencyMs.sendToAck.p99.toFixed(1)}ms, pool waiting max ${stage.pool.maxWaitingCount}, connection wait p99 auth/accept/pending/ACK ${stage.connectionAcquisitionWaitMs.authentication.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.accept.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.pendingFetch.p99.toFixed(1)}/${stage.connectionAcquisitionWaitMs.acknowledge.p99.toFixed(1)}ms, lock wait max ${stage.postgres.maxLockWaitingQueries} — ${stage.reason}`,
         )
         .join('\n');
       await writeFile(

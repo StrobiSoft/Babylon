@@ -10,7 +10,7 @@ harness delay can be separated from production delivery behavior:
   intentionally preserves the old benchmark's contention and phasing.
 - `independent-streaming` seeds test-only users, devices, and authenticated sessions directly into
   the run's ephemeral schema. Every virtual sender/recipient pair has independent session/device
-  rows, and its pending/ACK loop runs continuously alongside its send. This models already
+  rows, and its pending/ACK loop runs continuously before and alongside its send. This models already
   authenticated independent clients; it does not measure passkey enrollment capacity and never
   bypasses production HTTP authentication, delivery, pending, or acknowledgement handling.
 
@@ -41,6 +41,11 @@ results and never adding stages beyond the requested list.
 `SOFT_CHAT_LOAD_POOL_MAX` is a benchmark-only override for the harness-owned PostgreSQL pool and
 defaults to the production value of 20. It accepts integers from 1 through 200, is recorded in the
 JSON report, and does not change the production database class or its default.
+`SOFT_CHAT_LOAD_CLIENT_RAMP_MS` distributes virtual-client authentication and receiver startup over
+the configured number of milliseconds. `SOFT_CHAT_LOAD_WARMUP_MS` keeps the independent pending/ACK
+workers running for a fixed warm-up after the final client is ready. Both default to zero so the
+historical control remains reproducible. Account/session/device seeding and diagnostic baseline
+queries occur before either measured window.
 
 For the focused 100/500 comparison on Pepper, use:
 
@@ -54,9 +59,38 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/playwright/chrome \
 npm run load:soft-chat
 ```
 
-The report records p50/p95/p99/max for authentication, `MessageDeliveryService.accept`, pending
-fetch, acknowledgement, send-to-visible, visible-to-ACK, and send-to-ACK. It samples PostgreSQL pool
-total/idle/waiting counts during every stage. When permissions permit, it also samples
+For the focused three-run 500-client reconnect-versus-steady-state isolation on Pepper, keep the
+production pool default and polling cadence explicit:
+
+```bash
+for run in 1 2 3; do
+  RUN_SOFT_CHAT_LOAD=1 \
+  SOFT_CHAT_LOAD_STAGES='500' \
+  SOFT_CHAT_LOAD_MODES='independent-streaming' \
+  SOFT_CHAT_LOAD_POOL_MAX=20 \
+  SOFT_CHAT_LOAD_POLL_INTERVAL_MS=50 \
+  SOFT_CHAT_LOAD_CLIENT_RAMP_MS=5000 \
+  SOFT_CHAT_LOAD_WARMUP_MS=2000 \
+  SOFT_CHAT_LOAD_OUTPUT_DIR="load-results/soft-chat/reconnect-isolation-${run}" \
+  TEST_DATABASE_URL='postgresql://babylon_test:babylon_test@127.0.0.1:5432/babylon_load' \
+  PLAYWRIGHT_CHROMIUM_EXECUTABLE=/path/to/playwright/chrome \
+  npm run load:soft-chat || true
+done
+```
+
+The `|| true` allows all three controlled repetitions to run when the unchanged quality threshold
+correctly marks an individual run as `FAIL`; each report retains the failure and its reason.
+
+The report separates a reconnect/ramp window from the steady-state message window. After the final
+client starts, the configured warm-up completes, the pool state is recorded, and business latency
+histograms plus diagnostic baselines are reset. Only the steady-state send-to-ACK p99 is compared
+with the unchanged two-second threshold.
+
+The JSON report records p50/p95/p99/max for database-connection acquisition during authentication,
+`MessageDeliveryService.accept`, pending fetch, and acknowledgement in each window. It also records
+p50/p95/p99/max for the existing service and end-to-end latencies. PostgreSQL pool total/idle/waiting
+counts, active connection maxima, and PostgreSQL diagnostics are reported independently for both
+windows. When permissions permit, it also samples
 `pg_stat_activity` wait events, bounded lock-wait query/blocker details, and includes per-stage
 deltas for the top `pg_stat_statements` queries by total execution time. Missing activity and
 statement diagnostics are reported independently and do not silently change the latency result.
