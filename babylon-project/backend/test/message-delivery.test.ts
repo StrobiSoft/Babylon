@@ -97,6 +97,18 @@ describe('transient message delivery lifecycle', () => {
     await expect(service.accept(input())).rejects.toEqual(new DeliveryRecipientUnavailableError());
   });
 
+  it('rate-limits bulk expiry maintenance during pending polling', async () => {
+    const db = new ScriptedDatabase([[], [], []]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+
+    await service.listPending(recipientUserId, 100);
+    await service.listPending(recipientUserId, 100);
+
+    expect(db.calls).toHaveLength(3);
+    expect(db.calls.filter((sql) => sql.startsWith('UPDATE message_deliveries'))).toHaveLength(1);
+    expect(db.calls.filter((sql) => sql.startsWith('SELECT request_id'))).toHaveLength(2);
+  });
+
   it('treats duplicate and late delivery acknowledgements as terminal idempotent events', async () => {
     const db = new ScriptedDatabase([[row('delivered')], [row('expired')]]);
     const service = new MessageDeliveryService(db, clock, bindingSecret);
