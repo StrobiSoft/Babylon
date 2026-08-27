@@ -91,6 +91,8 @@ interface AccessRow extends QueryResultRow {
   device_id: string;
   device_name: string;
   platform: string;
+  session_last_used_at: Date;
+  device_last_used_at: Date;
   access_expires_at: Date;
   session_expires_at: Date;
   session_revoked_at: Date | null;
@@ -184,6 +186,8 @@ export interface AuthenticatedSession {
 }
 
 export class AuthService {
+  private static readonly activityWriteIntervalMs = 30_000;
+
   constructor(
     private readonly database: Database,
     private readonly config: Config,
@@ -1054,6 +1058,7 @@ export class AuthService {
       `SELECT s.id session_id,s.user_id,u.email,u.status user_status,
               u.security_version user_security_version,s.security_version session_security_version,
               s.device_id,d.name device_name,d.platform,
+              s.last_used_at session_last_used_at,d.last_used_at device_last_used_at,
               s.access_expires_at,s.expires_at session_expires_at,s.revoked_at session_revoked_at,
               s.inactivity_expires_at,s.authenticated_at,s.step_up_at,s.assurance_level,
               s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at
@@ -1077,10 +1082,23 @@ export class AuthService {
     ) {
       throw unauthorized();
     }
-    await this.database.transaction(async (client) => {
-      await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [now, row.session_id]);
-      await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [now, row.device_id]);
-    });
+    const activityWriteCutoffMs = now.getTime() - AuthService.activityWriteIntervalMs;
+    if (
+      row.session_last_used_at.getTime() <= activityWriteCutoffMs ||
+      row.device_last_used_at.getTime() <= activityWriteCutoffMs
+    ) {
+      const activityWriteCutoff = new Date(activityWriteCutoffMs);
+      await this.database.transaction(async (client) => {
+        await client.query(
+          'UPDATE sessions SET last_used_at=$1 WHERE id=$2 AND last_used_at <= $3',
+          [now, row.session_id, activityWriteCutoff],
+        );
+        await client.query(
+          'UPDATE devices SET last_used_at=$1 WHERE id=$2 AND last_used_at <= $3',
+          [now, row.device_id, activityWriteCutoff],
+        );
+      });
+    }
     return {
       sessionId: row.session_id,
       userId: row.user_id,
