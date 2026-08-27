@@ -44,23 +44,28 @@ The order below intentionally starts with the smallest expected effect.
 
 ### P1 — Rate-limit expiry maintenance in `listPending()`
 
-Current behavior:
+Before:
 
-- every pending-message poll calls `expireDue(limit)` before the pending SELECT
-- the following SELECT already excludes expired rows with `expires_at > now`
+- every pending-message poll called `expireDue(limit)` before the pending SELECT
+- the following SELECT already excluded expired rows with `expires_at > now`
 
-Planned behavior:
+After:
 
-- keep message visibility semantics unchanged
-- decouple expiry-state maintenance from every single poll
-- initial target: at most one expiry sweep per 500 ms per service instance
+- pending polling still runs at 50 ms
+- `expireDue(limit)` is now allowed to run at most once per 500 ms per `MessageDeliveryService` instance
+- concurrent polls share the in-flight expiry sweep instead of starting another one
 - direct `status()` expiry handling remains immediate
-- bulk `cleanup()` remains responsible for bounded expiry/deletion maintenance
+- bulk `cleanup()` behavior remains unchanged
+
+Implementation commits:
+
+- production change: `71906df80c86110689dbc9e8c3314f07f3be2722`
+- regression test: `d0a8a5e5233f2fbf776ef5de327d1c3b37b2286c`
 
 Expected effect:
 
 - small-to-moderate reduction in database writes/scans and pool acquisitions
-- no change to the user-facing 50 ms polling interval in this step
+- no change to the user-facing 50 ms polling interval
 - no expected change to delivery correctness
 
 Acceptance criteria:
@@ -73,9 +78,10 @@ Acceptance criteria:
 
 Rollback point:
 
-- PR #29 head before this production change
+- PR #29 head `146faf38307bd40cdeb44eb676a773db8d3d0f71` for the diagnostic branch
+- B0 measurement reference `b7ef6dd6fdbd9408922e1675cda0c014013bd5a9`
 
-Status: planned
+Status: implemented; validation and Pepper measurement pending
 
 ### P2 — Reduce `last_used_at` write frequency
 
@@ -149,6 +155,28 @@ UX constraint:
 - do not increase beyond 500 ms unless later measurements prove it necessary
 
 Status: planned
+
+## Round B0 -> B1 — P1 expiry sweep rate limit
+
+- Date: 2026-08-27
+- Before configuration: expiry sweep on every pending poll
+- After configuration: maximum one expiry sweep per 500 ms per service instance
+- User-facing poll interval: unchanged at 50 ms
+- PostgreSQL pool max: unchanged at 20
+- Clients: unchanged at 500
+- Client ramp: unchanged at 5 s
+- Warm-up: unchanged at 2 s
+- Problem observed: maintenance UPDATE executed on every pending poll although the pending SELECT already filters expired rows
+- Hypothesis: removing redundant expiry maintenance from nine out of ten 50 ms poll intervals will reduce pool pressure slightly without altering delivery semantics
+- Expected effect: measurable but intentionally smaller than later optimization steps
+- Run 1: pending
+- Run 2: pending
+- Run 3: pending
+- Before/after delta: pending
+- Side effects: pending
+- Decision: pending measurement
+- Rollback: revert P1 commits or reset to PR #29 diagnostic head
+- Next step: do not start P2 until B1 is measured and evaluated
 
 ## Round template
 
