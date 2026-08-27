@@ -110,6 +110,35 @@ describeDatabase('advanced authentication foundation', () => {
     });
   });
 
+  it('rate-limits session and device activity writes during authentication', async () => {
+    const { session, tokens } = await activeSession('activity@example.test');
+    const readActivity = async () => {
+      const result = await database.query<{
+        session_last_used_at: Date;
+        device_last_used_at: Date;
+      }>(
+        `SELECT s.last_used_at session_last_used_at,d.last_used_at device_last_used_at
+         FROM sessions s JOIN devices d ON d.id=s.device_id WHERE s.id=$1`,
+        [session.sessionId],
+      );
+      return result.rows[0]!;
+    };
+
+    const initial = await readActivity();
+    clock.advance(29);
+    await service.authenticate(tokens.accessToken);
+    const beforeBoundary = await readActivity();
+    expect(beforeBoundary.session_last_used_at).toEqual(initial.session_last_used_at);
+    expect(beforeBoundary.device_last_used_at).toEqual(initial.device_last_used_at);
+
+    clock.advance(1);
+    const expected = clock.now();
+    await service.authenticate(tokens.accessToken);
+    const atBoundary = await readActivity();
+    expect(atBoundary.session_last_used_at).toEqual(expected);
+    expect(atBoundary.device_last_used_at).toEqual(expected);
+  });
+
   it('exposes passkey metadata and protects the last active credential', async () => {
     const { session } = await activeSession();
     const passkeys = await service.listPasskeys(session);
