@@ -52,6 +52,10 @@ export function createDeliveryBinding(secret: string, input: DeliveryBindingInpu
 }
 
 export class MessageDeliveryService {
+  private nextPendingExpirySweepAt = 0;
+  private pendingExpirySweepInFlight: Promise<number> | undefined;
+  private static readonly pendingExpirySweepIntervalMs = 500;
+
   constructor(
     private readonly database: Database,
     private readonly clock: Clock,
@@ -117,7 +121,7 @@ export class MessageDeliveryService {
   }
 
   async listPending(recipientUserId: string, limit: number) {
-    await this.expireDue(limit);
+    await this.maybeExpireDue(limit);
     const result = await this.database.query<DeliveryRow>(
       `SELECT request_id, sender_user_id, recipient_user_id, payload, request_binding,
               payload_format, state, failure_code, created_at, expires_at, delivered_at
@@ -204,6 +208,23 @@ export class MessageDeliveryService {
       [cutoff, limit],
     );
     return { expired, deleted: deleted.rowCount ?? 0 };
+  }
+
+  private async maybeExpireDue(limit: number): Promise<number> {
+    const nowMs = this.clock.now().getTime();
+    if (nowMs < this.nextPendingExpirySweepAt) return 0;
+    if (this.pendingExpirySweepInFlight) return this.pendingExpirySweepInFlight;
+
+    const sweep = this.expireDue(limit);
+    this.pendingExpirySweepInFlight = sweep;
+    try {
+      const expired = await sweep;
+      this.nextPendingExpirySweepAt =
+        this.clock.now().getTime() + MessageDeliveryService.pendingExpirySweepIntervalMs;
+      return expired;
+    } finally {
+      if (this.pendingExpirySweepInFlight === sweep) this.pendingExpirySweepInFlight = undefined;
+    }
   }
 
   private async expireDue(limit: number): Promise<number> {
