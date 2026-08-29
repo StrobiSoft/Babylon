@@ -21,7 +21,8 @@
     "start": "node backend/dist/main.js",
     "test": "vitest run --coverage",
     "test:unit": "vitest run",
-    "load:soft-chat": "vitest run backend/test/soft-chat-load.e2e.test.ts --reporter=verbose"
+    "load:soft-chat": "vitest run backend/test/soft-chat-load.e2e.test.ts --reporter=verbose",
+    "load:soft-chat:series": "tsx backend/test/soft-chat-load-series.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",
