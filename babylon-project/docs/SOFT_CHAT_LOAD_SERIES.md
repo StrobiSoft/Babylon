@@ -45,7 +45,9 @@ The command:
 - refuses to overwrite an existing series directory;
 - records the exact Git commit and effective benchmark configuration;
 - creates a separate `run-NN` directory for every repetition;
-- runs the harness with reference-only latency handling;
+- requests reference-only latency handling when the measured checkout supports it;
+- evaluates correctness and latency from the raw report, so an exact historical checkpoint can
+  retain its original strict one-run exit status without being modified;
 - preserves every individual report and target miss;
 - writes per-run manifests, normalized results, and SHA-256 manifests;
 - writes `aggregate.json`, `aggregate.txt`, `series-result.json`, and a complete series
