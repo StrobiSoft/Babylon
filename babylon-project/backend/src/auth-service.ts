@@ -104,6 +104,19 @@ interface AccessRow extends QueryResultRow {
   step_up_at: Date | null;
   assurance_level: 'aal1' | 'aal2' | 'aal3';
   authentication_method: string;
+  security_generation: string;
+}
+
+interface CachedMutableAccessState {
+  generation: string;
+  session: AuthenticatedSession;
+}
+
+interface CachedAccessValidationRow extends QueryResultRow {
+  security_generation: string;
+  access_expires_at: Date | null;
+  session_expires_at: Date | null;
+  inactivity_expires_at: Date | null;
 }
 
 interface RefreshRow extends QueryResultRow {
@@ -184,6 +197,8 @@ export interface AuthenticatedSession {
 }
 
 export class AuthService {
+  private readonly mutableAccessStateByToken = new Map<string, CachedMutableAccessState>();
+
   constructor(
     private readonly database: Database,
     private readonly config: Config,
@@ -192,6 +207,26 @@ export class AuthService {
     private readonly mailer: Mailer,
     private readonly webauthn: WebAuthnProvider,
   ) {}
+
+  private cloneSession(session: AuthenticatedSession): AuthenticatedSession {
+    return {
+      ...session,
+      authenticatedAt: new Date(session.authenticatedAt),
+      stepUpAt: session.stepUpAt ? new Date(session.stepUpAt) : null,
+    };
+  }
+
+  private rememberMutableAccessState(cacheKey: string, state: CachedMutableAccessState): void {
+    this.mutableAccessStateByToken.delete(cacheKey);
+    this.mutableAccessStateByToken.set(cacheKey, {
+      generation: state.generation,
+      session: this.cloneSession(state.session),
+    });
+    if (this.mutableAccessStateByToken.size > 10_000) {
+      const oldest = this.mutableAccessStateByToken.keys().next().value;
+      if (oldest) this.mutableAccessStateByToken.delete(oldest);
+    }
+  }
 
   private async audit(
     queryable: Queryable,
@@ -1050,20 +1085,63 @@ export class AuthService {
   }
 
   async authenticate(accessToken: string): Promise<AuthenticatedSession> {
+    const accessTokenHash = hash(accessToken);
+    const cacheKey = accessTokenHash.toString('hex');
+    const now = this.clock.now();
+    const cached = this.mutableAccessStateByToken.get(cacheKey);
+    if (cached) {
+      const validation = await this.database.query<CachedAccessValidationRow>(
+        `SELECT g.generation::text security_generation,
+                s.access_expires_at,s.expires_at session_expires_at,s.inactivity_expires_at
+         FROM auth_security_generation g
+         LEFT JOIN sessions s ON s.id=$1 AND s.access_token_hash=$2
+         WHERE g.singleton=true`,
+        [cached.session.sessionId, accessTokenHash],
+      );
+      const current = validation.rows[0];
+      if (
+        current?.security_generation === cached.generation &&
+        current.access_expires_at &&
+        current.access_expires_at > now &&
+        current.session_expires_at &&
+        current.session_expires_at > now &&
+        current.inactivity_expires_at &&
+        current.inactivity_expires_at > now
+      ) {
+        await this.database.transaction(async (client) => {
+          await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [
+            now,
+            cached.session.sessionId,
+          ]);
+          await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [
+            now,
+            cached.session.deviceId,
+          ]);
+        });
+        return this.cloneSession(cached.session);
+      }
+      if (current?.security_generation !== cached.generation) {
+        this.mutableAccessStateByToken.clear();
+      } else {
+        this.mutableAccessStateByToken.delete(cacheKey);
+      }
+    }
+
     const result = await this.database.query<AccessRow>(
       `SELECT s.id session_id,s.user_id,u.email,u.status user_status,
               u.security_version user_security_version,s.security_version session_security_version,
               s.device_id,d.name device_name,d.platform,
               s.access_expires_at,s.expires_at session_expires_at,s.revoked_at session_revoked_at,
               s.inactivity_expires_at,s.authenticated_at,s.step_up_at,s.assurance_level,
-              s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at
+              s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at,
+              g.generation::text security_generation
        FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id
        JOIN refresh_token_families f ON f.id=s.family_id
+       CROSS JOIN auth_security_generation g
        WHERE s.access_token_hash=$1`,
-      [hash(accessToken)],
+      [accessTokenHash],
     );
     const row = result.rows[0];
-    const now = this.clock.now();
     if (
       !row ||
       row.access_expires_at <= now ||
@@ -1081,7 +1159,7 @@ export class AuthService {
       await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [now, row.session_id]);
       await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [now, row.device_id]);
     });
-    return {
+    const session: AuthenticatedSession = {
       sessionId: row.session_id,
       userId: row.user_id,
       email: row.email,
@@ -1093,6 +1171,11 @@ export class AuthService {
       authenticatedAt: row.authenticated_at,
       stepUpAt: row.step_up_at,
     };
+    this.rememberMutableAccessState(cacheKey, {
+      generation: row.security_generation,
+      session,
+    });
+    return this.cloneSession(session);
   }
 
   async refresh(
