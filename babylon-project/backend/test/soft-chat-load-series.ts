@@ -236,6 +236,7 @@ async function main() {
     maxErrorRate: process.env.SOFT_CHAT_LOAD_MAX_ERROR_RATE ?? '0.01',
     p99ReferenceTargetMs: String(latencyTargetMs),
     seriesLatencyPolicy: 'reference',
+    automationSourceCommit: process.env.SOFT_CHAT_SERIES_AUTOMATION_COMMIT ?? commit,
     databaseTarget: safeDatabaseTarget(databaseUrl),
     chromiumExecutable: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
   };
