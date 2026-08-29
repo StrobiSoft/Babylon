@@ -118,7 +118,9 @@ async function listFiles(root: string): Promise<string[]> {
 }
 
 async function sha256(path: string) {
-  return createHash('sha256').update(await readFile(path)).digest('hex');
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
 }
 
 async function writeChecksums(root: string, destination: string) {
@@ -170,8 +172,10 @@ function measurementFromStage(
 }
 
 function aggregateText(aggregate: ReturnType<typeof evaluateSoftChatSeries>) {
-  const metric = (name: string, value: { mean: number; median: number; min: number; max: number }) =>
-    `${name}: mean ${value.mean}, median ${value.median}, min ${value.min}, max ${value.max}`;
+  const metric = (
+    name: string,
+    value: { mean: number; median: number; min: number; max: number },
+  ) => `${name}: mean ${value.mean}, median ${value.median}, min ${value.min}, max ${value.max}`;
   return [
     `Babylon Soft Chat ${aggregate.kind} series`,
     `Runs: ${aggregate.repetitions}`,
@@ -205,9 +209,7 @@ async function main() {
   }
   const latencyTargetMs = positiveNumber(
     'SOFT_CHAT_SERIES_P99_TARGET_MS',
-    process.env.SOFT_CHAT_SERIES_P99_TARGET_MS ??
-      process.env.SOFT_CHAT_LOAD_MAX_P99_MS ??
-      '2000',
+    process.env.SOFT_CHAT_SERIES_P99_TARGET_MS ?? process.env.SOFT_CHAT_LOAD_MAX_P99_MS ?? '2000',
   );
   const databaseUrl = required('TEST_DATABASE_URL');
   required('PLAYWRIGHT_CHROMIUM_EXECUTABLE');
