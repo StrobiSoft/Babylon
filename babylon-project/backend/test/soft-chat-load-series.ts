@@ -235,7 +235,7 @@ async function main() {
     separateServer: process.env.SOFT_CHAT_LOAD_SEPARATE_SERVER ?? '0',
     maxErrorRate: process.env.SOFT_CHAT_LOAD_MAX_ERROR_RATE ?? '0.01',
     p99ReferenceTargetMs: String(latencyTargetMs),
-    latencyPolicy: 'reference',
+    seriesLatencyPolicy: 'reference',
     databaseTarget: safeDatabaseTarget(databaseUrl),
     chromiumExecutable: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
   };
