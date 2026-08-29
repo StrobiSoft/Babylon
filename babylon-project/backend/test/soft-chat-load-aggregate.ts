@@ -112,7 +112,9 @@ export function evaluateSoftChatSeries(
 
   if (input.kind === 'release-candidate') {
     if (runs.length !== 10) {
-      reasons.push(`release-candidate evaluation requires exactly 10 runs; received ${runs.length}`);
+      reasons.push(
+        `release-candidate evaluation requires exactly 10 runs; received ${runs.length}`,
+      );
     }
     if (latency.mean > input.latencyTargetMs) {
       reasons.push(
