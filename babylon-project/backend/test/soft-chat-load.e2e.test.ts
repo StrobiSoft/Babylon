@@ -28,6 +28,7 @@ const requestedStages = (process.env.SOFT_CHAT_LOAD_STAGES ?? '100,500,1000,2000
   .map(Number);
 const maxErrorRate = Number(process.env.SOFT_CHAT_LOAD_MAX_ERROR_RATE ?? '0.01');
 const maxP99Ms = Number(process.env.SOFT_CHAT_LOAD_MAX_P99_MS ?? '2000');
+const latencyPolicy = process.env.SOFT_CHAT_LOAD_LATENCY_POLICY ?? 'strict';
 const outputRoot = resolve(process.env.SOFT_CHAT_LOAD_OUTPUT_DIR ?? 'load-results/soft-chat');
 const comparisonRun = process.env.SOFT_CHAT_LOAD_COMPARISON === '1';
 const pollIntervalMs = Number(process.env.SOFT_CHAT_LOAD_POLL_INTERVAL_MS ?? '50');
@@ -438,6 +439,9 @@ suite('Soft Chat production-path capacity', () => {
     }
     if (!Number.isFinite(warmupMs) || warmupMs < 0) {
       throw new Error('SOFT_CHAT_LOAD_WARMUP_MS must be a non-negative number.');
+    }
+    if (!['strict', 'reference'].includes(latencyPolicy)) {
+      throw new Error('SOFT_CHAT_LOAD_LATENCY_POLICY must be strict or reference.');
     }
     database.pool.options.max = requestedPoolMax;
     await runMigrations(database, resolve('backend/migrations'));
@@ -1172,6 +1176,7 @@ suite('Soft Chat production-path capacity', () => {
     const p99 = latencyMs.sendToAck.p99;
     const authFailureRate = (count - authenticatedClients) / count;
     const failures: string[] = [];
+    const advisories: string[] = [];
     if (unhealthy) failures.push('backend health check failed');
     if (authFailureRate > maxErrorRate)
       failures.push(
@@ -1181,7 +1186,11 @@ suite('Soft Chat production-path capacity', () => {
       failures.push(
         `message/ACK error rate ${(errorRate * 100).toFixed(2)}% exceeded ${(maxErrorRate * 100).toFixed(2)}%`,
       );
-    if (p99 > maxP99Ms) failures.push(`p99 ${p99.toFixed(1)}ms exceeded ${maxP99Ms}ms`);
+    if (p99 > maxP99Ms) {
+      const message = `p99 ${p99.toFixed(1)}ms exceeded ${maxP99Ms}ms`;
+      if (latencyPolicy === 'strict') failures.push(message);
+      else advisories.push(`${message} reference target`);
+    }
     if (duplicateDeliveries > 0)
       failures.push(`${duplicateDeliveries} duplicate deliveries observed`);
     if (contentViolations > 0) failures.push(`${contentViolations} altered payloads observed`);
@@ -1212,7 +1221,11 @@ suite('Soft Chat production-path capacity', () => {
       finishedAt: finished.toISOString(),
       durationMs,
       result: failures.length === 0 ? 'PASS' : 'FAIL',
-      reason: failures.join('; ') || 'all thresholds satisfied',
+      reason:
+        failures.join('; ') ||
+        (advisories.length > 0
+          ? `all hard thresholds satisfied; ${advisories.join('; ')}`
+          : 'all thresholds satisfied'),
     };
   }
 
@@ -1252,7 +1265,7 @@ suite('Soft Chat production-path capacity', () => {
           'independent-streaming':
             'Diagnostic: test-only users, devices, and authenticated sessions are seeded only in the ephemeral schema; every virtual sender/recipient pair has independent rows and continuously polls/ACKs while sending. This measures already-authenticated independent clients, not passkey enrollment capacity.',
         },
-        thresholds: { maxErrorRate, maxP99Ms },
+        thresholds: { maxErrorRate, maxP99Ms, latencyPolicy },
         requestedStages,
         requestedModes,
         comparisonRun,
