@@ -1,6 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '../src/auth-service.js';
 import { hash } from '../src/crypto.js';
 import { PostgresDatabase } from '../src/database.js';
@@ -135,6 +135,23 @@ describeDatabase('PostgreSQL authentication state machine', () => {
         'refresh_tokens',
         'app_return_codes',
         'audit_log',
+        'auth_security_generation',
+      ]),
+    );
+    const securityTriggers = await database.query<{ trigger_name: string }>(
+      `SELECT trigger_name FROM information_schema.triggers
+       WHERE trigger_schema='public' AND trigger_name LIKE 'auth_security_%'`,
+    );
+    expect(new Set(securityTriggers.rows.map((row) => row.trigger_name))).toEqual(
+      new Set([
+        'auth_security_users_row_lifecycle',
+        'auth_security_users_update',
+        'auth_security_devices_row_lifecycle',
+        'auth_security_devices_update',
+        'auth_security_sessions_row_lifecycle',
+        'auth_security_sessions_update',
+        'auth_security_families_row_lifecycle',
+        'auth_security_families_update',
       ]),
     );
     const indexes = await database.query<{ indexname: string }>(
@@ -493,6 +510,74 @@ describeDatabase('PostgreSQL authentication state machine', () => {
     await expect(restarted.authenticate(tokens.accessToken)).resolves.toMatchObject({
       userId: me.userId,
     });
+  });
+
+  it('uses the generation fast path without caching deterministic expiry state', async () => {
+    const tokens = await registerAndExchange();
+    const queries: string[] = [];
+    const originalQuery = database.query.bind(database);
+    const querySpy = vi.spyOn(database, 'query').mockImplementation(async (text, values) => {
+      queries.push(text);
+      return originalQuery(text, values);
+    });
+
+    await expect(service.authenticate(tokens.accessToken)).resolves.toMatchObject({
+      email: 'user@example.test',
+    });
+    expect(queries.some((text) => text.includes('LEFT JOIN sessions'))).toBe(true);
+    expect(queries.some((text) => text.includes('JOIN users'))).toBe(false);
+
+    queries.length = 0;
+    clock.advance(config.accessTokenTtlSeconds + 1);
+    await expect(service.authenticate(tokens.accessToken)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    expect(queries.some((text) => text.includes('LEFT JOIN sessions'))).toBe(true);
+    querySpy.mockRestore();
+  });
+
+  it('invalidates cached mutable state across service instances on revocation', async () => {
+    const tokens = await registerAndExchange();
+    const otherService = new AuthService(
+      database,
+      config,
+      clock,
+      new DeterministicRandom(),
+      mailer,
+      webauthn,
+    );
+    const otherSession = await otherService.authenticate(tokens.accessToken);
+
+    await otherService.logout(otherSession);
+    await expect(service.authenticate(tokens.accessToken)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
+  it('invalidates cached mutable state for out-of-band security-version changes', async () => {
+    const tokens = await registerAndExchange();
+    const session = await service.authenticate(tokens.accessToken);
+    await database.query('UPDATE users SET security_version=security_version+1 WHERE id=$1', [
+      session.userId,
+    ]);
+
+    await expect(service.authenticate(tokens.accessToken)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
+  it('does not invalidate the security generation for activity-only writes', async () => {
+    const tokens = await registerAndExchange();
+    const before = await database.query<{ generation: string }>(
+      'SELECT generation::text FROM auth_security_generation WHERE singleton=true',
+    );
+
+    await service.authenticate(tokens.accessToken);
+
+    const after = await database.query<{ generation: string }>(
+      'SELECT generation::text FROM auth_security_generation WHERE singleton=true',
+    );
+    expect(after.rows[0]?.generation).toBe(before.rows[0]?.generation);
   });
 
   it('rejects wrong PKCE, state, client, and replayed return codes', async () => {
