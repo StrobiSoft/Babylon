@@ -46,10 +46,10 @@ describe('Soft Chat aggregate evaluation', () => {
   });
 
   it('keeps exploratory latency above the reference target usable', () => {
-    const aggregate = evaluateSoftChatSeries(
-      [run(1, 3200), run(2, 3400), run(3, 3300)],
-      { kind: 'exploratory', latencyTargetMs: 2000 },
-    );
+    const aggregate = evaluateSoftChatSeries([run(1, 3200), run(2, 3400), run(3, 3300)], {
+      kind: 'exploratory',
+      latencyTargetMs: 2000,
+    });
 
     expect(aggregate.latency).toMatchObject({
       mean: 3300,
@@ -103,10 +103,10 @@ describe('Soft Chat aggregate evaluation', () => {
         acknowledgementsSucceeded: 499,
       },
     });
-    const aggregate = evaluateSoftChatSeries(
-      [run(1, 1900), failed, run(3, 1900)],
-      { kind: 'exploratory', latencyTargetMs: 2000 },
-    );
+    const aggregate = evaluateSoftChatSeries([run(1, 1900), failed, run(3, 1900)], {
+      kind: 'exploratory',
+      latencyTargetMs: 2000,
+    });
 
     expect(aggregate.correctnessFailureRuns).toEqual([2]);
     expect(aggregate.decision.passed).toBe(false);
