@@ -1,6 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthService } from '../src/auth-service.js';
 import { hash } from '../src/crypto.js';
 import { PostgresDatabase } from '../src/database.js';
@@ -493,6 +493,43 @@ describeDatabase('PostgreSQL authentication state machine', () => {
     await expect(restarted.authenticate(tokens.accessToken)).resolves.toMatchObject({
       userId: me.userId,
     });
+  });
+
+  it('caches only fixed expiry state while retaining authoritative mutable security checks', async () => {
+    const tokens = await registerAndExchange();
+    const queries: string[] = [];
+    const originalQuery = database.query.bind(database);
+    const querySpy = vi.spyOn(database, 'query').mockImplementation(async (text, values) => {
+      queries.push(text);
+      return originalQuery(text, values);
+    });
+
+    await expect(service.authenticate(tokens.accessToken)).resolves.toMatchObject({
+      email: 'user@example.test',
+    });
+    expect(queries.some((text) => text.includes('WHERE s.id=$1 AND s.access_token_hash=$2'))).toBe(
+      true,
+    );
+
+    const session = await service.authenticate(tokens.accessToken);
+    await service.revokeSession(session, session.sessionId);
+    await expect(service.authenticate(tokens.accessToken)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    querySpy.mockRestore();
+  });
+
+  it('rejects a cached token at its fixed expiry boundary without another database read', async () => {
+    const tokens = await registerAndExchange();
+    const querySpy = vi.spyOn(database, 'query');
+    const readsBeforeExpiry = querySpy.mock.calls.length;
+
+    clock.advance(config.accessTokenTtlSeconds);
+    await expect(service.authenticate(tokens.accessToken)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    expect(querySpy.mock.calls).toHaveLength(readsBeforeExpiry);
+    querySpy.mockRestore();
   });
 
   it('rejects wrong PKCE, state, client, and replayed return codes', async () => {
