@@ -84,26 +84,34 @@ interface ReturnCodeRow extends QueryResultRow {
   consumed_at: Date | null;
 }
 
-interface AccessRow extends QueryResultRow {
+interface AuthenticatedAccessRow extends QueryResultRow {
   session_id: string;
   user_id: string;
   email: string;
   device_id: string;
   device_name: string;
   platform: string;
-  access_expires_at: Date;
-  session_expires_at: Date;
   session_revoked_at: Date | null;
   device_revoked_at: Date | null;
   family_revoked_at: Date | null;
   user_status: string;
   user_security_version: string;
   session_security_version: string;
-  inactivity_expires_at: Date;
   authenticated_at: Date;
   step_up_at: Date | null;
   assurance_level: 'aal1' | 'aal2' | 'aal3';
   authentication_method: string;
+}
+
+interface AccessRow extends AuthenticatedAccessRow {
+  access_expires_at: Date;
+  session_expires_at: Date;
+  inactivity_expires_at: Date;
+}
+
+interface DeterministicExpiryState {
+  sessionId: string;
+  expiresAt: Date;
 }
 
 interface RefreshRow extends QueryResultRow {
@@ -184,6 +192,8 @@ export interface AuthenticatedSession {
 }
 
 export class AuthService {
+  private readonly deterministicExpiryByAccessToken = new Map<string, DeterministicExpiryState>();
+
   constructor(
     private readonly database: Database,
     private readonly config: Config,
@@ -192,6 +202,19 @@ export class AuthService {
     private readonly mailer: Mailer,
     private readonly webauthn: WebAuthnProvider,
   ) {}
+
+  private rememberDeterministicExpiry(
+    accessTokenHash: Buffer,
+    state: DeterministicExpiryState,
+  ): void {
+    const key = accessTokenHash.toString('hex');
+    this.deterministicExpiryByAccessToken.delete(key);
+    this.deterministicExpiryByAccessToken.set(key, state);
+    if (this.deterministicExpiryByAccessToken.size > 10_000) {
+      const oldest = this.deterministicExpiryByAccessToken.keys().next().value;
+      if (oldest) this.deterministicExpiryByAccessToken.delete(oldest);
+    }
+  }
 
   private async audit(
     queryable: Queryable,
@@ -1050,33 +1073,77 @@ export class AuthService {
   }
 
   async authenticate(accessToken: string): Promise<AuthenticatedSession> {
-    const result = await this.database.query<AccessRow>(
-      `SELECT s.id session_id,s.user_id,u.email,u.status user_status,
-              u.security_version user_security_version,s.security_version session_security_version,
-              s.device_id,d.name device_name,d.platform,
-              s.access_expires_at,s.expires_at session_expires_at,s.revoked_at session_revoked_at,
-              s.inactivity_expires_at,s.authenticated_at,s.step_up_at,s.assurance_level,
-              s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at
-       FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id
-       JOIN refresh_token_families f ON f.id=s.family_id
-       WHERE s.access_token_hash=$1`,
-      [hash(accessToken)],
-    );
-    const row = result.rows[0];
+    const accessTokenHash = hash(accessToken);
+    const cacheKey = accessTokenHash.toString('hex');
     const now = this.clock.now();
+    let expiry = this.deterministicExpiryByAccessToken.get(cacheKey);
+    const cacheMiss = !expiry;
+    if (expiry && expiry.expiresAt <= now) {
+      this.deterministicExpiryByAccessToken.delete(cacheKey);
+      throw unauthorized();
+    }
+
+    let row: AuthenticatedAccessRow | undefined;
+    if (expiry) {
+      const result = await this.database.query<AuthenticatedAccessRow>(
+        `SELECT s.id session_id,s.user_id,u.email,u.status user_status,
+                u.security_version user_security_version,s.security_version session_security_version,
+                s.device_id,d.name device_name,d.platform,
+                s.revoked_at session_revoked_at,s.authenticated_at,s.step_up_at,s.assurance_level,
+                s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at
+         FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id
+         JOIN refresh_token_families f ON f.id=s.family_id
+         WHERE s.id=$1 AND s.access_token_hash=$2`,
+        [expiry.sessionId, accessTokenHash],
+      );
+      row = result.rows[0];
+    } else {
+      const result = await this.database.query<AccessRow>(
+        `SELECT s.id session_id,s.user_id,u.email,u.status user_status,
+                u.security_version user_security_version,s.security_version session_security_version,
+                s.device_id,d.name device_name,d.platform,
+                s.access_expires_at,s.expires_at session_expires_at,s.revoked_at session_revoked_at,
+                s.inactivity_expires_at,s.authenticated_at,s.step_up_at,s.assurance_level,
+                s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at
+         FROM sessions s JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id
+         JOIN refresh_token_families f ON f.id=s.family_id
+         WHERE s.access_token_hash=$1`,
+        [accessTokenHash],
+      );
+      const authoritative = result.rows[0];
+      if (
+        authoritative &&
+        authoritative.access_expires_at > now &&
+        authoritative.session_expires_at > now &&
+        authoritative.inactivity_expires_at > now
+      ) {
+        expiry = {
+          sessionId: authoritative.session_id,
+          expiresAt: new Date(
+            Math.min(
+              authoritative.access_expires_at.getTime(),
+              authoritative.session_expires_at.getTime(),
+              authoritative.inactivity_expires_at.getTime(),
+            ),
+          ),
+        };
+      }
+      row = authoritative;
+    }
     if (
       !row ||
-      row.access_expires_at <= now ||
-      row.session_expires_at <= now ||
-      row.inactivity_expires_at <= now ||
+      !expiry ||
+      expiry.expiresAt <= now ||
       row.user_status !== 'active' ||
       row.user_security_version !== row.session_security_version ||
       row.session_revoked_at ||
       row.device_revoked_at ||
       row.family_revoked_at
     ) {
+      this.deterministicExpiryByAccessToken.delete(cacheKey);
       throw unauthorized();
     }
+    if (cacheMiss) this.rememberDeterministicExpiry(accessTokenHash, expiry);
     await this.database.transaction(async (client) => {
       await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [now, row.session_id]);
       await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [now, row.device_id]);
