@@ -43,7 +43,8 @@ The command:
 
 - refuses tracked or staged changes;
 - refuses to overwrite an existing series directory;
-- records the exact Git commit and effective benchmark configuration;
+- records the exact measured Git commit, automation-source commit, and effective benchmark
+  configuration;
 - creates a separate `run-NN` directory for every repetition;
 - requests reference-only latency handling when the measured checkout supports it;
 - evaluates correctness and latency from the raw report, so an exact historical checkpoint can
