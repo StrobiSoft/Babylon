@@ -117,3 +117,24 @@ The method does not increase Babylon's product-completion percentage by itself. 
 ## Initial adoption
 
 The workflow was first adopted during remediation and independent review of PR #22 (`Stage II: transient guaranteed message delivery (transport-v1)`). The PR's persistent `AI HANDOFF / REVIEW STATE` comment is the first live instance of this coordination model.
+
+## NOEMI-BRIDGE extension — 2026-08-31
+
+The collaboration model was extended from PR-local handoff records to a dedicated machine-readable task queue in Babylon issue #40.
+
+The bridge uses explicit versioned envelopes:
+
+- `NOEMI-BRIDGE/TASK v1`
+- `NOEMI-BRIDGE/RESULT v1`
+
+A task carries a unique `task_id`, the requested execution mode and the bounded prompt. A result carries the same `task_id`, execution status and a durable summary. Successful end-to-end tests demonstrated that Noémi can place a task into the queue, Codex can execute it through the dedicated ZooLab automation environment, and the result can return to the same GitHub thread without the human owner manually relaying prompts and responses.
+
+The bridge is an execution and coordination mechanism, not a transfer of project authority. The following rules remain unchanged:
+
+- the human owner retains final product, architecture, security and merge authority;
+- a valid scoped task authorizes execution only within its stated boundaries;
+- privilege expansion, secret exposure, destructive out-of-scope operations and security-boundary bypasses are not implied by task authorization;
+- failed, timed-out or blocked execution must be reported as such and must not be upgraded into a success claim;
+- GitHub remains the durable coordination record.
+
+The practical milestone is that the human owner no longer needs to serve as a mechanical copy-and-paste proxy between Noémi and Codex. Human judgment stays in the loop; repetitive transport work does not.
