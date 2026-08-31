@@ -534,8 +534,14 @@ paths:
             in: query,
             schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
           }
+        - {
+            name: waitMs,
+            in: query,
+            description: Bounded long-poll wait. Zero preserves immediate-response behavior.,
+            schema: { type: integer, minimum: 0, maximum: 30000, default: 0 },
+          }
       responses:
-        '200': { description: Bounded recipient queue of transport envelopes. }
+        '200': { description: Bounded queue; an empty response is valid after timeout. }
   /api/v1/messages/{requestId}:
     get:
       tags: [delivery]

@@ -273,12 +273,12 @@ class InstrumentedDeliveryService extends MessageDeliveryService {
     }
   }
 
-  override async listPending(recipientUserId: string, limit: number) {
+  override async listPending(...args: Parameters<MessageDeliveryService['listPending']>) {
     const started = performance.now();
     const timings = activeTimings;
     try {
       return await acquisitionStage.run({ stage: 'pendingFetch', timings }, () =>
-        super.listPending(recipientUserId, limit),
+        super.listPending(...args),
       );
     } finally {
       timings?.pendingFetch.push(performance.now() - started);
@@ -983,7 +983,7 @@ suite('Soft Chat production-path capacity', () => {
             try {
               pendingFetchRequests += 1;
               const pending = await authorized(
-                '/api/v1/messages/pending?limit=100',
+                `/api/v1/messages/pending?limit=100&waitMs=${pollIntervalMs}`,
                 client.recipient.accessToken,
               );
               const items = (pending.items as Record<string, unknown>[] | undefined) ?? [];
@@ -996,7 +996,6 @@ suite('Soft Chat production-path capacity', () => {
               increment(errors, `receive:${String(error)}`);
               return;
             }
-            await delay(pollIntervalMs);
           }
         })(),
       );
@@ -1124,7 +1123,7 @@ suite('Soft Chat production-path capacity', () => {
         try {
           pendingFetchRequests += 1;
           const pending = await authorized(
-            '/api/v1/messages/pending?limit=100',
+            `/api/v1/messages/pending?limit=100&waitMs=${pollIntervalMs}`,
             shared!.recipient.accessToken,
           );
           items = (pending.items as Record<string, unknown>[] | undefined) ?? [];

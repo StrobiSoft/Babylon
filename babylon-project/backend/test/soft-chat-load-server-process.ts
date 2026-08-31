@@ -129,12 +129,12 @@ class InstrumentedDeliveryService extends MessageDeliveryService {
     }
   }
 
-  override async listPending(recipientUserId: string, limit: number) {
+  override async listPending(...args: Parameters<MessageDeliveryService['listPending']>) {
     const started = performance.now();
     const timings = activeTimings;
     try {
       return await acquisitionStage.run({ stage: 'pendingFetch', timings }, () =>
-        super.listPending(recipientUserId, limit),
+        super.listPending(...args),
       );
     } finally {
       timings?.pendingFetch.push(performance.now() - started);

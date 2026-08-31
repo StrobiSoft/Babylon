@@ -14,6 +14,7 @@ import {
   DeliveryConflictError,
   DeliveryNotFoundError,
   DeliveryRecipientUnavailableError,
+  MAX_PENDING_WAIT_MS,
   MessageDeliveryService,
 } from './message-delivery.js';
 import type { Database } from './types.js';
@@ -569,14 +570,38 @@ export async function buildServer(input: {
     }
   });
 
-  app.get('/api/v1/messages/pending', async (request) => {
+  app.get('/api/v1/messages/pending', async (request, reply) => {
     if (!delivery) throw new Error('Message delivery service is unavailable');
     const session = await authenticated(service, request);
     const query = parse(
-      z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).strict(),
+      z
+        .object({
+          limit: z.coerce.number().int().min(1).max(100).default(50),
+          waitMs: z.coerce.number().int().min(0).max(MAX_PENDING_WAIT_MS).default(0),
+        })
+        .strict(),
       request.query,
     );
-    return envelope({ items: await delivery.listPending(session.userId, query.limit) });
+    const pendingAbort = new AbortController();
+    const abortPending = () => {
+      pendingAbort.abort();
+    };
+    request.raw.once('aborted', abortPending);
+    reply.raw.once('close', abortPending);
+    if (request.raw.destroyed || reply.raw.destroyed) pendingAbort.abort();
+    try {
+      return envelope({
+        items: await delivery.listPending(
+          session.userId,
+          query.limit,
+          query.waitMs,
+          pendingAbort.signal,
+        ),
+      });
+    } finally {
+      request.raw.off('aborted', abortPending);
+      reply.raw.off('close', abortPending);
+    }
   });
 
   app.get('/api/v1/messages/:requestId', async (request) => {
