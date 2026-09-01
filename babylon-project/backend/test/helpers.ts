@@ -135,6 +135,7 @@ export function testConfig(databaseUrl: string): Config {
     nativeTransactionTtlSeconds: 300,
     returnCodeTtlSeconds: 60,
     sessionInactivityTtlSeconds: 900,
+    authActivityWriteThrottleEnabled: false,
     freshAuthTtlSeconds: 300,
     recoveryTtlSeconds: 300,
     recoveryCooldownSeconds: 60,

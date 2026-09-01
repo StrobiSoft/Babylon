@@ -25,8 +25,19 @@ describe('configuration', () => {
   it('loads a valid environment with secure defaults', () => {
     const config = loadConfig(environment());
     expect(config.accessTokenTtlSeconds).toBe(900);
+    expect(config.authActivityWriteThrottleEnabled).toBe(false);
     expect(config.webauthnOrigins).toEqual(['http://localhost:3000']);
     expect(config.returnProfiles.local?.clientId).toBe('client');
+  });
+
+  it('enables bounded authentication activity-write throttling only explicitly', () => {
+    expect(
+      loadConfig({ ...environment(), AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED: '1' })
+        .authActivityWriteThrottleEnabled,
+    ).toBe(true);
+    expect(() =>
+      loadConfig({ ...environment(), AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED: 'true' }),
+    ).toThrow(/Invalid configuration/);
   });
 
   it.each([
