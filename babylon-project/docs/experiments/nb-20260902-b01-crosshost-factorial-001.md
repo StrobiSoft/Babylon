@@ -20,3 +20,15 @@
 - OpenAI/Codex usage or quota signal: none observed.
 
 Further checkpoints, runtime manifests, all 12 raw runs, aggregates, and checksums will be added as the matrix proceeds.
+
+## Checkpoint 2 — runtime identity and isolation plan
+
+- CT105: hostname `noemi`; Linux `7.0.14-6-pve`; Intel Core i7-8700; 12 visible logical CPUs; cgroup v2 `cpu.max=max 100000`, `memory.max=max`; Node `v24.20.0`, npm `11.19.0`; Playwright package `1.62.1`.
+- VM103: hostname `babylon`; Linux `6.12.101+deb13-amd64`; QEMU Virtual CPU 2.5+, 12 visible vCPUs; host cgroup v1 (the benchmark process has no configured CPU or memory quota); Node `v20.19.2`, npm `9.2.0`; Playwright package `1.62.1`.
+- Both canonical repositories have package-lock SHA256 `3044806a283cd5798c375e5b918cec95043b91ed8dfaf8955f96628b2a07b842`; both existing dependency trees report Playwright `1.62.1`.
+- VM103 browser: Chrome for Testing `151.0.7922.34`, executable SHA256 `0b20b130e7edd9dd51873be867761295fe0cfad490c2b9a64f95bd3cfc08fa71`.
+- VM103 DB: dedicated `babylon-soft-chat-load-postgres`, PostgreSQL `17.10` Alpine, image ID `sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193`, no container CPU/memory/cpuset limit. Config SHA256 `4634abd0a6b52710a8765d47b1b225a55f8d985f54cc503f82ec783979766983`; relevant settings: max_connections 100, shared_buffers 128MB, work_mem 4MB, effective_cache_size 4GB, synchronous_commit/fsync/full_page_writes on, random_page_cost 4, effective_io_concurrency 1.
+- CT105's prior disposable PostgreSQL 17.11 and Chromium headless-shell 151 runtime was correctly stopped/removed after the prior attempt. Its preserved log and manifest prove that identity; the exact lock-defined browser and PostgreSQL 17.11 runtime must be recreated without changing benchmark code or configuration before local cells start.
+- Material pre-existing confounders, intentionally documented rather than hidden: physical CT CPU versus KVM/QEMU VM CPU, Node 24 versus Node 20, npm 11 versus npm 9, PostgreSQL 17.11 Debian versus 17.10 Alpine, kernels, storage/container envelope, and cgroup implementation.
+- The harness child is `backend/test/soft-chat-load-server-process.ts`; benchmark source and child hashes will be recorded from exact root. Measurement semantics: ramp and warm-up precede the steady message window; business-latency histograms and diagnostic baselines reset after warm-up; `durationMs` spans steady sends through ACK completion; polling remains completion-relative in all cells.
+- A/B and C/D will differ only by `SOFT_CHAT_LOAD_POLL_INTERVAL_MS=50` versus `500`. All cells use 500 clients, independent-streaming, pool 20, ramp 5000 ms, warm-up 2000 ms, separate server, auth isolation none, and exact root `146faf38307bd40cdeb44eb676a773db8d3d0f71`.
