@@ -20,6 +20,7 @@ import { runMigrations } from '../src/migrations.js';
 import { buildServer } from '../src/server.js';
 import { SimpleWebAuthnProvider } from '../src/webauthn.js';
 import { testConfig } from './helpers.js';
+import { nextFixedGridPoll, type SoftChatPendingSchedule } from './soft-chat-poll-scheduler.js';
 
 const enabled = process.env.RUN_SOFT_CHAT_LOAD === '1';
 const suite = enabled ? describe : describe.skip;
@@ -31,6 +32,8 @@ const maxP99Ms = Number(process.env.SOFT_CHAT_LOAD_MAX_P99_MS ?? '2000');
 const outputRoot = resolve(process.env.SOFT_CHAT_LOAD_OUTPUT_DIR ?? 'load-results/soft-chat');
 const comparisonRun = process.env.SOFT_CHAT_LOAD_COMPARISON === '1';
 const pollIntervalMs = Number(process.env.SOFT_CHAT_LOAD_POLL_INTERVAL_MS ?? '50');
+const pendingSchedule = (process.env.SOFT_CHAT_LOAD_PENDING_SCHEDULE ??
+  'completion-relative') as SoftChatPendingSchedule;
 const requestedPoolMax = Number(process.env.SOFT_CHAT_LOAD_POOL_MAX ?? '20');
 const clientRampMs = Number(process.env.SOFT_CHAT_LOAD_CLIENT_RAMP_MS ?? '0');
 const warmupMs = Number(process.env.SOFT_CHAT_LOAD_WARMUP_MS ?? '0');
@@ -128,6 +131,9 @@ interface StageResult {
   runtime: RuntimeDiagnostics;
   driverRuntime: RuntimeDiagnostics;
   pendingFetchRequests: number;
+  pendingSchedule: SoftChatPendingSchedule;
+  pendingScheduleSkippedTicks: number;
+  pendingOverlapViolations: number;
   duplicateDeliveries: number;
   exactlyOnceViolations: number;
   errors: ErrorCounts;
@@ -920,6 +926,8 @@ suite('Soft Chat production-path capacity', () => {
     let duplicateDeliveries = 0;
     let contentViolations = 0;
     let pendingFetchRequests = 0;
+    let pendingScheduleSkippedTicks = 0;
+    let pendingOverlapViolations = 0;
     let unhealthy = false;
     let workersRunning = true;
     const workerPromises: Promise<void>[] = [];
@@ -979,8 +987,13 @@ suite('Soft Chat production-path capacity', () => {
       const client = independent![index]!;
       workerPromises.push(
         (async () => {
+          const fixedGridAnchor = performance.now();
+          let fixedGridTickIndex = 0;
+          let pendingInFlight = false;
           while (workersRunning && !unhealthy) {
             try {
+              if (pendingInFlight) pendingOverlapViolations += 1;
+              pendingInFlight = true;
               pendingFetchRequests += 1;
               const pending = await authorized(
                 '/api/v1/messages/pending?limit=100',
@@ -995,8 +1008,22 @@ suite('Soft Chat production-path capacity', () => {
             } catch (error) {
               increment(errors, `receive:${String(error)}`);
               return;
+            } finally {
+              pendingInFlight = false;
             }
-            await delay(pollIntervalMs);
+            if (pendingSchedule === 'completion-relative') {
+              await delay(pollIntervalMs);
+            } else {
+              const next = nextFixedGridPoll({
+                anchorMs: fixedGridAnchor,
+                lastTickIndex: fixedGridTickIndex,
+                completedAtMs: performance.now(),
+                cadenceMs: pollIntervalMs,
+              });
+              fixedGridTickIndex = next.tickIndex;
+              pendingScheduleSkippedTicks += next.skippedTicks;
+              await delay(next.delayMs);
+            }
           }
         })(),
       );
@@ -1205,6 +1232,9 @@ suite('Soft Chat production-path capacity', () => {
       runtime: diagnostics.runtime,
       driverRuntime: diagnostics.driverRuntime,
       pendingFetchRequests,
+      pendingSchedule,
+      pendingScheduleSkippedTicks,
+      pendingOverlapViolations,
       duplicateDeliveries,
       exactlyOnceViolations: duplicateDeliveries + contentViolations,
       errors,
@@ -1225,6 +1255,9 @@ suite('Soft Chat production-path capacity', () => {
         if (!['shared-phased', 'independent-streaming'].includes(mode)) {
           throw new Error(`Unsupported SOFT_CHAT_LOAD_MODES value: ${mode}`);
         }
+      }
+      if (!['completion-relative', 'fixed-grid'].includes(pendingSchedule)) {
+        throw new Error(`Unsupported SOFT_CHAT_LOAD_PENDING_SCHEDULE value: ${pendingSchedule}`);
       }
       const stages: StageResult[] = [];
       for (const mode of requestedModes) {
@@ -1258,6 +1291,7 @@ suite('Soft Chat production-path capacity', () => {
         comparisonRun,
         separateServerProcess,
         pollIntervalMs,
+        pendingSchedule,
         configuredPoolMax: requestedPoolMax,
         clientRampMs,
         warmupMs,
@@ -1272,7 +1306,7 @@ suite('Soft Chat production-path capacity', () => {
       const base = resolve(outputRoot, `soft-chat-load-${runId}`);
       await writeFile(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
       const header =
-        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,reconnect_server_cpu_percent,reconnect_server_event_loop_utilization_percent,reconnect_server_event_loop_delay_p99_ms,reconnect_driver_cpu_percent,reconnect_driver_event_loop_utilization_percent,reconnect_driver_event_loop_delay_p99_ms,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,server_cpu_percent,server_event_loop_utilization_percent,server_event_loop_delay_p99_ms,driver_cpu_percent,driver_event_loop_utilization_percent,driver_event_loop_delay_p99_ms,duplicates,exactly_once_violations,duration_ms,result,reason\n';
+        'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,reconnect_server_cpu_percent,reconnect_server_event_loop_utilization_percent,reconnect_server_event_loop_delay_p99_ms,reconnect_driver_cpu_percent,reconnect_driver_event_loop_utilization_percent,reconnect_driver_event_loop_delay_p99_ms,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,server_cpu_percent,server_event_loop_utilization_percent,server_event_loop_delay_p99_ms,driver_cpu_percent,driver_event_loop_utilization_percent,driver_event_loop_delay_p99_ms,duplicates,exactly_once_violations,pending_schedule,pending_schedule_skipped_ticks,pending_overlap_violations,duration_ms,result,reason\n';
       const csv = stages
         .map((stage) =>
           [
@@ -1322,6 +1356,9 @@ suite('Soft Chat production-path capacity', () => {
             stage.driverRuntime.eventLoopDelayMs.p99,
             stage.duplicateDeliveries,
             stage.exactlyOnceViolations,
+            stage.pendingSchedule,
+            stage.pendingScheduleSkippedTicks,
+            stage.pendingOverlapViolations,
             stage.durationMs,
             stage.result,
             JSON.stringify(stage.reason),
