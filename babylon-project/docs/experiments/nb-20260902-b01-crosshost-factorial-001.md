@@ -32,3 +32,12 @@ Further checkpoints, runtime manifests, all 12 raw runs, aggregates, and checksu
 - Material pre-existing confounders, intentionally documented rather than hidden: physical CT CPU versus KVM/QEMU VM CPU, Node 24 versus Node 20, npm 11 versus npm 9, PostgreSQL 17.11 Debian versus 17.10 Alpine, kernels, storage/container envelope, and cgroup implementation.
 - The harness child is `backend/test/soft-chat-load-server-process.ts`; benchmark source and child hashes will be recorded from exact root. Measurement semantics: ramp and warm-up precede the steady message window; business-latency histograms and diagnostic baselines reset after warm-up; `durationMs` spans steady sends through ACK completion; polling remains completion-relative in all cells.
 - A/B and C/D will differ only by `SOFT_CHAT_LOAD_POLL_INTERVAL_MS=50` versus `500`. All cells use 500 clients, independent-streaming, pool 20, ramp 5000 ms, warm-up 2000 ms, separate server, auth isolation none, and exact root `146faf38307bd40cdeb44eb676a773db8d3d0f71`.
+
+## Checkpoint 3 — VM103 A/B complete
+
+- VM run root: `/tmp/nb-20260902-b01-crosshost-factorial-001-vm-root/babylon-project`, detached exact HEAD `146faf38307bd40cdeb44eb676a773db8d3d0f71`; only an ignored `node_modules` symlink points to the canonical lock-installed tree.
+- Benchmark harness SHA256: `f7e78f21b97ead851159da4490a684c5a88b51c4fd3236d979f93fa3b654b943`; separate child SHA256: `19059e4558f7482549812bc6f0734c7feaca1b2d951d2814c12a1171b9334d75`.
+- A (VM103, 50 ms) valid runs: throughput `125.72 / 126.39 / 113.82 msg/s`; p99 `3811.44 / 3818.41 / 4225.92 ms`; each delivered and ACKed `500/500`, with zero structured errors, duplicates, exactly-once violations, lock wait, residual child, or residual schema.
+- B (VM103, 500 ms) valid runs: throughput `140.02 / 137.74 / 134.01 msg/s`; p99 `3499.18 / 3471.85 / 3571.51 ms`; each delivered and ACKed `500/500`, with zero structured errors, duplicates, exactly-once violations, lock wait, residual child, or residual schema.
+- All six Vitest exits are `1` solely because the unchanged 2000 ms p99 threshold was exceeded. They are valid performance observations, not correctness failures.
+- Raw JSON/CSV/TXT, full run logs, exit status, and per-run checksums are preserved under `load-results/soft-chat/nb-20260902-b01-crosshost-factorial-001-attempt1/{A_VM103_50,B_VM103_500}/`.

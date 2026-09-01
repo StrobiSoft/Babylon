@@ -1,0 +1,3012 @@
+{
+  "harness": "Babylon Soft Chat production delivery/ACK capacity",
+  "startedAt": "2026-09-01T22:12:33.293Z",
+  "finishedAt": "2026-09-01T22:12:46.014Z",
+  "databaseIsolation": "ephemeral PostgreSQL schema soft_chat_load_1788300751839_1759795 (dropped after run)",
+  "clientModels": {
+    "shared-phased": "Control: two real WebAuthn accounts/sessions shared by every virtual client; all sends finish before batched pending/ACK processing starts.",
+    "independent-streaming": "Diagnostic: test-only users, devices, and authenticated sessions are seeded only in the ephemeral schema; every virtual sender/recipient pair has independent rows and continuously polls/ACKs while sending. This measures already-authenticated independent clients, not passkey enrollment capacity."
+  },
+  "thresholds": {
+    "maxErrorRate": 0.01,
+    "maxP99Ms": 2000
+  },
+  "requestedStages": [
+    500
+  ],
+  "requestedModes": [
+    "independent-streaming"
+  ],
+  "comparisonRun": false,
+  "separateServerProcess": true,
+  "pollIntervalMs": 50,
+  "configuredPoolMax": 20,
+  "clientRampMs": 5000,
+  "warmupMs": 2000,
+  "stages": [
+    {
+      "mode": "independent-streaming",
+      "requestedConcurrentClients": 500,
+      "authenticatedClients": 500,
+      "messagesAttempted": 500,
+      "messagesSucceeded": 500,
+      "messagesFailed": 0,
+      "ackSucceeded": 500,
+      "ackFailed": 0,
+      "throughputMessagesPerSecond": 126.39,
+      "latencyMs": {
+        "authentication": {
+          "count": 2798,
+          "p50": 391.4014619999998,
+          "p95": 601.7500630000013,
+          "p99": 615.4443740000006,
+          "max": 627.6253560000005
+        },
+        "accept": {
+          "count": 500,
+          "p50": 258.9491020000005,
+          "p95": 332.0841909999999,
+          "p99": 361.99604100000033,
+          "max": 370.7629880000004
+        },
+        "pendingFetch": {
+          "count": 2004,
+          "p50": 373.8821310000003,
+          "p95": 588.1915700000009,
+          "p99": 592.358737999999,
+          "max": 606.2241909999993
+        },
+        "acknowledge": {
+          "count": 500,
+          "p50": 203.35769900000014,
+          "p95": 349.88539299999866,
+          "p99": 369.9551819999997,
+          "max": 375.38108400000056
+        },
+        "sendToVisible": {
+          "count": 500,
+          "p50": 2429.0713560000004,
+          "p95": 3234.2811409999995,
+          "p99": 3277.401586,
+          "max": 3282.57351
+        },
+        "visibleToAck": {
+          "count": 500,
+          "p50": 669.0639019999999,
+          "p95": 894.0495769999998,
+          "p99": 907.5524189999996,
+          "max": 919.3233139999993
+        },
+        "sendToAck": {
+          "count": 500,
+          "p50": 3101.9372939999994,
+          "p95": 3784.516224000001,
+          "p99": 3818.4064800000015,
+          "max": 3822.5682529999995
+        }
+      },
+      "reconnectRamp": {
+        "startedAt": "2026-09-01T22:12:33.564Z",
+        "finishedAt": "2026-09-01T22:12:41.598Z",
+        "durationMs": 8034,
+        "authenticationLatencyMs": {
+          "count": 1000,
+          "p50": 188.81737499999963,
+          "p95": 1064.0555409999997,
+          "p99": 1129.2096640000009,
+          "max": 1176.6120140000003
+        },
+        "connectionAcquisitionWaitMs": {
+          "authentication": {
+            "count": 8198,
+            "p50": 85.88642600000003,
+            "p95": 383.99150199999985,
+            "p99": 718.7765310000004,
+            "max": 796.2419840000002
+          },
+          "accept": {
+            "count": 0,
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0
+          },
+          "pendingFetch": {
+            "count": 9113,
+            "p50": 119.58672299999944,
+            "p95": 161.45909200000006,
+            "p99": 668.2035530000003,
+            "max": 792.3000400000001
+          },
+          "acknowledge": {
+            "count": 0,
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0
+          }
+        },
+        "pool": {
+          "maxTotalCount": 20,
+          "minIdleCount": 0,
+          "maxWaitingCount": 487,
+          "samples": [
+            {
+              "at": "2026-09-01T22:12:33.594Z",
+              "totalCount": 1,
+              "idleCount": 0,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.620Z",
+              "totalCount": 10,
+              "idleCount": 0,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.645Z",
+              "totalCount": 15,
+              "idleCount": 0,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.695Z",
+              "totalCount": 17,
+              "idleCount": 0,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.722Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 1
+            },
+            {
+              "at": "2026-09-01T22:12:33.748Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 3
+            },
+            {
+              "at": "2026-09-01T22:12:33.777Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.805Z",
+              "totalCount": 20,
+              "idleCount": 1,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.832Z",
+              "totalCount": 20,
+              "idleCount": 4,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.859Z",
+              "totalCount": 20,
+              "idleCount": 5,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.885Z",
+              "totalCount": 20,
+              "idleCount": 4,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.911Z",
+              "totalCount": 20,
+              "idleCount": 7,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.937Z",
+              "totalCount": 20,
+              "idleCount": 1,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.964Z",
+              "totalCount": 20,
+              "idleCount": 4,
+              "waitingCount": 0
+            },
+            {
+              "at": "2026-09-01T22:12:33.993Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 2
+            },
+            {
+              "at": "2026-09-01T22:12:34.021Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 10
+            },
+            {
+              "at": "2026-09-01T22:12:34.050Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 16
+            },
+            {
+              "at": "2026-09-01T22:12:34.076Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 10
+            },
+            {
+              "at": "2026-09-01T22:12:34.101Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 9
+            },
+            {
+              "at": "2026-09-01T22:12:34.126Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 14
+            },
+            {
+              "at": "2026-09-01T22:12:34.151Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 20
+            },
+            {
+              "at": "2026-09-01T22:12:34.176Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 17
+            },
+            {
+              "at": "2026-09-01T22:12:34.206Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 23
+            },
+            {
+              "at": "2026-09-01T22:12:34.230Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 24
+            },
+            {
+              "at": "2026-09-01T22:12:34.258Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 28
+            },
+            {
+              "at": "2026-09-01T22:12:34.285Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 26
+            },
+            {
+              "at": "2026-09-01T22:12:34.314Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 32
+            },
+            {
+              "at": "2026-09-01T22:12:34.340Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 35
+            },
+            {
+              "at": "2026-09-01T22:12:34.368Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 38
+            },
+            {
+              "at": "2026-09-01T22:12:34.396Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 37
+            },
+            {
+              "at": "2026-09-01T22:12:34.423Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 46
+            },
+            {
+              "at": "2026-09-01T22:12:34.451Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 49
+            },
+            {
+              "at": "2026-09-01T22:12:34.476Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 51
+            },
+            {
+              "at": "2026-09-01T22:12:34.502Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 48
+            },
+            {
+              "at": "2026-09-01T22:12:34.558Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 44
+            },
+            {
+              "at": "2026-09-01T22:12:34.587Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 53
+            },
+            {
+              "at": "2026-09-01T22:12:34.613Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 52
+            },
+            {
+              "at": "2026-09-01T22:12:34.638Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 54
+            },
+            {
+              "at": "2026-09-01T22:12:34.664Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 56
+            },
+            {
+              "at": "2026-09-01T22:12:34.691Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 71
+            },
+            {
+              "at": "2026-09-01T22:12:34.719Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 88
+            },
+            {
+              "at": "2026-09-01T22:12:34.748Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 90
+            },
+            {
+              "at": "2026-09-01T22:12:34.776Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 79
+            },
+            {
+              "at": "2026-09-01T22:12:34.801Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 81
+            },
+            {
+              "at": "2026-09-01T22:12:34.830Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 77
+            },
+            {
+              "at": "2026-09-01T22:12:34.857Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 67
+            },
+            {
+              "at": "2026-09-01T22:12:34.884Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 75
+            },
+            {
+              "at": "2026-09-01T22:12:34.909Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 96
+            },
+            {
+              "at": "2026-09-01T22:12:34.936Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 103
+            },
+            {
+              "at": "2026-09-01T22:12:34.962Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 104
+            },
+            {
+              "at": "2026-09-01T22:12:34.989Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 108
+            },
+            {
+              "at": "2026-09-01T22:12:35.013Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 109
+            },
+            {
+              "at": "2026-09-01T22:12:35.043Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 104
+            },
+            {
+              "at": "2026-09-01T22:12:35.070Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 94
+            },
+            {
+              "at": "2026-09-01T22:12:35.098Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 104
+            },
+            {
+              "at": "2026-09-01T22:12:35.130Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 110
+            },
+            {
+              "at": "2026-09-01T22:12:35.156Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 116
+            },
+            {
+              "at": "2026-09-01T22:12:35.183Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 119
+            },
+            {
+              "at": "2026-09-01T22:12:35.209Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 130
+            },
+            {
+              "at": "2026-09-01T22:12:35.235Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 135
+            },
+            {
+              "at": "2026-09-01T22:12:35.261Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 136
+            },
+            {
+              "at": "2026-09-01T22:12:35.291Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 129
+            },
+            {
+              "at": "2026-09-01T22:12:35.319Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 130
+            },
+            {
+              "at": "2026-09-01T22:12:35.345Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 132
+            },
+            {
+              "at": "2026-09-01T22:12:35.372Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 139
+            },
+            {
+              "at": "2026-09-01T22:12:35.400Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 144
+            },
+            {
+              "at": "2026-09-01T22:12:35.426Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 144
+            },
+            {
+              "at": "2026-09-01T22:12:35.454Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 148
+            },
+            {
+              "at": "2026-09-01T22:12:35.480Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 157
+            },
+            {
+              "at": "2026-09-01T22:12:35.505Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 156
+            },
+            {
+              "at": "2026-09-01T22:12:35.532Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 164
+            },
+            {
+              "at": "2026-09-01T22:12:35.559Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 162
+            },
+            {
+              "at": "2026-09-01T22:12:35.583Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 163
+            },
+            {
+              "at": "2026-09-01T22:12:35.612Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 158
+            },
+            {
+              "at": "2026-09-01T22:12:35.637Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 163
+            },
+            {
+              "at": "2026-09-01T22:12:35.665Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 168
+            },
+            {
+              "at": "2026-09-01T22:12:35.689Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 172
+            },
+            {
+              "at": "2026-09-01T22:12:35.715Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 176
+            },
+            {
+              "at": "2026-09-01T22:12:35.741Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 180
+            },
+            {
+              "at": "2026-09-01T22:12:35.781Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 180
+            },
+            {
+              "at": "2026-09-01T22:12:35.808Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 183
+            },
+            {
+              "at": "2026-09-01T22:12:35.833Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 181
+            },
+            {
+              "at": "2026-09-01T22:12:35.860Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 191
+            },
+            {
+              "at": "2026-09-01T22:12:35.887Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 205
+            },
+            {
+              "at": "2026-09-01T22:12:35.913Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 203
+            },
+            {
+              "at": "2026-09-01T22:12:35.939Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 204
+            },
+            {
+              "at": "2026-09-01T22:12:35.966Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 198
+            },
+            {
+              "at": "2026-09-01T22:12:35.992Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 200
+            },
+            {
+              "at": "2026-09-01T22:12:36.019Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 211
+            },
+            {
+              "at": "2026-09-01T22:12:36.049Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 209
+            },
+            {
+              "at": "2026-09-01T22:12:36.076Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 205
+            },
+            {
+              "at": "2026-09-01T22:12:36.101Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 216
+            },
+            {
+              "at": "2026-09-01T22:12:36.127Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 223
+            },
+            {
+              "at": "2026-09-01T22:12:36.155Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 228
+            },
+            {
+              "at": "2026-09-01T22:12:36.180Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 229
+            },
+            {
+              "at": "2026-09-01T22:12:36.206Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 226
+            },
+            {
+              "at": "2026-09-01T22:12:36.232Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 230
+            },
+            {
+              "at": "2026-09-01T22:12:36.259Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 240
+            },
+            {
+              "at": "2026-09-01T22:12:36.284Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 242
+            },
+            {
+              "at": "2026-09-01T22:12:36.312Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 242
+            },
+            {
+              "at": "2026-09-01T22:12:36.340Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 238
+            },
+            {
+              "at": "2026-09-01T22:12:36.365Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 237
+            },
+            {
+              "at": "2026-09-01T22:12:36.392Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 247
+            },
+            {
+              "at": "2026-09-01T22:12:36.420Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 251
+            },
+            {
+              "at": "2026-09-01T22:12:36.447Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 253
+            },
+            {
+              "at": "2026-09-01T22:12:36.474Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 259
+            },
+            {
+              "at": "2026-09-01T22:12:36.499Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 261
+            },
+            {
+              "at": "2026-09-01T22:12:36.525Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 259
+            },
+            {
+              "at": "2026-09-01T22:12:36.550Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 273
+            },
+            {
+              "at": "2026-09-01T22:12:36.581Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 275
+            },
+            {
+              "at": "2026-09-01T22:12:36.607Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 274
+            },
+            {
+              "at": "2026-09-01T22:12:36.634Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 269
+            },
+            {
+              "at": "2026-09-01T22:12:36.659Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 278
+            },
+            {
+              "at": "2026-09-01T22:12:36.686Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 281
+            },
+            {
+              "at": "2026-09-01T22:12:36.711Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 280
+            },
+            {
+              "at": "2026-09-01T22:12:36.737Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 281
+            },
+            {
+              "at": "2026-09-01T22:12:36.763Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 283
+            },
+            {
+              "at": "2026-09-01T22:12:36.789Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 286
+            },
+            {
+              "at": "2026-09-01T22:12:36.814Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 282
+            },
+            {
+              "at": "2026-09-01T22:12:36.841Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 285
+            },
+            {
+              "at": "2026-09-01T22:12:36.867Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 296
+            },
+            {
+              "at": "2026-09-01T22:12:36.893Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 297
+            },
+            {
+              "at": "2026-09-01T22:12:36.918Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 299
+            },
+            {
+              "at": "2026-09-01T22:12:36.946Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 298
+            },
+            {
+              "at": "2026-09-01T22:12:36.971Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 307
+            },
+            {
+              "at": "2026-09-01T22:12:36.997Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 306
+            },
+            {
+              "at": "2026-09-01T22:12:37.024Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 313
+            },
+            {
+              "at": "2026-09-01T22:12:37.050Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 316
+            },
+            {
+              "at": "2026-09-01T22:12:37.078Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 323
+            },
+            {
+              "at": "2026-09-01T22:12:37.104Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 323
+            },
+            {
+              "at": "2026-09-01T22:12:37.135Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 321
+            },
+            {
+              "at": "2026-09-01T22:12:37.162Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 329
+            },
+            {
+              "at": "2026-09-01T22:12:37.188Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 335
+            },
+            {
+              "at": "2026-09-01T22:12:37.213Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 331
+            },
+            {
+              "at": "2026-09-01T22:12:37.238Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 332
+            },
+            {
+              "at": "2026-09-01T22:12:37.264Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 338
+            },
+            {
+              "at": "2026-09-01T22:12:37.292Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 343
+            },
+            {
+              "at": "2026-09-01T22:12:37.317Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 347
+            },
+            {
+              "at": "2026-09-01T22:12:37.342Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 353
+            },
+            {
+              "at": "2026-09-01T22:12:37.368Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 350
+            },
+            {
+              "at": "2026-09-01T22:12:37.394Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 355
+            },
+            {
+              "at": "2026-09-01T22:12:37.418Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 354
+            },
+            {
+              "at": "2026-09-01T22:12:37.445Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 352
+            },
+            {
+              "at": "2026-09-01T22:12:37.472Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 360
+            },
+            {
+              "at": "2026-09-01T22:12:37.498Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 357
+            },
+            {
+              "at": "2026-09-01T22:12:37.523Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 367
+            },
+            {
+              "at": "2026-09-01T22:12:37.551Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 372
+            },
+            {
+              "at": "2026-09-01T22:12:37.579Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 377
+            },
+            {
+              "at": "2026-09-01T22:12:37.604Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 384
+            },
+            {
+              "at": "2026-09-01T22:12:37.631Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 386
+            },
+            {
+              "at": "2026-09-01T22:12:37.656Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 380
+            },
+            {
+              "at": "2026-09-01T22:12:37.681Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 382
+            },
+            {
+              "at": "2026-09-01T22:12:37.707Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 388
+            },
+            {
+              "at": "2026-09-01T22:12:37.738Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 387
+            },
+            {
+              "at": "2026-09-01T22:12:37.765Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 392
+            },
+            {
+              "at": "2026-09-01T22:12:37.789Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 391
+            },
+            {
+              "at": "2026-09-01T22:12:37.819Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 393
+            },
+            {
+              "at": "2026-09-01T22:12:37.845Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 399
+            },
+            {
+              "at": "2026-09-01T22:12:37.869Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 405
+            },
+            {
+              "at": "2026-09-01T22:12:37.895Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 403
+            },
+            {
+              "at": "2026-09-01T22:12:37.920Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 405
+            },
+            {
+              "at": "2026-09-01T22:12:37.948Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 402
+            },
+            {
+              "at": "2026-09-01T22:12:37.974Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 408
+            },
+            {
+              "at": "2026-09-01T22:12:37.998Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 410
+            },
+            {
+              "at": "2026-09-01T22:12:38.024Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 416
+            },
+            {
+              "at": "2026-09-01T22:12:38.050Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 421
+            },
+            {
+              "at": "2026-09-01T22:12:38.076Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 420
+            },
+            {
+              "at": "2026-09-01T22:12:38.102Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 427
+            },
+            {
+              "at": "2026-09-01T22:12:38.130Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 433
+            },
+            {
+              "at": "2026-09-01T22:12:38.155Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 430
+            },
+            {
+              "at": "2026-09-01T22:12:38.181Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 440
+            },
+            {
+              "at": "2026-09-01T22:12:38.225Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 442
+            },
+            {
+              "at": "2026-09-01T22:12:38.250Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 440
+            },
+            {
+              "at": "2026-09-01T22:12:38.292Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 440
+            },
+            {
+              "at": "2026-09-01T22:12:38.327Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 449
+            },
+            {
+              "at": "2026-09-01T22:12:38.371Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 450
+            },
+            {
+              "at": "2026-09-01T22:12:38.403Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 447
+            },
+            {
+              "at": "2026-09-01T22:12:38.442Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 453
+            },
+            {
+              "at": "2026-09-01T22:12:38.479Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 456
+            },
+            {
+              "at": "2026-09-01T22:12:38.509Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 456
+            },
+            {
+              "at": "2026-09-01T22:12:38.544Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 459
+            },
+            {
+              "at": "2026-09-01T22:12:38.579Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 462
+            },
+            {
+              "at": "2026-09-01T22:12:38.618Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 464
+            },
+            {
+              "at": "2026-09-01T22:12:38.656Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 470
+            },
+            {
+              "at": "2026-09-01T22:12:38.701Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 468
+            },
+            {
+              "at": "2026-09-01T22:12:38.734Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 468
+            },
+            {
+              "at": "2026-09-01T22:12:38.762Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 466
+            },
+            {
+              "at": "2026-09-01T22:12:38.791Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 470
+            },
+            {
+              "at": "2026-09-01T22:12:38.825Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 469
+            },
+            {
+              "at": "2026-09-01T22:12:38.853Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 467
+            },
+            {
+              "at": "2026-09-01T22:12:38.879Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 467
+            },
+            {
+              "at": "2026-09-01T22:12:38.931Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 475
+            },
+            {
+              "at": "2026-09-01T22:12:38.962Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 476
+            },
+            {
+              "at": "2026-09-01T22:12:38.993Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 473
+            },
+            {
+              "at": "2026-09-01T22:12:39.042Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 475
+            },
+            {
+              "at": "2026-09-01T22:12:39.075Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 476
+            },
+            {
+              "at": "2026-09-01T22:12:39.108Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 478
+            },
+            {
+              "at": "2026-09-01T22:12:39.134Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 484
+            },
+            {
+              "at": "2026-09-01T22:12:39.162Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 470
+            },
+            {
+              "at": "2026-09-01T22:12:39.188Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 461
+            },
+            {
+              "at": "2026-09-01T22:12:39.214Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 472
+            },
+            {
+              "at": "2026-09-01T22:12:39.242Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 482
+            },
+            {
+              "at": "2026-09-01T22:12:39.268Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 487
+            },
+            {
+              "at": "2026-09-01T22:12:39.295Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 485
+            },
+            {
+              "at": "2026-09-01T22:12:39.320Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 471
+            },
+            {
+              "at": "2026-09-01T22:12:39.345Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 459
+            },
+            {
+              "at": "2026-09-01T22:12:39.373Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 456
+            },
+            {
+              "at": "2026-09-01T22:12:39.399Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 453
+            },
+            {
+              "at": "2026-09-01T22:12:39.423Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 451
+            },
+            {
+              "at": "2026-09-01T22:12:39.449Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 446
+            },
+            {
+              "at": "2026-09-01T22:12:39.476Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:39.503Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 429
+            },
+            {
+              "at": "2026-09-01T22:12:39.530Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 445
+            },
+            {
+              "at": "2026-09-01T22:12:39.556Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 448
+            },
+            {
+              "at": "2026-09-01T22:12:39.581Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 448
+            },
+            {
+              "at": "2026-09-01T22:12:39.610Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 454
+            },
+            {
+              "at": "2026-09-01T22:12:39.636Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 453
+            },
+            {
+              "at": "2026-09-01T22:12:39.663Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 440
+            },
+            {
+              "at": "2026-09-01T22:12:39.688Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 441
+            },
+            {
+              "at": "2026-09-01T22:12:39.713Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 431
+            },
+            {
+              "at": "2026-09-01T22:12:39.738Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 432
+            },
+            {
+              "at": "2026-09-01T22:12:39.764Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:39.789Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 433
+            },
+            {
+              "at": "2026-09-01T22:12:39.815Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 435
+            },
+            {
+              "at": "2026-09-01T22:12:39.841Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 438
+            },
+            {
+              "at": "2026-09-01T22:12:39.867Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 436
+            },
+            {
+              "at": "2026-09-01T22:12:39.894Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 434
+            },
+            {
+              "at": "2026-09-01T22:12:39.921Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 423
+            },
+            {
+              "at": "2026-09-01T22:12:39.947Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 420
+            },
+            {
+              "at": "2026-09-01T22:12:39.972Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 431
+            },
+            {
+              "at": "2026-09-01T22:12:39.998Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 435
+            },
+            {
+              "at": "2026-09-01T22:12:40.026Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:40.053Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 434
+            },
+            {
+              "at": "2026-09-01T22:12:40.078Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 425
+            },
+            {
+              "at": "2026-09-01T22:12:40.104Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 420
+            },
+            {
+              "at": "2026-09-01T22:12:40.129Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 445
+            },
+            {
+              "at": "2026-09-01T22:12:40.155Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 450
+            },
+            {
+              "at": "2026-09-01T22:12:40.182Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:40.207Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 444
+            },
+            {
+              "at": "2026-09-01T22:12:40.232Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 451
+            },
+            {
+              "at": "2026-09-01T22:12:40.257Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 446
+            },
+            {
+              "at": "2026-09-01T22:12:40.283Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 447
+            },
+            {
+              "at": "2026-09-01T22:12:40.309Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 428
+            },
+            {
+              "at": "2026-09-01T22:12:40.337Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 425
+            },
+            {
+              "at": "2026-09-01T22:12:40.362Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 434
+            },
+            {
+              "at": "2026-09-01T22:12:40.390Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:40.417Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 442
+            },
+            {
+              "at": "2026-09-01T22:12:40.444Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 436
+            },
+            {
+              "at": "2026-09-01T22:12:40.471Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 418
+            },
+            {
+              "at": "2026-09-01T22:12:40.498Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 431
+            },
+            {
+              "at": "2026-09-01T22:12:40.523Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 442
+            },
+            {
+              "at": "2026-09-01T22:12:40.552Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 433
+            },
+            {
+              "at": "2026-09-01T22:12:40.578Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 424
+            },
+            {
+              "at": "2026-09-01T22:12:40.605Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 417
+            },
+            {
+              "at": "2026-09-01T22:12:40.634Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 431
+            },
+            {
+              "at": "2026-09-01T22:12:40.659Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 446
+            },
+            {
+              "at": "2026-09-01T22:12:40.685Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 435
+            },
+            {
+              "at": "2026-09-01T22:12:40.713Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 428
+            },
+            {
+              "at": "2026-09-01T22:12:40.740Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 438
+            },
+            {
+              "at": "2026-09-01T22:12:40.766Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 442
+            },
+            {
+              "at": "2026-09-01T22:12:40.795Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 447
+            },
+            {
+              "at": "2026-09-01T22:12:40.823Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 453
+            },
+            {
+              "at": "2026-09-01T22:12:40.849Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 449
+            },
+            {
+              "at": "2026-09-01T22:12:40.879Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 423
+            },
+            {
+              "at": "2026-09-01T22:12:40.904Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 429
+            },
+            {
+              "at": "2026-09-01T22:12:40.930Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 447
+            },
+            {
+              "at": "2026-09-01T22:12:40.955Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 444
+            },
+            {
+              "at": "2026-09-01T22:12:40.980Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 423
+            },
+            {
+              "at": "2026-09-01T22:12:41.009Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 436
+            },
+            {
+              "at": "2026-09-01T22:12:41.034Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 448
+            },
+            {
+              "at": "2026-09-01T22:12:41.060Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 442
+            },
+            {
+              "at": "2026-09-01T22:12:41.087Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 430
+            },
+            {
+              "at": "2026-09-01T22:12:41.113Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 406
+            },
+            {
+              "at": "2026-09-01T22:12:41.138Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 418
+            },
+            {
+              "at": "2026-09-01T22:12:41.165Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 426
+            },
+            {
+              "at": "2026-09-01T22:12:41.190Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 424
+            },
+            {
+              "at": "2026-09-01T22:12:41.214Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 433
+            },
+            {
+              "at": "2026-09-01T22:12:41.240Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 427
+            },
+            {
+              "at": "2026-09-01T22:12:41.267Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 418
+            },
+            {
+              "at": "2026-09-01T22:12:41.293Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 443
+            },
+            {
+              "at": "2026-09-01T22:12:41.320Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 448
+            },
+            {
+              "at": "2026-09-01T22:12:41.347Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:41.372Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 431
+            },
+            {
+              "at": "2026-09-01T22:12:41.397Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 445
+            },
+            {
+              "at": "2026-09-01T22:12:41.424Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 450
+            },
+            {
+              "at": "2026-09-01T22:12:41.450Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 435
+            },
+            {
+              "at": "2026-09-01T22:12:41.476Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 430
+            },
+            {
+              "at": "2026-09-01T22:12:41.503Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 438
+            },
+            {
+              "at": "2026-09-01T22:12:41.529Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:41.556Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 437
+            },
+            {
+              "at": "2026-09-01T22:12:41.582Z",
+              "totalCount": 20,
+              "idleCount": 0,
+              "waitingCount": 443
+            }
+          ]
+        },
+        "poolAtWarmupEnd": {
+          "at": "2026-09-01T22:12:41.597Z",
+          "totalCount": 20,
+          "idleCount": 0,
+          "waitingCount": 443
+        },
+        "postgres": {
+          "activityAvailable": true,
+          "statementsAvailable": false,
+          "statementsError": "pg_stat_statements extension is not installed",
+          "waitEvents": [
+            {
+              "waitEventType": "Client",
+              "waitEvent": "ClientRead",
+              "samples": 263
+            },
+            {
+              "waitEventType": null,
+              "waitEvent": null,
+              "samples": 43
+            },
+            {
+              "waitEventType": "IO",
+              "waitEvent": "WalSync",
+              "samples": 1
+            }
+          ],
+          "maxLockWaitingQueries": 0,
+          "maxActiveConnections": 21,
+          "lockWaitingQueries": [],
+          "topQueries": []
+        },
+        "runtime": {
+          "cpuPercent": 129.70870992836382,
+          "eventLoopUtilizationPercent": 99.74782532149148,
+          "eventLoopDelayMs": {
+            "count": 654,
+            "p50": 11.436031,
+            "p95": 17.219583,
+            "p99": 31.064063,
+            "max": 55.115775
+          }
+        },
+        "driverRuntime": {
+          "cpuPercent": 74.3045813415373,
+          "eventLoopUtilizationPercent": 52.70920235265726,
+          "eventLoopDelayMs": {
+            "count": 777,
+            "p50": 10.133503,
+            "p95": 11.706367,
+            "p99": 14.557183,
+            "max": 22.446079
+          }
+        }
+      },
+      "connectionAcquisitionWaitMs": {
+        "authentication": {
+          "count": 5596,
+          "p50": 184.2400379999999,
+          "p95": 299.6301709999989,
+          "p99": 324.04783300000054,
+          "max": 350.82425299999886
+        },
+        "accept": {
+          "count": 500,
+          "p50": 244.38772700000118,
+          "p95": 318.2222560000009,
+          "p99": 342.9014159999988,
+          "max": 352.5900759999986
+        },
+        "pendingFetch": {
+          "count": 4008,
+          "p50": 177.0278930000004,
+          "p95": 311.6321459999999,
+          "p99": 339.52649700000075,
+          "max": 352.79644800000096
+        },
+        "acknowledge": {
+          "count": 500,
+          "p50": 189.9066180000009,
+          "p95": 327.2205219999996,
+          "p99": 348.0829590000012,
+          "max": 352.851799
+        }
+      },
+      "pool": {
+        "maxTotalCount": 20,
+        "minIdleCount": 0,
+        "maxWaitingCount": 642,
+        "samples": [
+          {
+            "at": "2026-09-01T22:12:41.666Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 416
+          },
+          {
+            "at": "2026-09-01T22:12:41.692Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 393
+          },
+          {
+            "at": "2026-09-01T22:12:41.717Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 345
+          },
+          {
+            "at": "2026-09-01T22:12:41.743Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 310
+          },
+          {
+            "at": "2026-09-01T22:12:41.769Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 285
+          },
+          {
+            "at": "2026-09-01T22:12:41.794Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 256
+          },
+          {
+            "at": "2026-09-01T22:12:41.819Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 238
+          },
+          {
+            "at": "2026-09-01T22:12:41.845Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 208
+          },
+          {
+            "at": "2026-09-01T22:12:41.879Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 295
+          },
+          {
+            "at": "2026-09-01T22:12:41.908Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 242
+          },
+          {
+            "at": "2026-09-01T22:12:41.934Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 197
+          },
+          {
+            "at": "2026-09-01T22:12:41.959Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 123
+          },
+          {
+            "at": "2026-09-01T22:12:41.984Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 96
+          },
+          {
+            "at": "2026-09-01T22:12:42.013Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 96
+          },
+          {
+            "at": "2026-09-01T22:12:42.046Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 180
+          },
+          {
+            "at": "2026-09-01T22:12:42.072Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 214
+          },
+          {
+            "at": "2026-09-01T22:12:42.100Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 166
+          },
+          {
+            "at": "2026-09-01T22:12:42.127Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 139
+          },
+          {
+            "at": "2026-09-01T22:12:42.154Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 123
+          },
+          {
+            "at": "2026-09-01T22:12:42.189Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 252
+          },
+          {
+            "at": "2026-09-01T22:12:42.219Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 422
+          },
+          {
+            "at": "2026-09-01T22:12:42.246Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 422
+          },
+          {
+            "at": "2026-09-01T22:12:42.274Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 459
+          },
+          {
+            "at": "2026-09-01T22:12:42.302Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 465
+          },
+          {
+            "at": "2026-09-01T22:12:42.328Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 472
+          },
+          {
+            "at": "2026-09-01T22:12:42.353Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 479
+          },
+          {
+            "at": "2026-09-01T22:12:42.379Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 505
+          },
+          {
+            "at": "2026-09-01T22:12:42.404Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 510
+          },
+          {
+            "at": "2026-09-01T22:12:42.430Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 514
+          },
+          {
+            "at": "2026-09-01T22:12:42.455Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 514
+          },
+          {
+            "at": "2026-09-01T22:12:42.483Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 525
+          },
+          {
+            "at": "2026-09-01T22:12:42.511Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 537
+          },
+          {
+            "at": "2026-09-01T22:12:42.536Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 548
+          },
+          {
+            "at": "2026-09-01T22:12:42.561Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 557
+          },
+          {
+            "at": "2026-09-01T22:12:42.589Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 567
+          },
+          {
+            "at": "2026-09-01T22:12:42.618Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 550
+          },
+          {
+            "at": "2026-09-01T22:12:42.645Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 535
+          },
+          {
+            "at": "2026-09-01T22:12:42.671Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 523
+          },
+          {
+            "at": "2026-09-01T22:12:42.697Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 546
+          },
+          {
+            "at": "2026-09-01T22:12:42.723Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 586
+          },
+          {
+            "at": "2026-09-01T22:12:42.748Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 608
+          },
+          {
+            "at": "2026-09-01T22:12:42.773Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 615
+          },
+          {
+            "at": "2026-09-01T22:12:42.802Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 603
+          },
+          {
+            "at": "2026-09-01T22:12:42.827Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 586
+          },
+          {
+            "at": "2026-09-01T22:12:42.856Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 551
+          },
+          {
+            "at": "2026-09-01T22:12:42.882Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 544
+          },
+          {
+            "at": "2026-09-01T22:12:42.911Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 551
+          },
+          {
+            "at": "2026-09-01T22:12:42.937Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 558
+          },
+          {
+            "at": "2026-09-01T22:12:42.962Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 549
+          },
+          {
+            "at": "2026-09-01T22:12:42.987Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 550
+          },
+          {
+            "at": "2026-09-01T22:12:43.014Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 552
+          },
+          {
+            "at": "2026-09-01T22:12:43.043Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 558
+          },
+          {
+            "at": "2026-09-01T22:12:43.071Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 564
+          },
+          {
+            "at": "2026-09-01T22:12:43.099Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 586
+          },
+          {
+            "at": "2026-09-01T22:12:43.125Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 607
+          },
+          {
+            "at": "2026-09-01T22:12:43.151Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 617
+          },
+          {
+            "at": "2026-09-01T22:12:43.178Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 611
+          },
+          {
+            "at": "2026-09-01T22:12:43.203Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 612
+          },
+          {
+            "at": "2026-09-01T22:12:43.229Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 612
+          },
+          {
+            "at": "2026-09-01T22:12:43.258Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 609
+          },
+          {
+            "at": "2026-09-01T22:12:43.286Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 593
+          },
+          {
+            "at": "2026-09-01T22:12:43.312Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 587
+          },
+          {
+            "at": "2026-09-01T22:12:43.338Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 587
+          },
+          {
+            "at": "2026-09-01T22:12:43.364Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 585
+          },
+          {
+            "at": "2026-09-01T22:12:43.391Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 592
+          },
+          {
+            "at": "2026-09-01T22:12:43.417Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 601
+          },
+          {
+            "at": "2026-09-01T22:12:43.442Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 609
+          },
+          {
+            "at": "2026-09-01T22:12:43.468Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 615
+          },
+          {
+            "at": "2026-09-01T22:12:43.494Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 619
+          },
+          {
+            "at": "2026-09-01T22:12:43.520Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 626
+          },
+          {
+            "at": "2026-09-01T22:12:43.547Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 632
+          },
+          {
+            "at": "2026-09-01T22:12:43.573Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 637
+          },
+          {
+            "at": "2026-09-01T22:12:43.602Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 642
+          },
+          {
+            "at": "2026-09-01T22:12:43.628Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 639
+          },
+          {
+            "at": "2026-09-01T22:12:43.654Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 632
+          },
+          {
+            "at": "2026-09-01T22:12:43.681Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 620
+          },
+          {
+            "at": "2026-09-01T22:12:43.708Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 616
+          },
+          {
+            "at": "2026-09-01T22:12:43.735Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 611
+          },
+          {
+            "at": "2026-09-01T22:12:43.763Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 615
+          },
+          {
+            "at": "2026-09-01T22:12:43.819Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 626
+          },
+          {
+            "at": "2026-09-01T22:12:43.845Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 640
+          },
+          {
+            "at": "2026-09-01T22:12:43.871Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 629
+          },
+          {
+            "at": "2026-09-01T22:12:43.899Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 627
+          },
+          {
+            "at": "2026-09-01T22:12:43.924Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 634
+          },
+          {
+            "at": "2026-09-01T22:12:43.949Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 632
+          },
+          {
+            "at": "2026-09-01T22:12:43.975Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 628
+          },
+          {
+            "at": "2026-09-01T22:12:44.002Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 618
+          },
+          {
+            "at": "2026-09-01T22:12:44.028Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 597
+          },
+          {
+            "at": "2026-09-01T22:12:44.054Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 600
+          },
+          {
+            "at": "2026-09-01T22:12:44.083Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 595
+          },
+          {
+            "at": "2026-09-01T22:12:44.108Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 585
+          },
+          {
+            "at": "2026-09-01T22:12:44.138Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 580
+          },
+          {
+            "at": "2026-09-01T22:12:44.168Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 581
+          },
+          {
+            "at": "2026-09-01T22:12:44.198Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 576
+          },
+          {
+            "at": "2026-09-01T22:12:44.227Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 570
+          },
+          {
+            "at": "2026-09-01T22:12:44.254Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 568
+          },
+          {
+            "at": "2026-09-01T22:12:44.280Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 568
+          },
+          {
+            "at": "2026-09-01T22:12:44.307Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 565
+          },
+          {
+            "at": "2026-09-01T22:12:44.332Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 555
+          },
+          {
+            "at": "2026-09-01T22:12:44.357Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 545
+          },
+          {
+            "at": "2026-09-01T22:12:44.382Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 539
+          },
+          {
+            "at": "2026-09-01T22:12:44.407Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 523
+          },
+          {
+            "at": "2026-09-01T22:12:44.433Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 510
+          },
+          {
+            "at": "2026-09-01T22:12:44.460Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 498
+          },
+          {
+            "at": "2026-09-01T22:12:44.486Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 478
+          },
+          {
+            "at": "2026-09-01T22:12:44.511Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 451
+          },
+          {
+            "at": "2026-09-01T22:12:44.537Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 448
+          },
+          {
+            "at": "2026-09-01T22:12:44.562Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 459
+          },
+          {
+            "at": "2026-09-01T22:12:44.587Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 466
+          },
+          {
+            "at": "2026-09-01T22:12:44.612Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 473
+          },
+          {
+            "at": "2026-09-01T22:12:44.639Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 479
+          },
+          {
+            "at": "2026-09-01T22:12:44.666Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 478
+          },
+          {
+            "at": "2026-09-01T22:12:44.691Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 478
+          },
+          {
+            "at": "2026-09-01T22:12:44.717Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 456
+          },
+          {
+            "at": "2026-09-01T22:12:44.744Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 414
+          },
+          {
+            "at": "2026-09-01T22:12:44.773Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 419
+          },
+          {
+            "at": "2026-09-01T22:12:44.800Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 441
+          },
+          {
+            "at": "2026-09-01T22:12:44.826Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 423
+          },
+          {
+            "at": "2026-09-01T22:12:44.852Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 403
+          },
+          {
+            "at": "2026-09-01T22:12:44.880Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 406
+          },
+          {
+            "at": "2026-09-01T22:12:44.905Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 429
+          },
+          {
+            "at": "2026-09-01T22:12:44.932Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 460
+          },
+          {
+            "at": "2026-09-01T22:12:44.961Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 480
+          },
+          {
+            "at": "2026-09-01T22:12:44.988Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 476
+          },
+          {
+            "at": "2026-09-01T22:12:45.013Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 473
+          },
+          {
+            "at": "2026-09-01T22:12:45.039Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 462
+          },
+          {
+            "at": "2026-09-01T22:12:45.066Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 466
+          },
+          {
+            "at": "2026-09-01T22:12:45.091Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 476
+          },
+          {
+            "at": "2026-09-01T22:12:45.117Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 472
+          },
+          {
+            "at": "2026-09-01T22:12:45.143Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 472
+          },
+          {
+            "at": "2026-09-01T22:12:45.169Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 473
+          },
+          {
+            "at": "2026-09-01T22:12:45.194Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 468
+          },
+          {
+            "at": "2026-09-01T22:12:45.219Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 470
+          },
+          {
+            "at": "2026-09-01T22:12:45.244Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 454
+          },
+          {
+            "at": "2026-09-01T22:12:45.271Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 428
+          },
+          {
+            "at": "2026-09-01T22:12:45.298Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 423
+          },
+          {
+            "at": "2026-09-01T22:12:45.325Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 432
+          },
+          {
+            "at": "2026-09-01T22:12:45.352Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 439
+          },
+          {
+            "at": "2026-09-01T22:12:45.378Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 439
+          },
+          {
+            "at": "2026-09-01T22:12:45.405Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 446
+          },
+          {
+            "at": "2026-09-01T22:12:45.430Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 465
+          },
+          {
+            "at": "2026-09-01T22:12:45.456Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 464
+          },
+          {
+            "at": "2026-09-01T22:12:45.483Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 408
+          },
+          {
+            "at": "2026-09-01T22:12:45.508Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 369
+          },
+          {
+            "at": "2026-09-01T22:12:45.534Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 363
+          },
+          {
+            "at": "2026-09-01T22:12:45.563Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 374
+          },
+          {
+            "at": "2026-09-01T22:12:45.589Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 401
+          },
+          {
+            "at": "2026-09-01T22:12:45.614Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 388
+          },
+          {
+            "at": "2026-09-01T22:12:45.639Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 369
+          },
+          {
+            "at": "2026-09-01T22:12:45.664Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 368
+          },
+          {
+            "at": "2026-09-01T22:12:45.689Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 368
+          },
+          {
+            "at": "2026-09-01T22:12:45.714Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 357
+          },
+          {
+            "at": "2026-09-01T22:12:45.740Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 344
+          },
+          {
+            "at": "2026-09-01T22:12:45.765Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 337
+          },
+          {
+            "at": "2026-09-01T22:12:45.790Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 334
+          },
+          {
+            "at": "2026-09-01T22:12:45.815Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 333
+          },
+          {
+            "at": "2026-09-01T22:12:45.839Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 325
+          },
+          {
+            "at": "2026-09-01T22:12:45.865Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 285
+          },
+          {
+            "at": "2026-09-01T22:12:45.891Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 209
+          },
+          {
+            "at": "2026-09-01T22:12:45.916Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 149
+          },
+          {
+            "at": "2026-09-01T22:12:45.941Z",
+            "totalCount": 20,
+            "idleCount": 0,
+            "waitingCount": 38
+          },
+          {
+            "at": "2026-09-01T22:12:45.967Z",
+            "totalCount": 20,
+            "idleCount": 20,
+            "waitingCount": 0
+          },
+          {
+            "at": "2026-09-01T22:12:45.992Z",
+            "totalCount": 20,
+            "idleCount": 20,
+            "waitingCount": 0
+          }
+        ]
+      },
+      "postgres": {
+        "activityAvailable": true,
+        "statementsAvailable": false,
+        "statementsError": "pg_stat_statements extension is not installed",
+        "waitEvents": [
+          {
+            "waitEventType": "Client",
+            "waitEvent": "ClientRead",
+            "samples": 147
+          },
+          {
+            "waitEventType": null,
+            "waitEvent": null,
+            "samples": 23
+          },
+          {
+            "waitEventType": "IO",
+            "waitEvent": "WalWrite",
+            "samples": 1
+          }
+        ],
+        "maxLockWaitingQueries": 0,
+        "maxActiveConnections": 21,
+        "lockWaitingQueries": [],
+        "topQueries": []
+      },
+      "runtime": {
+        "cpuPercent": 130.9652775223683,
+        "eventLoopUtilizationPercent": 98.74474220890865,
+        "eventLoopDelayMs": {
+          "count": 370,
+          "p50": 11.378687,
+          "p95": 14.753791,
+          "p99": 18.202623,
+          "max": 51.281919
+        }
+      },
+      "driverRuntime": {
+        "cpuPercent": 75.67134370125055,
+        "eventLoopUtilizationPercent": 50.108443882384556,
+        "eventLoopDelayMs": {
+          "count": 360,
+          "p50": 10.141695,
+          "p95": 11.214847,
+          "p99": 13.688831,
+          "max": 179.568639
+        }
+      },
+      "pendingFetchRequests": 6766,
+      "duplicateDeliveries": 0,
+      "exactlyOnceViolations": 0,
+      "errors": {},
+      "startedAt": "2026-09-01T22:12:41.640Z",
+      "finishedAt": "2026-09-01T22:12:45.596Z",
+      "durationMs": 3956,
+      "result": "FAIL",
+      "reason": "p99 3818.4ms exceeded 2000ms"
+    }
+  ],
+  "stopReason": "a mode stopped after its first threshold failure"
+}

@@ -1,0 +1,3 @@
+Babylon Soft Chat load run 2026-09-01T22:14:11.821Z
+FAIL independent-streaming 500 clients: reconnect auth p99 299.1ms, reconnect pool waiting max 236; steady 500/500 delivered+ACK, 140.02 msg/s, send→ACK p99 3499.2ms, pool waiting max 297, connection wait p99 auth/accept/pending/ACK 151.6/155.5/119.1/118.2ms, lock wait max 0, server Node CPU 110.2%, server event-loop utilization 85.3%, server event-loop delay p99 16.7ms, driver Node CPU 67.3%, driver event-loop utilization 44.8%, driver event-loop delay p99 23.9ms — p99 3499.2ms exceeded 2000ms
+Stop: a mode stopped after its first threshold failure
