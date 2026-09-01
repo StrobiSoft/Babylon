@@ -33,6 +33,13 @@ authentication method, activity and refresh timestamps. Refresh tokens rotate in
 revokes the family/session and emits a critical event. Lifecycle change and recovery increment the
 user security version, invalidating every older session.
 
+The experimental `AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED=1` mode coalesces only persisted
+`sessions.last_used_at` and `devices.last_used_at` writes. The lag is bounded to 30 seconds by a
+synchronous compare-and-update on the first authenticated request at or beyond the boundary;
+database failures still fail the request. Absolute/inactivity expiry, mutable security-generation
+validation, revocation, token rotation and audit/security events remain authoritative and
+unthrottled. The default `0` mode is the immediate rollback and preserves per-request writes.
+
 ## Assurance and step-up
 
 `aal1`, `aal2` and `aal3` are persisted policy inputs. Passkey sessions are `aal2` because user

@@ -20,6 +20,7 @@ import { runMigrations } from '../src/migrations.js';
 import { buildServer } from '../src/server.js';
 import { SimpleWebAuthnProvider } from '../src/webauthn.js';
 import { testConfig } from './helpers.js';
+import type { SoftChatLoadServerConfigProof } from './soft-chat-load-server-config.js';
 
 const enabled = process.env.RUN_SOFT_CHAT_LOAD === '1';
 const suite = enabled ? describe : describe.skip;
@@ -273,12 +274,12 @@ class InstrumentedDeliveryService extends MessageDeliveryService {
     }
   }
 
-  override async listPending(recipientUserId: string, limit: number) {
+  override async listPending(...args: Parameters<MessageDeliveryService['listPending']>) {
     const started = performance.now();
     const timings = activeTimings;
     try {
       return await acquisitionStage.run({ stage: 'pendingFetch', timings }, () =>
-        super.listPending(recipientUserId, limit),
+        super.listPending(...args),
       );
     } finally {
       timings?.pendingFetch.push(performance.now() - started);
@@ -316,6 +317,7 @@ interface RemoteWindowResult {
 
 interface ServerProcessController {
   process: ChildProcess;
+  configProof: SoftChatLoadServerConfigProof;
   request<T>(type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample'): Promise<T>;
   close(): Promise<void>;
 }
@@ -334,14 +336,15 @@ async function startServerProcess(input: {
       SOFT_CHAT_LOAD_CHILD_BACKEND_PORT: String(input.backendPort),
       SOFT_CHAT_LOAD_CHILD_SMTP_PORT: String(input.smtpPort),
       SOFT_CHAT_LOAD_CHILD_POOL_MAX: String(requestedPoolMax),
+      AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED: process.env.AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED ?? '0',
     },
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
   });
   let sequence = 0;
   const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
-  let readyResolve: (() => void) | undefined;
+  let readyResolve: ((config: SoftChatLoadServerConfigProof) => void) | undefined;
   let readyReject: ((error: Error) => void) | undefined;
-  const ready = new Promise<void>((resolveReady, rejectReady) => {
+  const ready = new Promise<SoftChatLoadServerConfigProof>((resolveReady, rejectReady) => {
     readyResolve = resolveReady;
     readyReject = rejectReady;
   });
@@ -351,9 +354,14 @@ async function startServerProcess(input: {
       id?: number;
       value?: unknown;
       error?: string;
+      config?: SoftChatLoadServerConfigProof;
     };
     if (response.type === 'ready') {
-      readyResolve?.();
+      if (typeof response.config?.authActivityWriteThrottleEnabled !== 'boolean') {
+        readyReject?.(new Error('Soft Chat server process omitted its child Config proof.'));
+        return;
+      }
+      readyResolve?.(response.config);
       return;
     }
     if (response.id === undefined) return;
@@ -370,7 +378,7 @@ async function startServerProcess(input: {
     for (const waiter of pending.values()) waiter.reject(error);
     pending.clear();
   });
-  await ready;
+  const configProof = await ready;
 
   const request = <T>(
     type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample' | 'shutdown',
@@ -390,6 +398,7 @@ async function startServerProcess(input: {
 
   return {
     process: child,
+    configProof,
     request,
     async close() {
       if (child.exitCode !== null || child.signalCode !== null) return;
@@ -983,7 +992,7 @@ suite('Soft Chat production-path capacity', () => {
             try {
               pendingFetchRequests += 1;
               const pending = await authorized(
-                '/api/v1/messages/pending?limit=100',
+                `/api/v1/messages/pending?limit=100&waitMs=${pollIntervalMs}`,
                 client.recipient.accessToken,
               );
               const items = (pending.items as Record<string, unknown>[] | undefined) ?? [];
@@ -996,7 +1005,6 @@ suite('Soft Chat production-path capacity', () => {
               increment(errors, `receive:${String(error)}`);
               return;
             }
-            await delay(pollIntervalMs);
           }
         })(),
       );
@@ -1124,7 +1132,7 @@ suite('Soft Chat production-path capacity', () => {
         try {
           pendingFetchRequests += 1;
           const pending = await authorized(
-            '/api/v1/messages/pending?limit=100',
+            `/api/v1/messages/pending?limit=100&waitMs=${pollIntervalMs}`,
             shared!.recipient.accessToken,
           );
           items = (pending.items as Record<string, unknown>[] | undefined) ?? [];
@@ -1257,6 +1265,7 @@ suite('Soft Chat production-path capacity', () => {
         requestedModes,
         comparisonRun,
         separateServerProcess,
+        separateServerChildConfig: serverProcess?.configProof ?? null,
         pollIntervalMs,
         configuredPoolMax: requestedPoolMax,
         clientRampMs,

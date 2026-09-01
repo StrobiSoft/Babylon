@@ -91,6 +91,8 @@ interface AccessRow extends QueryResultRow {
   device_id: string;
   device_name: string;
   platform: string;
+  session_last_used_at: Date;
+  device_last_used_at: Date;
   access_expires_at: Date;
   session_expires_at: Date;
   session_revoked_at: Date | null;
@@ -114,6 +116,8 @@ interface CachedMutableAccessState {
 
 interface CachedAccessValidationRow extends QueryResultRow {
   security_generation: string;
+  session_last_used_at: Date | null;
+  device_last_used_at: Date | null;
   access_expires_at: Date | null;
   session_expires_at: Date | null;
   inactivity_expires_at: Date | null;
@@ -197,6 +201,7 @@ export interface AuthenticatedSession {
 }
 
 export class AuthService {
+  private static readonly activityWriteIntervalMs = 30_000;
   private readonly mutableAccessStateByToken = new Map<string, CachedMutableAccessState>();
 
   constructor(
@@ -1092,9 +1097,11 @@ export class AuthService {
     if (cached) {
       const validation = await this.database.query<CachedAccessValidationRow>(
         `SELECT g.generation::text security_generation,
-                s.access_expires_at,s.expires_at session_expires_at,s.inactivity_expires_at
+                s.access_expires_at,s.expires_at session_expires_at,s.inactivity_expires_at,
+                s.last_used_at session_last_used_at,d.last_used_at device_last_used_at
          FROM auth_security_generation g
          LEFT JOIN sessions s ON s.id=$1 AND s.access_token_hash=$2
+         LEFT JOIN devices d ON d.id=s.device_id
          WHERE g.singleton=true`,
         [cached.session.sessionId, accessTokenHash],
       );
@@ -1108,16 +1115,13 @@ export class AuthService {
         current.inactivity_expires_at &&
         current.inactivity_expires_at > now
       ) {
-        await this.database.transaction(async (client) => {
-          await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [
-            now,
-            cached.session.sessionId,
-          ]);
-          await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [
-            now,
-            cached.session.deviceId,
-          ]);
-        });
+        await this.recordAuthenticationActivity(
+          cached.session.sessionId,
+          cached.session.deviceId,
+          current.session_last_used_at,
+          current.device_last_used_at,
+          now,
+        );
         return this.cloneSession(cached.session);
       }
       if (current?.security_generation !== cached.generation) {
@@ -1131,6 +1135,7 @@ export class AuthService {
       `SELECT s.id session_id,s.user_id,u.email,u.status user_status,
               u.security_version user_security_version,s.security_version session_security_version,
               s.device_id,d.name device_name,d.platform,
+              s.last_used_at session_last_used_at,d.last_used_at device_last_used_at,
               s.access_expires_at,s.expires_at session_expires_at,s.revoked_at session_revoked_at,
               s.inactivity_expires_at,s.authenticated_at,s.step_up_at,s.assurance_level,
               s.authentication_method,d.revoked_at device_revoked_at,f.revoked_at family_revoked_at,
@@ -1155,10 +1160,13 @@ export class AuthService {
     ) {
       throw unauthorized();
     }
-    await this.database.transaction(async (client) => {
-      await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [now, row.session_id]);
-      await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [now, row.device_id]);
-    });
+    await this.recordAuthenticationActivity(
+      row.session_id,
+      row.device_id,
+      row.session_last_used_at,
+      row.device_last_used_at,
+      now,
+    );
     const session: AuthenticatedSession = {
       sessionId: row.session_id,
       userId: row.user_id,
@@ -1176,6 +1184,42 @@ export class AuthService {
       session,
     });
     return this.cloneSession(session);
+  }
+
+  private async recordAuthenticationActivity(
+    sessionId: string,
+    deviceId: string,
+    sessionLastUsedAt: Date | null,
+    deviceLastUsedAt: Date | null,
+    now: Date,
+  ): Promise<void> {
+    const cutoff = new Date(now.getTime() - AuthService.activityWriteIntervalMs);
+    if (
+      this.config.authActivityWriteThrottleEnabled &&
+      sessionLastUsedAt &&
+      deviceLastUsedAt &&
+      sessionLastUsedAt > cutoff &&
+      deviceLastUsedAt > cutoff
+    ) {
+      return;
+    }
+    await this.database.transaction(async (client) => {
+      if (!this.config.authActivityWriteThrottleEnabled) {
+        await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2', [now, sessionId]);
+        await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2', [now, deviceId]);
+        return;
+      }
+      await client.query('UPDATE sessions SET last_used_at=$1 WHERE id=$2 AND last_used_at <= $3', [
+        now,
+        sessionId,
+        cutoff,
+      ]);
+      await client.query('UPDATE devices SET last_used_at=$1 WHERE id=$2 AND last_used_at <= $3', [
+        now,
+        deviceId,
+        cutoff,
+      ]);
+    });
   }
 
   async refresh(

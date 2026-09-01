@@ -23,12 +23,12 @@ const input = (payload = 'opaque', recipientId = recipientUserId) => ({
   payloadFormat: 'transport-v1' as const,
 });
 
-const row = (state = 'pending') => ({
+const row = (state = 'pending', recipientId = recipientUserId) => ({
   request_id: requestId,
   sender_user_id: senderUserId,
-  recipient_user_id: recipientUserId,
+  recipient_user_id: recipientId,
   payload: state === 'pending' ? Buffer.from('opaque') : null,
-  request_binding: createDeliveryBinding(bindingSecret, input()),
+  request_binding: createDeliveryBinding(bindingSecret, input('opaque', recipientId)),
   payload_format: 'transport-v1',
   state,
   failure_code: null,
@@ -55,6 +55,126 @@ class ScriptedDatabase implements Database {
     return Promise.resolve();
   }
 }
+
+class EventDatabase implements Database {
+  readonly pendingRecipients = new Set<string>();
+  pendingSelects = 0;
+
+  async query<R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values: unknown[] = [],
+  ): Promise<QueryResult<R>> {
+    if (text.includes('INSERT INTO message_deliveries')) {
+      const recipientId = String(values[2]);
+      this.pendingRecipients.add(recipientId);
+      return result([row('pending', recipientId)] as unknown as R[]);
+    }
+    if (text.includes("recipient_user_id = $1 AND state = 'pending'")) {
+      const recipientId = String(values[0]);
+      this.pendingSelects += 1;
+      return result(
+        (this.pendingRecipients.has(recipientId)
+          ? [row('pending', recipientId)]
+          : []) as unknown as R[],
+      );
+    }
+    return result([] as R[]);
+  }
+
+  async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+    return work({ query: this.query.bind(this) } as unknown as PoolClient);
+  }
+
+  close() {
+    return Promise.resolve();
+  }
+}
+
+describe('pending delivery long poll', () => {
+  it('returns immediately when a pending delivery already exists', async () => {
+    const db = new ScriptedDatabase([[], [row()]]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+
+    const messages = await service.listPending(recipientUserId, 50, 1000);
+
+    expect(messages).toHaveLength(1);
+    expect(db.calls).toHaveLength(2);
+  });
+
+  it('returns an empty list at the bounded timeout after a safe fallback read', async () => {
+    const db = new ScriptedDatabase([[], [], []]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+
+    await expect(service.listPending(recipientUserId, 50, 5)).resolves.toEqual([]);
+    expect(db.calls).toHaveLength(3);
+  });
+
+  it('finds a delivery committed by another process when the timeout fires', async () => {
+    const db = new ScriptedDatabase([[], [], [row()]]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+
+    await expect(service.listPending(recipientUserId, 50, 5)).resolves.toEqual([
+      expect.objectContaining({ requestId, senderId: senderUserId, state: 'pending' }),
+    ]);
+    expect(db.calls).toHaveLength(3);
+  });
+
+  it('wakes only after accept commits and then reads the new delivery', async () => {
+    const db = new EventDatabase();
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+    const waiting = service.listPending(recipientUserId, 50, 1000);
+    while (db.pendingSelects < 1) await Promise.resolve();
+
+    await service.accept(input());
+
+    await expect(waiting).resolves.toEqual([
+      expect.objectContaining({ requestId, senderId: senderUserId, state: 'pending' }),
+    ]);
+    expect(db.pendingSelects).toBe(2);
+  });
+
+  it('does not wake a recipient when a different recipient receives a delivery', async () => {
+    const otherRecipientId = '00000000-0000-4000-8000-000000000003';
+    const db = new EventDatabase();
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+    const waiting = service.listPending(recipientUserId, 50, 1000);
+    while (db.pendingSelects < 1) await Promise.resolve();
+
+    await service.accept(input('opaque', otherRecipientId));
+    await Promise.resolve();
+    expect(db.pendingSelects).toBe(1);
+
+    await service.accept(input());
+    await expect(waiting).resolves.toHaveLength(1);
+    expect(db.pendingSelects).toBe(2);
+  });
+
+  it('cancels and removes the recipient waiter when the client disconnects', async () => {
+    const db = new ScriptedDatabase([[], []]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+    const controller = new AbortController();
+    const waiting = service.listPending(recipientUserId, 50, 1000, controller.signal);
+    await Promise.resolve();
+
+    controller.abort();
+
+    await expect(waiting).resolves.toEqual([]);
+    expect(db.calls).toHaveLength(2);
+    expect(
+      (service as unknown as { pendingWaiters: Map<string, Set<() => void>> }).pendingWaiters.size,
+    ).toBe(0);
+  });
+
+  it('rejects waits outside the public bound before touching persistence', async () => {
+    const db = new ScriptedDatabase([]);
+    const service = new MessageDeliveryService(db, clock, bindingSecret);
+
+    await expect(service.listPending(recipientUserId, 50, 30_001)).rejects.toThrow(
+      'between 0 and 30000 ms',
+    );
+    expect(db.calls).toEqual([]);
+  });
+});
 
 describe('transient message delivery lifecycle', () => {
   it('returns the existing logical send for the same immutable idempotent envelope', async () => {

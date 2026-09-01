@@ -110,6 +110,53 @@ describeDatabase('advanced authentication foundation', () => {
     });
   });
 
+  it('bounds throttled session and device activity persistence to thirty seconds', async () => {
+    const { session, tokens } = await activeSession('activity@example.test');
+    const readActivity = async () => {
+      const result = await database.query<{
+        session_last_used_at: Date;
+        device_last_used_at: Date;
+        inactivity_expires_at: Date;
+      }>(
+        `SELECT s.last_used_at session_last_used_at,d.last_used_at device_last_used_at,
+                s.inactivity_expires_at
+         FROM sessions s JOIN devices d ON d.id=s.device_id WHERE s.id=$1`,
+        [session.sessionId],
+      );
+      return result.rows[0]!;
+    };
+
+    const beforeRollbackPath = await readActivity();
+    clock.advance(1);
+    const rollbackPathExpected = clock.now();
+    await service.authenticate(tokens.accessToken);
+    const rollbackPath = await readActivity();
+    expect(rollbackPath.session_last_used_at).toEqual(rollbackPathExpected);
+    expect(rollbackPath.device_last_used_at).toEqual(rollbackPathExpected);
+    expect(rollbackPath.inactivity_expires_at).toEqual(beforeRollbackPath.inactivity_expires_at);
+
+    service = new AuthService(
+      database,
+      { ...config, authActivityWriteThrottleEnabled: true },
+      clock,
+      random,
+      mailer,
+      new FakeWebAuthn(),
+    );
+    const initial = rollbackPath;
+    clock.advance(29);
+    await service.authenticate(tokens.accessToken);
+    expect(await readActivity()).toEqual(initial);
+
+    clock.advance(1);
+    const expected = clock.now();
+    await service.authenticate(tokens.accessToken);
+    const atBoundary = await readActivity();
+    expect(atBoundary.session_last_used_at).toEqual(expected);
+    expect(atBoundary.device_last_used_at).toEqual(expected);
+    expect(atBoundary.inactivity_expires_at).toEqual(initial.inactivity_expires_at);
+  });
+
   it('exposes passkey metadata and protects the last active credential', async () => {
     const { session } = await activeSession();
     const passkeys = await service.listPasskeys(session);

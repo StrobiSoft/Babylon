@@ -9,6 +9,7 @@ import { MessageDeliveryService } from '../src/message-delivery.js';
 import { buildServer } from '../src/server.js';
 import { SimpleWebAuthnProvider } from '../src/webauthn.js';
 import { testConfig } from './helpers.js';
+import { applySoftChatLoadServerEnvironment } from './soft-chat-load-server-config.js';
 
 type AcquisitionStage = 'authentication' | 'accept' | 'pendingFetch' | 'acknowledge';
 
@@ -129,12 +130,12 @@ class InstrumentedDeliveryService extends MessageDeliveryService {
     }
   }
 
-  override async listPending(recipientUserId: string, limit: number) {
+  override async listPending(...args: Parameters<MessageDeliveryService['listPending']>) {
     const started = performance.now();
     const timings = activeTimings;
     try {
       return await acquisitionStage.run({ stage: 'pendingFetch', timings }, () =>
-        super.listPending(recipientUserId, limit),
+        super.listPending(...args),
       );
     } finally {
       timings?.pendingFetch.push(performance.now() - started);
@@ -206,6 +207,7 @@ async function main() {
   database.pool.options.max = poolMax;
   const baseUrl = `http://localhost:${backendPort}`;
   const config = testConfig(databaseUrl);
+  const configProof = applySoftChatLoadServerEnvironment(config, process.env);
   config.publicBackendUrl = baseUrl;
   config.webauthnOrigins = [baseUrl];
   config.smtpPort = smtpPort;
@@ -294,7 +296,7 @@ async function main() {
       void app.close().finally(() => database.close());
     }
   });
-  send({ type: 'ready' });
+  send({ type: 'ready', config: configProof });
 }
 
 void main().catch((error: unknown) => {

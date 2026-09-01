@@ -2,6 +2,10 @@ import { z } from 'zod';
 import type { ReturnProfile } from './types.js';
 
 const positiveInteger = z.coerce.number().int().positive();
+const booleanFlag = z
+  .enum(['0', '1'])
+  .default('0')
+  .transform((value) => value === '1');
 
 const environmentSchema = z
   .object({
@@ -22,6 +26,7 @@ const environmentSchema = z
     NATIVE_TRANSACTION_TTL_SECONDS: positiveInteger.default(600),
     RETURN_CODE_TTL_SECONDS: positiveInteger.default(120),
     SESSION_INACTIVITY_TTL_SECONDS: positiveInteger.default(604_800),
+    AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED: booleanFlag,
     FRESH_AUTH_TTL_SECONDS: positiveInteger.default(600),
     RECOVERY_TTL_SECONDS: positiveInteger.default(900),
     RECOVERY_COOLDOWN_SECONDS: positiveInteger.default(300),
@@ -78,6 +83,7 @@ export interface Config {
   nativeTransactionTtlSeconds: number;
   returnCodeTtlSeconds: number;
   sessionInactivityTtlSeconds: number;
+  authActivityWriteThrottleEnabled: boolean;
   freshAuthTtlSeconds: number;
   recoveryTtlSeconds: number;
   recoveryCooldownSeconds: number;
@@ -194,6 +200,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): Config {
     nativeTransactionTtlSeconds: parsed.data.NATIVE_TRANSACTION_TTL_SECONDS,
     returnCodeTtlSeconds: parsed.data.RETURN_CODE_TTL_SECONDS,
     sessionInactivityTtlSeconds: parsed.data.SESSION_INACTIVITY_TTL_SECONDS,
+    authActivityWriteThrottleEnabled: parsed.data.AUTH_ACTIVITY_WRITE_THROTTLE_ENABLED,
     freshAuthTtlSeconds: parsed.data.FRESH_AUTH_TTL_SECONDS,
     recoveryTtlSeconds: parsed.data.RECOVERY_TTL_SECONDS,
     recoveryCooldownSeconds: parsed.data.RECOVERY_COOLDOWN_SECONDS,

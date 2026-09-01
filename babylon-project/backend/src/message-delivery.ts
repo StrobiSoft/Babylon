@@ -4,6 +4,8 @@ import type { Clock, Database } from './types.js';
 
 export type DeliveryState = 'pending' | 'delivered' | 'expired' | 'failed';
 
+export const MAX_PENDING_WAIT_MS = 30_000;
+
 interface DeliveryBindingInput {
   requestId: string;
   senderUserId: string;
@@ -52,6 +54,8 @@ export function createDeliveryBinding(secret: string, input: DeliveryBindingInpu
 }
 
 export class MessageDeliveryService {
+  private readonly pendingWaiters = new Map<string, Set<() => void>>();
+
   constructor(
     private readonly database: Database,
     private readonly clock: Clock,
@@ -71,7 +75,7 @@ export class MessageDeliveryService {
     const now = this.clock.now();
     const expiresAt = new Date(now.getTime() + this.ttlSeconds * 1000);
     const requestBinding = createDeliveryBinding(this.bindingSecret, input);
-    return this.database.transaction(async (client) => {
+    const accepted = await this.database.transaction(async (client) => {
       let inserted: QueryResult<DeliveryRow>;
       try {
         inserted = await client.query<DeliveryRow>(
@@ -97,7 +101,9 @@ export class MessageDeliveryService {
         if (isRecipientForeignKeyViolation(error)) throw new DeliveryRecipientUnavailableError();
         throw error;
       }
-      if (inserted.rows[0]) return this.publicState(inserted.rows[0]);
+      if (inserted.rows[0]) {
+        return { state: this.publicState(inserted.rows[0]), notify: true };
+      }
       const existing = await client.query<DeliveryRow>(
         `SELECT request_id, sender_user_id, recipient_user_id, payload, request_binding,
                 payload_format, state, failure_code, created_at, expires_at, delivered_at
@@ -112,12 +118,36 @@ export class MessageDeliveryService {
       ) {
         throw new DeliveryConflictError();
       }
-      return this.publicState(row);
+      return { state: this.publicState(row), notify: row.state === 'pending' };
     });
+    if (accepted.notify) this.notifyPending(input.recipientUserId);
+    return accepted.state;
   }
 
-  async listPending(recipientUserId: string, limit: number) {
+  async listPending(recipientUserId: string, limit: number, waitMs = 0, signal?: AbortSignal) {
+    if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > MAX_PENDING_WAIT_MS) {
+      throw new Error('Pending delivery wait must be an integer between 0 and 30000 ms.');
+    }
     await this.expireDue(limit);
+    if (waitMs === 0) return this.queryPending(recipientUserId, limit);
+
+    // Register before the first SELECT. A delivery committed before registration is
+    // visible to the SELECT; one committed afterwards resolves this waiter. This
+    // avoids a missed-wakeup window without making notifications a correctness dependency.
+    const waiter = this.waitForPending(recipientUserId, waitMs, signal);
+    try {
+      const available = await this.queryPending(recipientUserId, limit);
+      if (available.length > 0) return available;
+      const reason = await waiter.promise;
+      // Notifications are only an in-process latency optimization. Always re-read
+      // after a timeout so another server process cannot strand a committed delivery.
+      return reason === 'aborted' ? [] : await this.queryPending(recipientUserId, limit);
+    } finally {
+      waiter.cancel();
+    }
+  }
+
+  private async queryPending(recipientUserId: string, limit: number) {
     const result = await this.database.query<DeliveryRow>(
       `SELECT request_id, sender_user_id, recipient_user_id, payload, request_binding,
               payload_format, state, failure_code, created_at, expires_at, delivered_at
@@ -131,6 +161,47 @@ export class MessageDeliveryService {
       senderId: row.sender_user_id,
       payload: this.requiredPayload(row).toString('base64'),
     }));
+  }
+
+  private waitForPending(recipientUserId: string, waitMs: number, signal?: AbortSignal) {
+    let settled = false;
+    let resolveWait!: (reason: 'notified' | 'timeout' | 'aborted' | 'cancelled') => void;
+    const promise = new Promise<'notified' | 'timeout' | 'aborted' | 'cancelled'>((resolve) => {
+      resolveWait = resolve;
+    });
+    const waiters = this.pendingWaiters.get(recipientUserId) ?? new Set<() => void>();
+    this.pendingWaiters.set(recipientUserId, waiters);
+    const finish = (reason: 'notified' | 'timeout' | 'aborted' | 'cancelled') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      waiters.delete(notify);
+      if (waiters.size === 0) this.pendingWaiters.delete(recipientUserId);
+      signal?.removeEventListener('abort', abort);
+      resolveWait(reason);
+    };
+    const notify = () => {
+      finish('notified');
+    };
+    const abort = () => {
+      finish('aborted');
+    };
+    waiters.add(notify);
+    const timer = setTimeout(() => {
+      finish('timeout');
+    }, waitMs);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    return {
+      promise,
+      cancel: () => {
+        finish('cancelled');
+      },
+    };
+  }
+
+  private notifyPending(recipientUserId: string): void {
+    for (const notify of [...(this.pendingWaiters.get(recipientUserId) ?? [])]) notify();
   }
 
   async acknowledge(recipientUserId: string, requestId: string, senderUserId: string) {
