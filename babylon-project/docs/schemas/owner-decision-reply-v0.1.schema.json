@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://babylon.invalid/schemas/owner-decision-reply-v0.1.schema.json",
+  "title": "Owner decision reply v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "event_id", "decision", "timestamp", "sequence"],
+  "properties": {
+    "protocol_version": {
+      "const": "0.1"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "decision": {
+      "enum": ["APPROVE", "REJECT", "WAIT"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647
+    },
+    "comment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280,
+      "x-maxUtf8Bytes": 1024,
+      "x-unicodeNormalization": "NFC",
+      "description": "Optional visible text. The receiver also rejects disallowed control and bidirectional formatting characters."
+    }
+  }
+}
