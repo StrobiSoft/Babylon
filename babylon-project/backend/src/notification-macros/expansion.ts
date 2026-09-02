@@ -4,11 +4,14 @@ import { statusExpansions } from './status/expansions.js';
 import type { AssembledNotificationMessage } from './transport.js';
 import type { MacroExpansionEntry } from './types.js';
 
+export const macroExpansions = [
+  ...attentionExpansions,
+  ...statusExpansions,
+  ...reasonExpansions,
+] as const;
+
 const expansionTable: ReadonlyMap<string, MacroExpansionEntry> = new Map(
-  [...attentionExpansions, ...statusExpansions, ...reasonExpansions].map((entry) => [
-    `${entry.id}@${entry.version}`,
-    entry,
-  ]),
+  macroExpansions.map((entry) => [`${entry.id}@${entry.version}`, entry]),
 );
 
 export function expandNotification(message: AssembledNotificationMessage): string {

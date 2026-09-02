@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import * as transportCore from '../src/notification-macros/index.js';
 import {
   MacroAssemblyError,
   NotificationMacroAssembler,
-  expandNotification,
   macroCatalog,
   notificationFragmentEnvelopeSchema,
   type NotificationFragment,
 } from '../src/notification-macros/index.js';
+import { expandNotification, macroExpansions } from '../src/notification-macros/expansion.js';
 
 const ATTENTION = '01JQ7S4C8N2W6K9D3F5H0M1PXT';
 const STATUS_STARTED = '01JQ7V2H8M4K6C9N3D5F0R1BXP';
@@ -192,7 +193,18 @@ describe('notification macro v0.1', () => {
   });
 
   it('enforces optional-text Unicode, byte, normalization, and control-character bounds', () => {
-    const invalidText = ['x'.repeat(281), '😀'.repeat(257), 'Cafe\u0301', 'unsafe\u0000text'];
+    const invalidText = [
+      'x'.repeat(281),
+      '😀'.repeat(257),
+      'Cafe\u0301',
+      'unsafe\u0000text',
+      ' \n\t ',
+      '\u200B',
+      'spoof\u061Ctext',
+      'spoof\u200Etext',
+      'spoof\u202Etext',
+      'unpaired\ud800',
+    ];
     for (const text of invalidText) {
       const assembler = new NotificationMacroAssembler();
       expect(
@@ -202,6 +214,16 @@ describe('notification macro v0.1', () => {
     expect(
       notificationFragmentEnvelopeSchema.safeParse(
         envelope({ kind: 'optional_text', text: 'Café\nDetails follow.' }, 0, 3),
+      ).success,
+    ).toBe(true);
+    expect(
+      notificationFragmentEnvelopeSchema.safeParse(
+        envelope({ kind: 'optional_text', text: 'x'.repeat(280) }, 0, 3),
+      ).success,
+    ).toBe(true);
+    expect(
+      notificationFragmentEnvelopeSchema.safeParse(
+        envelope({ kind: 'optional_text', text: '😀'.repeat(256) }, 0, 3),
       ).success,
     ).toBe(true);
   });
@@ -220,7 +242,18 @@ describe('notification macro v0.1', () => {
     }
   });
 
+  it('provides exactly one non-empty endpoint expansion for every catalog version', () => {
+    const catalogKeys = macroCatalog.map((entry) => `${entry.id}@${entry.version}`).sort();
+    const expansionKeys = macroExpansions.map((entry) => `${entry.id}@${entry.version}`).sort();
+    expect(new Set(expansionKeys).size).toBe(expansionKeys.length);
+    expect(expansionKeys).toEqual(catalogKeys);
+    expect(macroExpansions.every((entry) => entry.text.trim().length > 0)).toBe(true);
+  });
+
   it('is deterministic and transports IDs without endpoint expansion text', () => {
+    expect('expandNotification' in transportCore).toBe(false);
+    expect('macroExpansions' in transportCore).toBe(false);
+
     const assembler = new NotificationMacroAssembler();
     assembler.accept(envelope(macro('reason', REASON_APPROVAL), 2, 3));
     assembler.accept(envelope(macro('status', STATUS_DECISION), 1, 3));

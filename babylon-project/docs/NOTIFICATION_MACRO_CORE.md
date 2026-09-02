@@ -18,7 +18,9 @@ The canonical groups are directories beneath `backend/src/notification-macros/`:
 
 Each group has a `catalog.ts` containing stable ID, version, canonical name, audience, relevant severity/priority, and deprecation state. Status entries also declare whether they are progress, terminal, or decision states. Each separate `expansions.ts` contains human text. Free text is an optional bounded fragment, not a fourth macro group.
 
-`catalog.ts`, `transport.ts`, and `assembler.ts` do not import expansion tables. A router or observer can therefore validate and carry IDs without receiving the human expansion text. Only an endpoint that imports `expansion.ts` needs the expansion tables.
+Attention and status macros carry severity/priority because they drive presentation and urgency. Reason macros intentionally do not: a reason explains the state, while urgency has one authoritative source and cannot conflict with the selected attention/status pair.
+
+`catalog.ts`, `transport.ts`, `assembler.ts`, and the default `index.ts` entry point do not import or re-export expansion tables. A router or observer can therefore validate and carry IDs without receiving the human expansion text. Only an endpoint that explicitly imports `expansion.ts` needs the expansion tables.
 
 ## Initial v0.1 vocabulary
 
@@ -46,7 +48,7 @@ Every fragment repeats immutable message metadata:
 - `replay.originalMessageId`: absent at attempt zero and required for a replay;
 - `fragment`: one macro reference or one optional-text value.
 
-Optional text must contain 1–280 Unicode code points, occupy no more than 1,024 UTF-8 bytes, be NFC-normalized, and contain no C0/C1 controls other than tab, line feed, or carriage return. It is never synthesized.
+Optional text must contain visible content within 1–280 Unicode code points, occupy no more than 1,024 UTF-8 bytes, be NFC-normalized, and contain no C0/C1 controls other than tab, line feed, or carriage return. Unpaired surrogates and explicit bidirectional formatting/override controls are rejected to avoid inconsistent encoding and display-order spoofing. Text is never synthesized.
 
 ## Assembly and rejection rules
 

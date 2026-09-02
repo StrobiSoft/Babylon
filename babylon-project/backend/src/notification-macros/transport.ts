@@ -16,14 +16,35 @@ function hasDisallowedControlCharacter(text: string): boolean {
   });
 }
 
+function hasDisallowedUnicodeScalar(text: string): boolean {
+  return Array.from(text).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return (
+      codePoint !== undefined &&
+      ((codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+        codePoint === 0x061c ||
+        codePoint === 0x200e ||
+        codePoint === 0x200f ||
+        (codePoint >= 0x202a && codePoint <= 0x202e) ||
+        (codePoint >= 0x2066 && codePoint <= 0x2069))
+    );
+  });
+}
+
+function hasVisibleContent(text: string): boolean {
+  return /[^\s\p{Cf}]/u.test(text);
+}
+
 const macroIdSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/u, 'invalid opaque macro ID');
 const macroVersionSchema = z
   .string()
+  .max(32)
   .regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u, 'invalid macro version');
 
 export const optionalTextSchema = z
   .string()
   .refine((text) => Array.from(text).length >= 1, 'optional text must not be empty')
+  .refine(hasVisibleContent, 'optional text must contain visible content')
   .refine(
     (text) => Array.from(text).length <= MAX_OPTIONAL_TEXT_CODE_POINTS,
     `optional text exceeds ${MAX_OPTIONAL_TEXT_CODE_POINTS} Unicode code points`,
@@ -36,6 +57,10 @@ export const optionalTextSchema = z
   .refine(
     (text) => !hasDisallowedControlCharacter(text),
     'optional text contains a disallowed control character',
+  )
+  .refine(
+    (text) => !hasDisallowedUnicodeScalar(text),
+    'optional text contains an unpaired surrogate or bidirectional formatting control',
   );
 
 export const macroFragmentSchema = z
