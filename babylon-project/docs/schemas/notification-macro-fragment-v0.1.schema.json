@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://babylon.invalid/schemas/notification-macro-fragment-v0.1.schema.json",
+  "title": "Babylon notification macro fragment v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "eventId",
+    "messageId",
+    "createdAt",
+    "sequence",
+    "replay",
+    "fragment"
+  ],
+  "properties": {
+    "protocolVersion": { "const": "0.1" },
+    "eventId": { "type": "string", "format": "uuid" },
+    "messageId": { "type": "string", "format": "uuid" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "sequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "fragment", "totalFragments"],
+      "properties": {
+        "message": { "type": "integer", "minimum": 0 },
+        "fragment": { "type": "integer", "minimum": 0 },
+        "totalFragments": { "type": "integer", "minimum": 2, "maximum": 4 }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt"],
+      "properties": {
+        "attempt": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "originalMessageId": { "type": "string", "format": "uuid" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "attempt": { "const": 0 } } },
+          "then": { "not": { "required": ["originalMessageId"] } },
+          "else": { "required": ["originalMessageId"] }
+        }
+      ]
+    },
+    "fragment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "group", "macroId", "macroVersion"],
+          "properties": {
+            "kind": { "const": "macro" },
+            "group": { "enum": ["attention", "status", "reason"] },
+            "macroId": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$" },
+            "macroVersion": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "text"],
+          "properties": {
+            "kind": { "const": "optional_text" },
+            "text": { "type": "string", "minLength": 1, "maxLength": 280 }
+          }
+        }
+      ]
+    }
+  }
+}
