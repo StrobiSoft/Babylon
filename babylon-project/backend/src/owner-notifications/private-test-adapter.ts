@@ -1,5 +1,10 @@
 import { serializeOwnerDecisionReply, type OwnerDecisionReply } from './protocol.js';
-import type { OwnerReplyRouter, OwnerWorkflowState } from './reply-router.js';
+import type {
+  OwnerReplyRouteLookup,
+  OwnerReplyRouteSnapshot,
+  OwnerReplyRouter,
+  OwnerWorkflowState,
+} from './reply-router.js';
 
 /** Exact private/local adapter seam. Deliberately not mounted in backend/src/server.ts. */
 export class LocalPrivateOwnerReplyAdapter {
@@ -16,6 +21,10 @@ export class LocalPrivateOwnerReplyAdapter {
     }
     return this.router.route(input);
   }
+
+  reconcile(lookup: OwnerReplyRouteLookup): Readonly<OwnerReplyRouteSnapshot> {
+    return this.router.reconcile(lookup);
+  }
 }
 
 export class LocalOwnerReplyTransport {
@@ -23,5 +32,9 @@ export class LocalOwnerReplyTransport {
 
   async send(reply: OwnerDecisionReply): Promise<void> {
     await this.adapter.submit(serializeOwnerDecisionReply(reply));
+  }
+
+  reconcile(lookup: OwnerReplyRouteLookup): Readonly<OwnerReplyRouteSnapshot> {
+    return this.adapter.reconcile(lookup);
   }
 }
