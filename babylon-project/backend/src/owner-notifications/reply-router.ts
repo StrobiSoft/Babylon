@@ -55,6 +55,19 @@ export interface OwnerReplyRouteRegistration {
   readonly sink: OwnerWorkflowSink;
 }
 
+export interface OwnerReplyRouteLookup {
+  readonly eventId: string;
+  readonly returnRoute: string;
+  readonly senderId: string;
+}
+
+export interface OwnerReplyRouteSnapshot {
+  readonly state: OwnerWorkflowState;
+  readonly lastSequence: number | undefined;
+  readonly lastReplyMacroId: string | undefined;
+  readonly terminalMacroId: string | undefined;
+}
+
 export interface OwnerReplyAuditEntry {
   readonly protocolVersion?: string;
   readonly eventId?: string;
@@ -72,6 +85,7 @@ export interface OwnerReplyAuditEntry {
 interface RouteRecord extends OwnerReplyRouteRegistration {
   state: OwnerWorkflowState;
   lastSequence: number | undefined;
+  lastReplyMacroId: string | undefined;
   terminalMacroId: string | undefined;
 }
 
@@ -136,6 +150,7 @@ export class OwnerReplyRouter {
       allowedSenderIds: [...new Set(registration.allowedSenderIds)],
       state: 'pending',
       lastSequence: undefined,
+      lastReplyMacroId: undefined,
       terminalMacroId: undefined,
     });
     this.routeOwners.set(registration.returnRoute, registration.eventId);
@@ -156,18 +171,48 @@ export class OwnerReplyRouter {
     return this.serialized(reply.event_id, () => this.routeParsed(reply, payloadHash));
   }
 
-  snapshot(eventId: string): Readonly<{
-    state: OwnerWorkflowState;
-    lastSequence: number | undefined;
-    terminalMacroId: string | undefined;
-  }> {
+  /** Internal trusted snapshot for runtime persistence and tests. */
+  snapshot(eventId: string): Readonly<OwnerReplyRouteSnapshot> {
     const route = this.routes.get(eventId);
     if (route === undefined) {
       throw new OwnerReplyError('UNKNOWN_CORRELATION', 'event correlation is not registered');
     }
+    return this.routeSnapshot(route);
+  }
+
+  /**
+   * Route-bound reconciliation for a private authenticated client transport.
+   * The caller must prove the exact event, return-route capability, and allowed
+   * installation handle; event ID alone is intentionally insufficient.
+   */
+  reconcile(lookup: OwnerReplyRouteLookup): Readonly<OwnerReplyRouteSnapshot> {
+    const eventResult = ownerDecisionReplySchema.shape.event_id.safeParse(lookup.eventId);
+    const routeResult = opaqueHandleSchema.safeParse(lookup.returnRoute);
+    const senderResult = opaqueHandleSchema.safeParse(lookup.senderId);
+    if (!eventResult.success || !routeResult.success || !senderResult.success) {
+      throw new OwnerReplyError('INVALID_ENVELOPE', 'invalid reconciliation lookup');
+    }
+    const route = this.routes.get(lookup.eventId);
+    if (route === undefined) {
+      throw new OwnerReplyError('UNKNOWN_CORRELATION', 'event correlation is not registered');
+    }
+    if (route.returnRoute !== lookup.returnRoute) {
+      throw new OwnerReplyError(
+        'ROUTE_HANDLE_MISMATCH',
+        'return route does not match event correlation',
+      );
+    }
+    if (!route.allowedSenderIds.includes(lookup.senderId)) {
+      throw new OwnerReplyError('SENDER_MISMATCH', 'sender is not bound to route');
+    }
+    return this.routeSnapshot(route);
+  }
+
+  private routeSnapshot(route: RouteRecord): Readonly<OwnerReplyRouteSnapshot> {
     return {
       state: route.state,
       lastSequence: route.lastSequence,
+      lastReplyMacroId: route.lastReplyMacroId,
       terminalMacroId: route.terminalMacroId,
     };
   }
@@ -236,6 +281,7 @@ export class OwnerReplyRouter {
       throw error;
     }
     route.lastSequence = reply.sequence;
+    route.lastReplyMacroId = macro.id;
     route.state = effectState(macro.effect);
     if (macro.terminal) route.terminalMacroId = macro.id;
     this.record(reply, payloadHash, 'delivered');
