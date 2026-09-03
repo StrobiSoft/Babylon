@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://babylon.invalid/schemas/owner-reply-acceptance-v0.1.schema.json",
+  "title": "Owner reply acceptance v0.1",
+  "description": "Bounded successful response for the private N Agent owner-reply adapter.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["accepted_sequence", "state", "terminal"],
+  "properties": {
+    "accepted_sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647,
+      "description": "The exact reply sequence consumed by the route-bound workflow sink."
+    },
+    "state": {
+      "type": "string",
+      "enum": ["waiting", "approved", "rejected"],
+      "description": "Authoritative workflow state after consuming the reply."
+    },
+    "terminal": {
+      "type": "boolean",
+      "description": "Whether the accepted reply resolved the workflow decision."
+    }
+  },
+  "examples": [
+    {
+      "accepted_sequence": 0,
+      "state": "waiting",
+      "terminal": false
+    }
+  ]
+}
