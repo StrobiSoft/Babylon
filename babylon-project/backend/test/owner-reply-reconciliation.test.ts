@@ -190,11 +190,15 @@ describe('owner reply route-bound reconciliation', () => {
     });
   });
 
-  it('exposes the same bounded reconciliation through the local private adapter seam', async () => {
+  it('returns an explicit accepted sequence and exposes bounded reconciliation in the adapter', async () => {
     const router = routerWith(new RecordingSink());
     const adapter = new LocalPrivateOwnerReplyAdapter(router);
-    await adapter.submit(JSON.stringify(reply(OWNER_REPLY_WAIT_ID, 2)));
 
+    await expect(adapter.submit(JSON.stringify(reply(OWNER_REPLY_WAIT_ID, 2)))).resolves.toEqual({
+      accepted_sequence: 2,
+      state: 'waiting',
+      terminal: false,
+    });
     await expect(adapter.reconcile(lookup)).resolves.toMatchObject({
       state: 'waiting',
       lastSequence: 2,
