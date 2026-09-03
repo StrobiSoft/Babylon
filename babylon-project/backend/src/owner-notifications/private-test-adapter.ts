@@ -1,4 +1,8 @@
-import { serializeOwnerDecisionReply, type OwnerDecisionReply } from './protocol.js';
+import {
+  ownerDecisionReplySchema,
+  serializeOwnerDecisionReply,
+  type OwnerDecisionReply,
+} from './protocol.js';
 import type {
   OwnerReplyRouteLookup,
   OwnerReplyRouteSnapshot,
@@ -6,20 +10,30 @@ import type {
   OwnerWorkflowState,
 } from './reply-router.js';
 
+export interface OwnerReplyAcceptedResponse {
+  readonly accepted_sequence: number;
+  readonly state: OwnerWorkflowState;
+  readonly terminal: boolean;
+}
+
 /** Exact private/local adapter seam. Deliberately not mounted in backend/src/server.ts. */
 export class LocalPrivateOwnerReplyAdapter {
   constructor(private readonly router: OwnerReplyRouter) {}
 
-  async submit(
-    serializedEnvelope: string,
-  ): Promise<Readonly<{ state: OwnerWorkflowState; terminal: boolean }>> {
+  async submit(serializedEnvelope: string): Promise<Readonly<OwnerReplyAcceptedResponse>> {
     let input: unknown;
     try {
       input = JSON.parse(serializedEnvelope) as unknown;
     } catch {
       input = serializedEnvelope;
     }
-    return this.router.route(input);
+    const routed = await this.router.route(input);
+    const accepted = ownerDecisionReplySchema.parse(input);
+    return {
+      accepted_sequence: accepted.sequence,
+      state: routed.state,
+      terminal: routed.terminal,
+    };
   }
 
   reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
@@ -30,8 +44,8 @@ export class LocalPrivateOwnerReplyAdapter {
 export class LocalOwnerReplyTransport {
   constructor(private readonly adapter: LocalPrivateOwnerReplyAdapter) {}
 
-  async send(reply: OwnerDecisionReply): Promise<void> {
-    await this.adapter.submit(serializeOwnerDecisionReply(reply));
+  send(reply: OwnerDecisionReply): Promise<Readonly<OwnerReplyAcceptedResponse>> {
+    return this.adapter.submit(serializeOwnerDecisionReply(reply));
   }
 
   reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
