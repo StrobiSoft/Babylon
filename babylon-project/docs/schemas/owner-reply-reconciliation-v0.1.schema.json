@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://babylon.invalid/schemas/owner-reply-reconciliation-v0.1.schema.json",
+  "title": "Owner reply reconciliation v0.1",
+  "description": "Route-bound authoritative state used to resolve an ambiguous owner-reply delivery.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workflow", "last_accepted_sequence", "last_accepted_reply_macro_id"],
+  "properties": {
+    "workflow": {
+      "type": "string",
+      "enum": ["pending", "waiting", "approved", "rejected"]
+    },
+    "last_accepted_sequence": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "last_accepted_reply_macro_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "01K4J8Q2N6C9R5T3V7W0X1YBZA",
+            "01K4J9R3P7D0S6V2W8X1Y5ZBCA",
+            "01K4JAT4Q8E1R7W3X9Y2Z6ABCD"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "workflow": "waiting",
+      "last_accepted_sequence": 0,
+      "last_accepted_reply_macro_id": "01K4JAT4Q8E1R7W3X9Y2Z6ABCD"
+    },
+    {
+      "workflow": "pending",
+      "last_accepted_sequence": null,
+      "last_accepted_reply_macro_id": null
+    }
+  ]
+}
