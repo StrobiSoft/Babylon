@@ -28,6 +28,33 @@ class RejectingSink implements OwnerWorkflowSink {
   }
 }
 
+class DeferredSink implements OwnerWorkflowSink {
+  readonly signals: OwnerWorkflowSignal[] = [];
+  readonly entered: Promise<void>;
+  private readonly gate: Promise<void>;
+  private enter: () => void = () => undefined;
+  private release: () => void = () => undefined;
+
+  constructor() {
+    this.entered = new Promise<void>((resolve) => {
+      this.enter = resolve;
+    });
+    this.gate = new Promise<void>((resolve) => {
+      this.release = resolve;
+    });
+  }
+
+  consume(signal: OwnerWorkflowSignal): Promise<void> {
+    this.signals.push(signal);
+    this.enter();
+    return this.gate;
+  }
+
+  unblock(): void {
+    this.release();
+  }
+}
+
 function reply(replyMacroId: string, sequence: number) {
   return {
     protocol_version: '0.1',
@@ -51,9 +78,9 @@ function routerWith(sink: OwnerWorkflowSink) {
   return router;
 }
 
-function errorCode(operation: () => unknown): string | undefined {
+async function errorCode(operation: () => Promise<unknown>): Promise<string | undefined> {
   try {
-    operation();
+    await operation();
     return undefined;
   } catch (error) {
     expect(error).toBeInstanceOf(OwnerReplyError);
@@ -61,18 +88,18 @@ function errorCode(operation: () => unknown): string | undefined {
   }
 }
 
+const lookup = {
+  eventId: EVENT_ID,
+  returnRoute: ROUTE,
+  senderId: SENDER_ID,
+};
+
 describe('owner reply route-bound reconciliation', () => {
   it('records the last non-terminal macro so a lost WAIT acknowledgement can be proven', async () => {
     const router = routerWith(new RecordingSink());
     await router.route(reply(OWNER_REPLY_WAIT_ID, 4));
 
-    expect(
-      router.reconcile({
-        eventId: EVENT_ID,
-        returnRoute: ROUTE,
-        senderId: SENDER_ID,
-      }),
-    ).toEqual({
+    await expect(router.reconcile(lookup)).resolves.toEqual({
       state: 'waiting',
       lastSequence: 4,
       lastReplyMacroId: OWNER_REPLY_WAIT_ID,
@@ -85,13 +112,7 @@ describe('owner reply route-bound reconciliation', () => {
     await router.route(reply(OWNER_REPLY_WAIT_ID, 0));
     await router.route(reply(OWNER_REPLY_OK_ID, 1));
 
-    expect(
-      router.reconcile({
-        eventId: EVENT_ID,
-        returnRoute: ROUTE,
-        senderId: SENDER_ID,
-      }),
-    ).toEqual({
+    await expect(router.reconcile(lookup)).resolves.toEqual({
       state: 'approved',
       lastSequence: 1,
       lastReplyMacroId: OWNER_REPLY_OK_ID,
@@ -99,10 +120,10 @@ describe('owner reply route-bound reconciliation', () => {
     });
   });
 
-  it('requires the exact route capability and allowed sender binding', () => {
+  it('requires the exact route capability and allowed sender binding', async () => {
     const router = routerWith(new RecordingSink());
 
-    expect(
+    await expect(
       errorCode(() =>
         router.reconcile({
           eventId: UNKNOWN_EVENT_ID,
@@ -110,8 +131,8 @@ describe('owner reply route-bound reconciliation', () => {
           senderId: SENDER_ID,
         }),
       ),
-    ).toBe('UNKNOWN_CORRELATION');
-    expect(
+    ).resolves.toBe('UNKNOWN_CORRELATION');
+    await expect(
       errorCode(() =>
         router.reconcile({
           eventId: EVENT_ID,
@@ -119,8 +140,8 @@ describe('owner reply route-bound reconciliation', () => {
           senderId: SENDER_ID,
         }),
       ),
-    ).toBe('ROUTE_HANDLE_MISMATCH');
-    expect(
+    ).resolves.toBe('ROUTE_HANDLE_MISMATCH');
+    await expect(
       errorCode(() =>
         router.reconcile({
           eventId: EVENT_ID,
@@ -128,7 +149,7 @@ describe('owner reply route-bound reconciliation', () => {
           senderId: 'install_WRONG000000000000',
         }),
       ),
-    ).toBe('SENDER_MISMATCH');
+    ).resolves.toBe('SENDER_MISMATCH');
   });
 
   it('does not report an unconsumed reply after workflow-sink failure', async () => {
@@ -137,16 +158,34 @@ describe('owner reply route-bound reconciliation', () => {
       code: 'DELIVERY_FAILED',
     });
 
-    expect(
-      router.reconcile({
-        eventId: EVENT_ID,
-        returnRoute: ROUTE,
-        senderId: SENDER_ID,
-      }),
-    ).toEqual({
+    await expect(router.reconcile(lookup)).resolves.toEqual({
       state: 'pending',
       lastSequence: undefined,
       lastReplyMacroId: undefined,
+      terminalMacroId: undefined,
+    });
+  });
+
+  it('waits behind an in-flight delivery before reporting route state', async () => {
+    const sink = new DeferredSink();
+    const router = routerWith(sink);
+    const delivery = router.route(reply(OWNER_REPLY_WAIT_ID, 0));
+    await sink.entered;
+
+    let reconciliationSettled = false;
+    const reconciliation = router.reconcile(lookup).then((snapshot) => {
+      reconciliationSettled = true;
+      return snapshot;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(reconciliationSettled).toBe(false);
+
+    sink.unblock();
+    await expect(delivery).resolves.toEqual({ state: 'waiting', terminal: false });
+    await expect(reconciliation).resolves.toEqual({
+      state: 'waiting',
+      lastSequence: 0,
+      lastReplyMacroId: OWNER_REPLY_WAIT_ID,
       terminalMacroId: undefined,
     });
   });
@@ -156,13 +195,7 @@ describe('owner reply route-bound reconciliation', () => {
     const adapter = new LocalPrivateOwnerReplyAdapter(router);
     await adapter.submit(JSON.stringify(reply(OWNER_REPLY_WAIT_ID, 2)));
 
-    expect(
-      adapter.reconcile({
-        eventId: EVENT_ID,
-        returnRoute: ROUTE,
-        senderId: SENDER_ID,
-      }),
-    ).toMatchObject({
+    await expect(adapter.reconcile(lookup)).resolves.toMatchObject({
       state: 'waiting',
       lastSequence: 2,
       lastReplyMacroId: OWNER_REPLY_WAIT_ID,
