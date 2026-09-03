@@ -1,0 +1,1 @@
+Observer activation remains separate from the owner-reply runtime branch. No root activation, systemd change, public bind, or replacement implementation is performed until the reviewed checkpoint is recovered and verified.
