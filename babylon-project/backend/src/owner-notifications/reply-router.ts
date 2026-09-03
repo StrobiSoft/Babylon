@@ -184,28 +184,34 @@ export class OwnerReplyRouter {
    * Route-bound reconciliation for a private authenticated client transport.
    * The caller must prove the exact event, return-route capability, and allowed
    * installation handle; event ID alone is intentionally insufficient.
+   *
+   * Reconciliation joins the same per-event queue as reply delivery so a lost
+   * acknowledgement cannot race an in-flight workflow-sink commit and produce
+   * a stale "not consumed" snapshot.
    */
-  reconcile(lookup: OwnerReplyRouteLookup): Readonly<OwnerReplyRouteSnapshot> {
+  async reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
     const eventResult = ownerDecisionReplySchema.shape.event_id.safeParse(lookup.eventId);
     const routeResult = opaqueHandleSchema.safeParse(lookup.returnRoute);
     const senderResult = opaqueHandleSchema.safeParse(lookup.senderId);
     if (!eventResult.success || !routeResult.success || !senderResult.success) {
       throw new OwnerReplyError('INVALID_ENVELOPE', 'invalid reconciliation lookup');
     }
-    const route = this.routes.get(lookup.eventId);
-    if (route === undefined) {
-      throw new OwnerReplyError('UNKNOWN_CORRELATION', 'event correlation is not registered');
-    }
-    if (route.returnRoute !== lookup.returnRoute) {
-      throw new OwnerReplyError(
-        'ROUTE_HANDLE_MISMATCH',
-        'return route does not match event correlation',
-      );
-    }
-    if (!route.allowedSenderIds.includes(lookup.senderId)) {
-      throw new OwnerReplyError('SENDER_MISMATCH', 'sender is not bound to route');
-    }
-    return this.routeSnapshot(route);
+    return this.serialized(lookup.eventId, async () => {
+      const route = this.routes.get(lookup.eventId);
+      if (route === undefined) {
+        throw new OwnerReplyError('UNKNOWN_CORRELATION', 'event correlation is not registered');
+      }
+      if (route.returnRoute !== lookup.returnRoute) {
+        throw new OwnerReplyError(
+          'ROUTE_HANDLE_MISMATCH',
+          'return route does not match event correlation',
+        );
+      }
+      if (!route.allowedSenderIds.includes(lookup.senderId)) {
+        throw new OwnerReplyError('SENDER_MISMATCH', 'sender is not bound to route');
+      }
+      return this.routeSnapshot(route);
+    });
   }
 
   private routeSnapshot(route: RouteRecord): Readonly<OwnerReplyRouteSnapshot> {
