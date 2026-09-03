@@ -16,8 +16,9 @@ back to the client. In that case the client cannot safely assume either success 
   has already consumed at least that sequence but does not by itself reconstruct the accepted
   workflow state.
 
-The client therefore treats timeout and connection loss as an **ambiguous** result and freezes the
-binding until it has reconciled with the server-authoritative route state.
+The client therefore treats timeout, connection loss, and an acknowledgement naming the wrong
+sequence as an **ambiguous** result and freezes the binding until it has reconciled with the
+server-authoritative route state.
 
 ## Transport outcomes
 
@@ -29,6 +30,10 @@ binding until it has reconciled with the server-authoritative route state.
   after the cause is corrected.
 - `ambiguous`: the peer result is unknown. The pending reply and sequence remain reserved and no
   later decision is permitted for that binding.
+
+A mismatched accepted-sequence acknowledgement is converted to the same ambiguous state rather than
+being treated as a harmless client error. This preserves the pending reply so reconciliation can
+prove whether the server consumed it.
 
 ## Reconciliation snapshot
 
@@ -47,6 +52,10 @@ user-facing retry button. After connectivity is restored:
    ambiguity and makes the same sequence available for a safe retry.
 3. Until either condition is established, no higher sequence or second decision may be sent.
 
+On the server side, `OwnerReplyRouter.reconcile()` joins the same per-event serialization queue as
+reply delivery. Therefore a reconciliation read cannot overtake an in-flight workflow-sink commit
+and incorrectly report that the pending reply was not consumed.
+
 ## Covered cases
 
 `client/test/owner_notification_test.dart` covers:
@@ -57,6 +66,14 @@ user-facing retry button. After connectivity is restored:
 - ambiguous delivery that the server did consume, followed by reconciliation and sequence advance;
 - ambiguous delivery that the server did not consume, followed by retry of the same sequence;
 - visible handling of transport failure in the Flutter reference shell.
+
+`client/test/owner_reply_ack_mismatch_test.dart` additionally covers both outcomes after a mismatched
+acknowledgement: a server-proven unconsumed reply is retried at the same sequence, while a
+server-proven consumed `WAIT` is adopted before a later terminal reply uses the next sequence.
+
+`backend/test/owner-reply-reconciliation.test.ts` covers route/sender/capability binding, persisted
+last reply-macro metadata, the adapter seam, workflow-sink failure, and the ordering guarantee that
+a reconciliation read waits for an in-flight delivery to settle.
 
 ## Remaining runtime dependency
 
