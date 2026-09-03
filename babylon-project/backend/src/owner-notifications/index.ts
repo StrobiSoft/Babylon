@@ -1,3 +1,4 @@
 export * from './delivery.js';
+export * from './private-test-adapter.js';
 export * from './protocol.js';
-export * from './test-receiver.js';
+export * from './reply-router.js';

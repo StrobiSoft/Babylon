@@ -132,3 +132,5 @@ Logs still require retention limits and access control. An optional payload hash
 ## Reuse and next boundary
 
 N Agent can produce or consume the same IDs as Babylon without linking to provider code. Babylon can embed the runtime validator and assembler now, while a future disposable phone E2E client needs only: load the v0.1 expansion tables, accept a locally supplied IDs-only fixture, expand it on-device, display it, and report a local acknowledgement. Provider registration, remote push, credentials, background delivery, and production persistence remain outside that smallest next task.
+
+Owner-decision replies use the separate portable reply macro pack described in [`OWNER_REPLY_BRIDGE.md`](OWNER_REPLY_BRIDGE.md). Notification macros and reply macros have independent catalogs because their validation and lifecycle semantics differ; both preserve the same IDs-only transport and endpoint-only expansion boundary.

@@ -8,12 +8,14 @@ class OwnerNotificationTestShell extends StatefulWidget {
   const OwnerNotificationTestShell({
     required this.delivery,
     required this.transport,
+    required this.senderId,
     this.clock,
     super.key,
   });
 
   final OwnerNotificationDelivery delivery;
   final OwnerReplyTransport transport;
+  final String senderId;
   final DateTime Function()? clock;
 
   @override
@@ -30,6 +32,7 @@ class _OwnerNotificationTestShellState extends State<OwnerNotificationTestShell>
     controller = OwnerNotificationController(
       delivery: widget.delivery,
       transport: widget.transport,
+      senderId: widget.senderId,
       clock: widget.clock,
     )..addListener(_changed);
   }
@@ -96,7 +99,7 @@ class OwnerNotificationCard extends StatelessWidget {
               const SizedBox(height: 24),
               _decisionButton(
                 key: const Key('owner-approve'),
-                label: 'APPROVE · OK · MEHET',
+                label: 'OK · MEHET',
                 onPressed: disabled
                     ? null
                     : () => controller.submit(OwnerDecision.approve),
@@ -104,7 +107,7 @@ class OwnerNotificationCard extends StatelessWidget {
               const SizedBox(height: 12),
               _decisionButton(
                 key: const Key('owner-reject'),
-                label: 'REJECT · SEMMIKÉPP',
+                label: 'SEMMIKÉPP',
                 onPressed: disabled
                     ? null
                     : () => controller.submit(OwnerDecision.reject),
@@ -112,7 +115,7 @@ class OwnerNotificationCard extends StatelessWidget {
               const SizedBox(height: 12),
               _decisionButton(
                 key: const Key('owner-wait'),
-                label: 'WAIT · KÉRLEK VÁRJ',
+                label: 'KÉRLEK, VÁRJ',
                 onPressed: disabled
                     ? null
                     : () => controller.submit(OwnerDecision.wait),

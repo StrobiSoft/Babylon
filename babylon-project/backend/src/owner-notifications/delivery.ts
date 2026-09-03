@@ -1,5 +1,6 @@
 import type { AssembledNotificationMessage } from '../notification-macros/index.js';
 import { macroExpansions } from '../notification-macros/expansion.js';
+import { opaqueHandleSchema } from './protocol.js';
 
 export interface EndpointMacroExpansion {
   readonly id: string;
@@ -10,6 +11,9 @@ export interface EndpointMacroExpansion {
 export interface OwnerNotificationDelivery {
   readonly notification: AssembledNotificationMessage;
   readonly expansions: readonly EndpointMacroExpansion[];
+  readonly reply_context: {
+    readonly return_route: string;
+  };
 }
 
 const expansionByKey = new Map(
@@ -19,7 +23,9 @@ const expansionByKey = new Map(
 /** Endpoint adapter: expansions stay outside the portable macro-core wire object. */
 export function createOwnerNotificationDelivery(
   notification: AssembledNotificationMessage,
+  returnRoute: string,
 ): OwnerNotificationDelivery {
+  const validatedRoute = opaqueHandleSchema.parse(returnRoute);
   const expansions = notification.fragments.flatMap((fragment) => {
     if (fragment.kind !== 'macro') return [];
     const expansion = expansionByKey.get(`${fragment.macroId}@${fragment.macroVersion}`);
@@ -28,5 +34,5 @@ export function createOwnerNotificationDelivery(
     }
     return [{ id: expansion.id, version: expansion.version, text: expansion.text }];
   });
-  return { notification, expansions };
+  return { notification, expansions, reply_context: { return_route: validatedRoute } };
 }

@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const eventId = '10000000-0000-4000-8000-000000000001';
+const senderId = 'install_7V3W9X2Y6Z8A4BCD';
+const returnRoute = 'route_8R4T2V6W9X3Y7ZAB';
 
 Map<String, dynamic> fixtureJson() => {
   'notification': {
@@ -45,6 +47,7 @@ Map<String, dynamic> fixtureJson() => {
       'text': 'A decision is required.',
     },
   ],
+  'reply_context': {'return_route': returnRoute},
 };
 
 void main() {
@@ -72,13 +75,15 @@ void main() {
       decision: OwnerDecision.approve,
       timestamp: clock(),
       sequence: 9,
-      comment: 'Only after the backup completes.',
+      senderId: senderId,
+      returnRoute: returnRoute,
     );
     expect(
       reply.serialize(),
       '{"protocol_version":"0.1","event_id":"$eventId",'
-      '"decision":"APPROVE","timestamp":"2026-09-03T00:01:00.000Z",'
-      '"sequence":9,"comment":"Only after the backup completes."}',
+      '"reply_macro_id":"$ownerReplyOkId","sequence":9,'
+      '"timestamp":"2026-09-03T00:01:00.000Z","sender_id":"$senderId",'
+      '"return_route":"$returnRoute"}',
     );
     expect(jsonDecode(reply.serialize()), reply.toJson());
   });
@@ -89,12 +94,13 @@ void main() {
     (OwnerDecision.wait, OwnerNotificationState.waiting, false),
   ]) {
     test(
-      '${expectation.$1.wireName} produces the expected client state',
+      '${expectation.$1.name} produces the expected client state',
       () async {
         final transport = LocalOwnerReplyTransport();
         final controller = OwnerNotificationController(
           delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
           transport: transport,
+          senderId: senderId,
           clock: clock,
         );
         await controller.submit(expectation.$1);
@@ -113,6 +119,7 @@ void main() {
       final controller = OwnerNotificationController(
         delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
         transport: transport,
+        senderId: senderId,
         clock: clock,
       );
       await controller.submit(OwnerDecision.wait);
@@ -143,6 +150,7 @@ void main() {
           key: ValueKey(choice.$2),
           delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
           transport: transport,
+          senderId: senderId,
           clock: clock,
         ),
       );
@@ -158,9 +166,11 @@ void main() {
       expect(receivedWire, {
         'protocol_version': '0.1',
         'event_id': eventId,
-        'decision': choice.$2.wireName,
-        'timestamp': '2026-09-03T00:01:00.000Z',
+        'reply_macro_id': choice.$2.replyMacroId,
         'sequence': 0,
+        'timestamp': '2026-09-03T00:01:00.000Z',
+        'sender_id': senderId,
+        'return_route': returnRoute,
       });
     }
   });
@@ -173,6 +183,7 @@ void main() {
         OwnerNotificationTestShell(
           delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
           transport: transport,
+          senderId: senderId,
           clock: clock,
         ),
       );

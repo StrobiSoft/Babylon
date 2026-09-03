@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 
 import 'owner_notification.dart';
@@ -11,11 +9,13 @@ class OwnerNotificationController extends ChangeNotifier {
   OwnerNotificationController({
     required this.delivery,
     required this.transport,
+    required this.senderId,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final OwnerNotificationDelivery delivery;
   final OwnerReplyTransport transport;
+  final String senderId;
   final DateTime Function() _clock;
   OwnerNotificationState _state = OwnerNotificationState.pending;
   int _nextSequence = 0;
@@ -32,16 +32,16 @@ class OwnerNotificationController extends ChangeNotifier {
   Object? get lastError => _lastError;
   OwnerDecisionReply? get lastReply => _lastReply;
 
-  Future<void> submit(OwnerDecision decision, {String? comment}) async {
+  Future<void> submit(OwnerDecision decision) async {
     if (_sending) throw StateError('A reply is already being sent');
     if (terminal) throw StateError('The event already has a terminal decision');
-    _validateComment(comment);
     final reply = OwnerDecisionReply(
       eventId: delivery.eventId,
       decision: decision,
       timestamp: _clock(),
       sequence: _nextSequence,
-      comment: comment,
+      senderId: senderId,
+      returnRoute: delivery.returnRoute,
     );
     _sending = true;
     _lastError = null;
@@ -72,16 +72,5 @@ class OwnerNotificationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     super.dispose();
-  }
-
-  static void _validateComment(String? comment) {
-    if (comment == null) return;
-    if (comment.trim().isEmpty ||
-        comment.runes.length > 280 ||
-        utf8.encode(comment).length > 1024) {
-      throw const FormatException(
-        'Comment must be visible and at most 280 characters/1024 bytes',
-      );
-    }
   }
 }

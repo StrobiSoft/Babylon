@@ -1,18 +1,24 @@
 import { z } from 'zod';
-import { optionalTextSchema } from '../notification-macros/transport.js';
 
 export const OWNER_REPLY_PROTOCOL_VERSION = '0.1' as const;
-export const ownerDecisions = ['APPROVE', 'REJECT', 'WAIT'] as const;
-export type OwnerDecision = (typeof ownerDecisions)[number];
+export const opaqueReplyMacroIdSchema = z
+  .string()
+  .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/u, 'invalid opaque reply macro ID');
+export const opaqueHandleSchema = z
+  .string()
+  .min(16)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/u, 'invalid opaque handle');
 
 export const ownerDecisionReplySchema = z
   .object({
     protocol_version: z.literal(OWNER_REPLY_PROTOCOL_VERSION),
     event_id: z.uuid(),
-    decision: z.enum(ownerDecisions),
-    timestamp: z.iso.datetime({ offset: true }),
+    reply_macro_id: opaqueReplyMacroIdSchema,
     sequence: z.number().int().nonnegative().max(2_147_483_647),
-    comment: optionalTextSchema.optional(),
+    timestamp: z.iso.datetime({ offset: true }),
+    sender_id: opaqueHandleSchema,
+    return_route: opaqueHandleSchema,
   })
   .strict();
 
@@ -23,10 +29,11 @@ export function serializeOwnerDecisionReply(input: unknown): string {
   return JSON.stringify({
     protocol_version: reply.protocol_version,
     event_id: reply.event_id,
-    decision: reply.decision,
-    timestamp: reply.timestamp,
+    reply_macro_id: reply.reply_macro_id,
     sequence: reply.sequence,
-    ...(reply.comment === undefined ? {} : { comment: reply.comment }),
+    timestamp: reply.timestamp,
+    sender_id: reply.sender_id,
+    return_route: reply.return_route,
   });
 }
 

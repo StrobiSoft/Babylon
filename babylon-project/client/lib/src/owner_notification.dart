@@ -1,12 +1,16 @@
 import 'dart:convert';
 
+const ownerReplyOkId = '01K4J8Q2N6C9R5T3V7W0X1YBZA';
+const ownerReplyNoId = '01K4J9R3P7D0S6V2W8X1Y5ZBCA';
+const ownerReplyWaitId = '01K4JAT4Q8E1R7W3X9Y2Z6ABCD';
+
 enum OwnerDecision { approve, reject, wait }
 
 extension OwnerDecisionWire on OwnerDecision {
-  String get wireName => switch (this) {
-    OwnerDecision.approve => 'APPROVE',
-    OwnerDecision.reject => 'REJECT',
-    OwnerDecision.wait => 'WAIT',
+  String get replyMacroId => switch (this) {
+    OwnerDecision.approve => ownerReplyOkId,
+    OwnerDecision.reject => ownerReplyNoId,
+    OwnerDecision.wait => ownerReplyWaitId,
   };
 }
 
@@ -16,7 +20,8 @@ class OwnerDecisionReply {
     required this.decision,
     required this.timestamp,
     required this.sequence,
-    this.comment,
+    required this.senderId,
+    required this.returnRoute,
   });
 
   static const protocolVersion = '0.1';
@@ -24,15 +29,17 @@ class OwnerDecisionReply {
   final OwnerDecision decision;
   final DateTime timestamp;
   final int sequence;
-  final String? comment;
+  final String senderId;
+  final String returnRoute;
 
   Map<String, Object> toJson() => {
     'protocol_version': protocolVersion,
     'event_id': eventId,
-    'decision': decision.wireName,
-    'timestamp': timestamp.toUtc().toIso8601String(),
+    'reply_macro_id': decision.replyMacroId,
     'sequence': sequence,
-    if (comment != null) 'comment': comment!,
+    'timestamp': timestamp.toUtc().toIso8601String(),
+    'sender_id': senderId,
+    'return_route': returnRoute,
   };
 
   String serialize() => jsonEncode(toJson());
@@ -117,12 +124,14 @@ class OwnerNotificationDelivery {
     required this.messageId,
     required this.fragments,
     required this.expansions,
+    required this.returnRoute,
   });
 
   final String eventId;
   final String messageId;
   final List<OwnerNotificationFragment> fragments;
   final Map<String, EndpointMacroExpansion> expansions;
+  final String returnRoute;
 
   String get expandedText =>
       fragments.map((fragment) => fragment.expand(expansions)).join(' ');
@@ -134,6 +143,7 @@ class OwnerNotificationDelivery {
     }
     final rawFragments = _requiredList(notification, 'fragments');
     final rawExpansions = _requiredList(json, 'expansions');
+    final replyContext = _requiredMap(json, 'reply_context');
     final expansions = [
       for (final value in rawExpansions)
         EndpointMacroExpansion.fromJson(_asMap(value, 'expansion')),
@@ -153,6 +163,7 @@ class OwnerNotificationDelivery {
           OwnerNotificationFragment.fromJson(_asMap(value, 'fragment')),
       ],
       expansions: table,
+      returnRoute: _requiredOpaqueHandle(replyContext, 'return_route'),
     );
     delivery.expandedText;
     return delivery;
@@ -191,5 +202,15 @@ final _uuidPattern = RegExp(
 String _requiredUuid(Map<String, dynamic> json, String key) {
   final value = _requiredString(json, key);
   if (!_uuidPattern.hasMatch(value)) throw FormatException('$key must be a UUID');
+  return value;
+}
+
+final _opaqueHandlePattern = RegExp(r'^[A-Za-z0-9_-]{16,128}$');
+
+String _requiredOpaqueHandle(Map<String, dynamic> json, String key) {
+  final value = _requiredString(json, key);
+  if (!_opaqueHandlePattern.hasMatch(value)) {
+    throw FormatException('$key must be an opaque handle');
+  }
   return value;
 }

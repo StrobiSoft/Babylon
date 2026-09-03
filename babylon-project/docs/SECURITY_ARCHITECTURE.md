@@ -105,3 +105,18 @@ For the future BAB/Bishop-based DHP path, preserve the following security direct
 7. Do not claim that this layer protects a compromised endpoint after plaintext is legitimately displayed. Its purpose is to strengthen object/key separation, integrity binding and controlled key release during delivery.
 
 This direction is recorded now so later attachment/DHP integration does not accidentally choose a transport or key lifecycle that makes delayed key release difficult to add. It is not implementation authorization. The exact cryptographic primitive, fingerprint construction, key derivation/wrapping, endpoint authentication and recovery behaviour remain a mandatory decision gate.
+
+## Private owner-reply prototype boundary
+
+The owner-reply router is a private/test-only protocol core, not a Babylon production endpoint.
+Strict schema validation, a closed opaque reply-ID catalog, event/route/sender binding, monotonic
+sequence enforcement, terminal conflict detection, and serialized sink delivery fail closed in the
+local harness. Audit records hash the return route and canonical envelope and omit human expansion
+text. Opaque IDs and hashes are data minimization, not encryption or authorization.
+
+Production use requires an authenticated connection inside the existing private/Tailscale boundary,
+cryptographically random route handles, durable transactional route/replay/terminal state, atomic
+sink consumption, access-controlled retention, and a deployment-specific decision on keyed audit
+hashing. Until those controls exist, the adapter remains unregistered and must not be exposed through
+Fastify, a public bind, reverse proxy, or tunnel. The complete contract is
+[`OWNER_REPLY_BRIDGE.md`](OWNER_REPLY_BRIDGE.md).
