@@ -60,10 +60,13 @@ class OwnerNotificationController extends ChangeNotifier {
         case OwnerReplyDeliveryDisposition.accepted:
           final acceptedSequence = result.acceptedSequence;
           if (acceptedSequence != reply.sequence) {
-            throw StateError(
-              'Reply acknowledgement sequence mismatch: '
+            final error = OwnerReplyAmbiguousDeliveryException(
+              'acknowledgement sequence mismatch: '
               'sent ${reply.sequence}, accepted $acceptedSequence',
             );
+            _pendingAmbiguousReply = reply;
+            _lastError = error;
+            throw error;
           }
           _acceptReply(reply);
         case OwnerReplyDeliveryDisposition.rejected:
