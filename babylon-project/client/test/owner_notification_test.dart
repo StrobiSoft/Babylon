@@ -51,7 +51,7 @@ Map<String, dynamic> fixtureJson() => {
 };
 
 void main() {
-  final clock = () => DateTime.parse('2026-09-03T00:01:00.000Z');
+  DateTime clock() => DateTime.parse('2026-09-03T00:01:00.000Z');
 
   test(
     'parses IDs plus separate endpoint expansions and rejects missing data',
