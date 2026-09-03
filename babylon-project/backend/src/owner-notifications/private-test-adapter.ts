@@ -22,7 +22,7 @@ export class LocalPrivateOwnerReplyAdapter {
     return this.router.route(input);
   }
 
-  reconcile(lookup: OwnerReplyRouteLookup): Readonly<OwnerReplyRouteSnapshot> {
+  reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
     return this.router.reconcile(lookup);
   }
 }
@@ -34,7 +34,7 @@ export class LocalOwnerReplyTransport {
     await this.adapter.submit(serializeOwnerDecisionReply(reply));
   }
 
-  reconcile(lookup: OwnerReplyRouteLookup): Readonly<OwnerReplyRouteSnapshot> {
+  reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
     return this.adapter.reconcile(lookup);
   }
 }
