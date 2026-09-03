@@ -137,10 +137,18 @@ class OwnerNotificationCard extends StatelessWidget {
   static Widget _decisionButton({
     required Key key,
     required String label,
-    required VoidCallback? onPressed,
+    required Future<void> Function()? onPressed,
   }) => FilledButton(
     key: key,
-    onPressed: onPressed,
+    onPressed: onPressed == null
+        ? null
+        : () async {
+            try {
+              await onPressed();
+            } catch (_) {
+              // The controller exposes the transport failure as visible state.
+            }
+          },
     style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(60)),
     child: Text(label, textAlign: TextAlign.center),
   );

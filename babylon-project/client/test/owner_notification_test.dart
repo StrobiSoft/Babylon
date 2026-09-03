@@ -196,4 +196,24 @@ void main() {
       expect(transport.sent.map((reply) => reply.sequence), [0, 1]);
     },
   );
+
+  testWidgets('reply delivery failure is handled and rendered by the shell', (
+    tester,
+  ) async {
+    final transport = LocalOwnerReplyTransport(
+      onReply: (_) async => throw StateError('fixture delivery failure'),
+    );
+    await tester.pumpWidget(
+      OwnerNotificationTestShell(
+        delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
+        transport: transport,
+        senderId: senderId,
+        clock: clock,
+      ),
+    );
+    await tester.tap(find.byKey(const Key('owner-wait')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('owner-reply-error')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

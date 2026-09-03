@@ -77,8 +77,8 @@ interface RouteRecord extends OwnerReplyRouteRegistration {
 
 export interface OwnerReplyRouterOptions {
   readonly clock?: () => Date;
-  readonly audit?: (entry: OwnerReplyAuditEntry) => void;
-  readonly onAuditFailure?: (error: unknown) => void;
+  readonly audit?: (entry: OwnerReplyAuditEntry) => void | Promise<void>;
+  readonly onAuditFailure?: (error: unknown) => void | Promise<void>;
 }
 
 /**
@@ -90,8 +90,8 @@ export class OwnerReplyRouter {
   private readonly routeOwners = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
   private readonly clock: () => Date;
-  private readonly audit: (entry: OwnerReplyAuditEntry) => void;
-  private readonly onAuditFailure: (error: unknown) => void;
+  private readonly audit: (entry: OwnerReplyAuditEntry) => void | Promise<void>;
+  private readonly onAuditFailure: (error: unknown) => void | Promise<void>;
 
   constructor(options: OwnerReplyRouterOptions = {}) {
     this.clock = options.clock ?? (() => new Date());
@@ -290,7 +290,12 @@ export class OwnerReplyRouter {
       ...(errorCode === undefined ? {} : { errorCode }),
     };
     try {
-      this.audit(entry);
+      const result = this.audit(entry);
+      if (result !== undefined) {
+        void result.catch((error: unknown) => {
+          this.reportAuditFailure(error);
+        });
+      }
     } catch (error) {
       this.reportAuditFailure(error);
     }
@@ -298,7 +303,8 @@ export class OwnerReplyRouter {
 
   private reportAuditFailure(error: unknown): void {
     try {
-      this.onAuditFailure(error);
+      const result = this.onAuditFailure(error);
+      if (result !== undefined) void result.catch(() => undefined);
     } catch {
       // Audit reporting is out-of-band and must not make consumed decisions ambiguous.
     }

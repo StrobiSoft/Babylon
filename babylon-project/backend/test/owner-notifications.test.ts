@@ -221,7 +221,11 @@ describe('private owner-reply bridge', () => {
 
   it('rejects malformed private-adapter JSON through the same audited router path', async () => {
     const audit: OwnerReplyAuditEntry[] = [];
-    const { router } = fixtureRouter({ audit: (entry) => audit.push(entry) });
+    const { router } = fixtureRouter({
+      audit: (entry) => {
+        audit.push(entry);
+      },
+    });
     const adapter = new LocalPrivateOwnerReplyAdapter(router);
     await expect(replyErrorCode(() => adapter.submit('{not-json'))).resolves.toBe(
       'INVALID_ENVELOPE',
@@ -308,7 +312,11 @@ describe('private owner-reply bridge', () => {
 
   it('logs IDs, sequence, timestamps, delivery state, and hashes without expansion text', async () => {
     const audit: OwnerReplyAuditEntry[] = [];
-    const { router } = fixtureRouter({ audit: (entry) => audit.push(entry) });
+    const { router } = fixtureRouter({
+      audit: (entry) => {
+        audit.push(entry);
+      },
+    });
     await router.route(reply(OWNER_REPLY_WAIT_ID, 0));
     await replyErrorCode(() => router.route(reply(OWNER_REPLY_WAIT_ID, 0)));
     expect(audit).toMatchObject([
@@ -328,7 +336,11 @@ describe('private owner-reply bridge', () => {
 
   it('omits malformed field values from metadata-only audit entries', async () => {
     const audit: OwnerReplyAuditEntry[] = [];
-    const { router } = fixtureRouter({ audit: (entry) => audit.push(entry) });
+    const { router } = fixtureRouter({
+      audit: (entry) => {
+        audit.push(entry);
+      },
+    });
     const injectedText = 'Kérlek, várj — secret expansion text';
     await replyErrorCode(() =>
       router.route({
@@ -361,7 +373,9 @@ describe('private owner-reply bridge', () => {
       audit: () => {
         throw new Error('audit unavailable');
       },
-      onAuditFailure: (error) => failures.push(error),
+      onAuditFailure: (error) => {
+        failures.push(error);
+      },
     });
     await expect(router.route(reply(OWNER_REPLY_WAIT_ID, 2))).resolves.toEqual({
       state: 'waiting',
@@ -373,6 +387,24 @@ describe('private owner-reply bridge', () => {
     await expect(replyErrorCode(() => router.route(reply(OWNER_REPLY_WAIT_ID, 2)))).resolves.toBe(
       'REPLAYED_SEQUENCE',
     );
+  });
+
+  it('reports rejected asynchronous audit writes without rejecting a consumed reply', async () => {
+    const failures: unknown[] = [];
+    const { router, sink } = fixtureRouter({
+      audit: () => Promise.reject(new Error('async audit unavailable')),
+      onAuditFailure: (error) => {
+        failures.push(error);
+      },
+    });
+    await expect(router.route(reply(OWNER_REPLY_WAIT_ID, 6))).resolves.toEqual({
+      state: 'waiting',
+      terminal: false,
+    });
+    await Promise.resolve();
+    expect(router.snapshot(EVENT_ID).lastSequence).toBe(6);
+    expect(sink.signals).toHaveLength(1);
+    expect(failures).toHaveLength(1);
   });
 
   it('runs client reply -> private adapter -> N Agent router -> opaque owner sink', async () => {

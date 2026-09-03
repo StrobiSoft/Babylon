@@ -82,8 +82,9 @@ Audit entries contain available protocol/event/reply IDs, sequence, client/obser
 sender ID, SHA-256 route and canonical payload hashes, delivery state, and rejection code. They do
 not contain endpoint expansion text or route-handle plaintext. Deployment must still supply access
 control, retention, durable state, monitoring for the out-of-band `onAuditFailure` signal, and any
-keyed hashing required by its threat model. Audit callback failure cannot change a consumed reply
-into a client-visible delivery failure.
+keyed hashing required by its threat model. Synchronous throws and asynchronous audit-write
+rejections are both contained: audit failure cannot change a consumed reply into a client-visible
+delivery failure.
 
 ## Remaining private deployment prerequisite
 
