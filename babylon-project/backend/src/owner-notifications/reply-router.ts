@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { replyMacroCatalogById, type ReplyMacroEffect } from '../reply-macros/index.js';
 import {
   opaqueHandleSchema,
+  opaqueReplyMacroIdSchema,
   ownerDecisionReplySchema,
   serializeOwnerDecisionReply,
   type OwnerDecisionReply,
@@ -13,6 +14,7 @@ export type OwnerReplyErrorCode =
   | 'UNKNOWN_REPLY_MACRO_ID'
   | 'UNKNOWN_CORRELATION'
   | 'ROUTE_HANDLE_MISMATCH'
+  | 'ROUTE_REGISTRATION_CONFLICT'
   | 'SENDER_MISMATCH'
   | 'REPLAYED_SEQUENCE'
   | 'EVENT_TERMINAL'
@@ -76,6 +78,7 @@ interface RouteRecord extends OwnerReplyRouteRegistration {
 export interface OwnerReplyRouterOptions {
   readonly clock?: () => Date;
   readonly audit?: (entry: OwnerReplyAuditEntry) => void;
+  readonly onAuditFailure?: (error: unknown) => void;
 }
 
 /**
@@ -88,10 +91,12 @@ export class OwnerReplyRouter {
   private readonly queues = new Map<string, Promise<void>>();
   private readonly clock: () => Date;
   private readonly audit: (entry: OwnerReplyAuditEntry) => void;
+  private readonly onAuditFailure: (error: unknown) => void;
 
   constructor(options: OwnerReplyRouterOptions = {}) {
     this.clock = options.clock ?? (() => new Date());
     this.audit = options.audit ?? (() => undefined);
+    this.onAuditFailure = options.onAuditFailure ?? (() => undefined);
   }
 
   register(registration: OwnerReplyRouteRegistration): void {
@@ -111,7 +116,21 @@ export class OwnerReplyRouter {
     if (existing !== undefined && existing.returnRoute !== registration.returnRoute) {
       throw new OwnerReplyError('ROUTE_HANDLE_MISMATCH', 'event is already bound to another route');
     }
-    if (existing !== undefined) return;
+    if (existing !== undefined) {
+      const existingSenders = [...new Set(existing.allowedSenderIds)].sort();
+      const requestedSenders = [...new Set(registration.allowedSenderIds)].sort();
+      if (
+        existing.sink !== registration.sink ||
+        existingSenders.length !== requestedSenders.length ||
+        existingSenders.some((sender, index) => sender !== requestedSenders[index])
+      ) {
+        throw new OwnerReplyError(
+          'ROUTE_REGISTRATION_CONFLICT',
+          'event route is already registered with different bindings',
+        );
+      }
+      return;
+    }
     this.routes.set(registration.eventId, {
       ...registration,
       allowedSenderIds: [...new Set(registration.allowedSenderIds)],
@@ -239,27 +258,50 @@ export class OwnerReplyRouter {
     deliveryState: OwnerReplyAuditEntry['deliveryState'],
     errorCode?: OwnerReplyErrorCode,
   ): void {
+    let observedAt: string;
+    try {
+      observedAt = this.clock().toISOString();
+    } catch (error) {
+      this.reportAuditFailure(error);
+      return;
+    }
     const value =
       typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
-    const returnRoute =
-      typeof value['return_route'] === 'string' ? value['return_route'] : undefined;
-    this.audit({
-      ...(typeof value['protocol_version'] === 'string'
-        ? { protocolVersion: value['protocol_version'] }
-        : {}),
-      ...(typeof value['event_id'] === 'string' ? { eventId: value['event_id'] } : {}),
-      ...(typeof value['reply_macro_id'] === 'string'
-        ? { replyMacroId: value['reply_macro_id'] }
-        : {}),
-      ...(typeof value['sequence'] === 'number' ? { sequence: value['sequence'] } : {}),
-      ...(typeof value['sender_id'] === 'string' ? { senderId: value['sender_id'] } : {}),
-      ...(typeof value['timestamp'] === 'string' ? { clientTimestamp: value['timestamp'] } : {}),
-      observedAt: this.clock().toISOString(),
-      ...(returnRoute === undefined ? {} : { routeHash: sha256(returnRoute) }),
+    const protocolVersion = ownerDecisionReplySchema.shape.protocol_version.safeParse(
+      value['protocol_version'],
+    );
+    const eventId = ownerDecisionReplySchema.shape.event_id.safeParse(value['event_id']);
+    const replyMacroId = opaqueReplyMacroIdSchema.safeParse(value['reply_macro_id']);
+    const sequence = ownerDecisionReplySchema.shape.sequence.safeParse(value['sequence']);
+    const senderId = opaqueHandleSchema.safeParse(value['sender_id']);
+    const clientTimestamp = ownerDecisionReplySchema.shape.timestamp.safeParse(value['timestamp']);
+    const returnRoute = opaqueHandleSchema.safeParse(value['return_route']);
+    const entry: OwnerReplyAuditEntry = {
+      ...(protocolVersion.success ? { protocolVersion: protocolVersion.data } : {}),
+      ...(eventId.success ? { eventId: eventId.data } : {}),
+      ...(replyMacroId.success ? { replyMacroId: replyMacroId.data } : {}),
+      ...(sequence.success ? { sequence: sequence.data } : {}),
+      ...(senderId.success ? { senderId: senderId.data } : {}),
+      ...(clientTimestamp.success ? { clientTimestamp: clientTimestamp.data } : {}),
+      observedAt,
+      ...(returnRoute.success ? { routeHash: sha256(returnRoute.data) } : {}),
       payloadHash,
       deliveryState,
       ...(errorCode === undefined ? {} : { errorCode }),
-    });
+    };
+    try {
+      this.audit(entry);
+    } catch (error) {
+      this.reportAuditFailure(error);
+    }
+  }
+
+  private reportAuditFailure(error: unknown): void {
+    try {
+      this.onAuditFailure(error);
+    } catch {
+      // Audit reporting is out-of-band and must not make consumed decisions ambiguous.
+    }
   }
 
   private async serialized<T>(key: string, operation: () => Promise<T>): Promise<T> {

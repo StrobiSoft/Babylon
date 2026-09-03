@@ -14,6 +14,7 @@ import {
   serializeOwnerDecisionReply,
   type OwnerDecisionReply,
   type OwnerReplyAuditEntry,
+  type OwnerReplyRouterOptions,
   type OwnerWorkflowSignal,
   type OwnerWorkflowSink,
 } from '../src/owner-notifications/index.js';
@@ -31,6 +32,7 @@ const EVENT_ID = '10000000-0000-4000-8000-000000000001';
 const OTHER_EVENT_ID = '10000000-0000-4000-8000-000000000099';
 const MESSAGE_ID = '20000000-0000-4000-8000-000000000002';
 const SENDER_ID = 'install_7V3W9X2Y6Z8A4BCD';
+const OTHER_SENDER_ID = 'install_9X4Y7Z2A6B8C3DEF';
 const ROUTE = 'route_8R4T2V6W9X3Y7ZAB';
 
 function fragment(group: 'attention' | 'status' | 'reason', macroId: string): NotificationFragment {
@@ -96,7 +98,7 @@ class FailsOnceSink extends RecordingSink {
   }
 }
 
-function fixtureRouter(options: { audit?: (entry: OwnerReplyAuditEntry) => void } = {}) {
+function fixtureRouter(options: OwnerReplyRouterOptions = {}) {
   const sink = new RecordingSink();
   const router = new OwnerReplyRouter({
     clock: () => new Date('2026-09-03T00:02:00.000Z'),
@@ -121,7 +123,40 @@ async function replyErrorCode(operation: () => Promise<unknown>): Promise<string
   }
 }
 
+function synchronousReplyErrorCode(operation: () => unknown): string | undefined {
+  try {
+    operation();
+    return undefined;
+  } catch (error) {
+    expect(error).toBeInstanceOf(OwnerReplyError);
+    return (error as OwnerReplyError).code;
+  }
+}
+
 describe('private owner-reply bridge', () => {
+  it('makes identical route registration idempotent and rejects changed bindings', () => {
+    const sink = new RecordingSink();
+    const router = new OwnerReplyRouter();
+    const registration = {
+      eventId: EVENT_ID,
+      returnRoute: ROUTE,
+      allowedSenderIds: [SENDER_ID],
+      sink,
+    };
+    router.register(registration);
+    expect(() => router.register(registration)).not.toThrow();
+    expect(
+      synchronousReplyErrorCode(() =>
+        router.register({ ...registration, allowedSenderIds: [OTHER_SENDER_ID] }),
+      ),
+    ).toBe('ROUTE_REGISTRATION_CONFLICT');
+    expect(
+      synchronousReplyErrorCode(() =>
+        router.register({ ...registration, sink: new RecordingSink() }),
+      ),
+    ).toBe('ROUTE_REGISTRATION_CONFLICT');
+  });
+
   it.each([
     [OWNER_REPLY_OK_ID, 'approved', true, 'approve'],
     [OWNER_REPLY_NO_ID, 'rejected', true, 'reject'],
@@ -289,6 +324,55 @@ describe('private owner-reply bridge', () => {
     expect(audit[0]?.payloadHash).toMatch(/^[0-9a-f]{64}$/u);
     expect(audit[0]?.routeHash).toMatch(/^[0-9a-f]{64}$/u);
     expect(JSON.stringify(audit)).not.toContain('Kérlek, várj');
+  });
+
+  it('omits malformed field values from metadata-only audit entries', async () => {
+    const audit: OwnerReplyAuditEntry[] = [];
+    const { router } = fixtureRouter({ audit: (entry) => audit.push(entry) });
+    const injectedText = 'Kérlek, várj — secret expansion text';
+    await replyErrorCode(() =>
+      router.route({
+        ...reply(OWNER_REPLY_WAIT_ID),
+        event_id: injectedText,
+        reply_macro_id: injectedText,
+        timestamp: injectedText,
+        sender_id: injectedText,
+        return_route: injectedText,
+      }),
+    );
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      protocolVersion: '0.1',
+      sequence: 0,
+      deliveryState: 'rejected',
+      errorCode: 'INVALID_ENVELOPE',
+    });
+    expect(audit[0]).not.toHaveProperty('eventId');
+    expect(audit[0]).not.toHaveProperty('replyMacroId');
+    expect(audit[0]).not.toHaveProperty('senderId');
+    expect(audit[0]).not.toHaveProperty('clientTimestamp');
+    expect(audit[0]).not.toHaveProperty('routeHash');
+    expect(JSON.stringify(audit)).not.toContain(injectedText);
+  });
+
+  it('contains audit callback failures after owner-sink consumption', async () => {
+    const failures: unknown[] = [];
+    const { router, sink } = fixtureRouter({
+      audit: () => {
+        throw new Error('audit unavailable');
+      },
+      onAuditFailure: (error) => failures.push(error),
+    });
+    await expect(router.route(reply(OWNER_REPLY_WAIT_ID, 2))).resolves.toEqual({
+      state: 'waiting',
+      terminal: false,
+    });
+    expect(router.snapshot(EVENT_ID).lastSequence).toBe(2);
+    expect(sink.signals).toHaveLength(1);
+    expect(failures).toHaveLength(1);
+    await expect(replyErrorCode(() => router.route(reply(OWNER_REPLY_WAIT_ID, 2)))).resolves.toBe(
+      'REPLAYED_SEQUENCE',
+    );
   });
 
   it('runs client reply -> private adapter -> N Agent router -> opaque owner sink', async () => {

@@ -75,11 +75,15 @@ Validation order is stable: envelope/version, known reply ID, registered correla
 handle, allowed sender, monotonic sequence, then terminal state. Other deterministic codes are
 `INVALID_ENVELOPE`, `UNKNOWN_REPLY_MACRO_ID`, `UNKNOWN_CORRELATION`,
 `ROUTE_HANDLE_MISMATCH`, `SENDER_MISMATCH`, `REPLAYED_SEQUENCE`, and `DELIVERY_FAILED`.
+Conflicting re-registration of an existing event/route binding is
+`ROUTE_REGISTRATION_CONFLICT`; an exactly identical registration is idempotent.
 
 Audit entries contain available protocol/event/reply IDs, sequence, client/observed timestamps,
 sender ID, SHA-256 route and canonical payload hashes, delivery state, and rejection code. They do
 not contain endpoint expansion text or route-handle plaintext. Deployment must still supply access
-control, retention, durable state, and any keyed hashing required by its threat model.
+control, retention, durable state, monitoring for the out-of-band `onAuditFailure` signal, and any
+keyed hashing required by its threat model. Audit callback failure cannot change a consumed reply
+into a client-visible delivery failure.
 
 ## Remaining private deployment prerequisite
 
