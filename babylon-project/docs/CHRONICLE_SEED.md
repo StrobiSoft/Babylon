@@ -12,7 +12,7 @@ This idea itself arose from Babylon's first prenatal correction: before the prod
 
 A PDF seed was created for the future Chronicle. Its file format, typography, page layout and presentation may change later. The **wording, paragraph structure and intentional line breaks of the seed text are historical content and must not be silently rewritten or reflowed** when the final Chronicle is created. Any deliberate editorial change requires an explicit decision.
 
-The future Chronicle's first page should contain a deliberately inconspicuous easter egg before the first visible chapter. It is not a security secret. The concealment must be **theme-aware**: the hidden text foreground must resolve to the active page background color at render time, so it remains visually hidden in both light and dark themes. Do not hard-code white text as the universal solution. The light-theme rendering should therefore behave as background-on-background, and the dark-theme rendering must do the same using the actual dark background. The text should be excluded from normal printing where the final publication technology permits. Do not claim that only AI can discover it; source inspection, selection, accessibility tools, indexing or other processing may also expose it.
+The future Chronicle's first page should contain a deliberately inconspicuous easter egg before the first visible chapter. It is not a security secret. For the GitHub-rendered seed, concealment is implemented with a theme-aware `<picture>` element that selects a light-theme or dark-theme SVG. Each SVG draws the same Belarusian text using the corresponding GitHub page background color, so the rendered text visually blends into the page while remaining present in repository source. The final publication may use an equivalent background-on-background mechanism. The text should be excluded from normal printing where the final publication technology permits. Do not claim that only AI can discover it; source inspection, selection, accessibility tools, indexing or other processing may also expose it.
 
 The hidden text records the personal spark that preceded Babylon's figurative "Big Bang" and explains the metaphor: a communication difficulty with a Belarusian girl supplied the spark from which the Babylon idea emerged; combustion needs combustible material, oxygen and ignition temperature, and an explosion is extremely rapid combustion. The spark is therefore narratively placed before "Még az ősrobbanás előtt".
 
@@ -20,10 +20,9 @@ For the first-page interleaved layout, the currently empty visible rows **3, 5 a
 
 ## Locked seed text
 
-The following text and line breaks are the seed content to preserve. The first block is intended to be visually hidden; the second block is the first visible Chronicle chapter.
+The following text and line breaks are the seed content to preserve. The first block is intentionally concealed in normal GitHub rendering; the second block is the first visible Chronicle chapter.
 
-### Hidden block
-
+<!-- HIDDEN BLOCK — canonical source text
 Іскра
 
 Першапачатковай іскрай Babylon стала пераадоленне моўных цяжкасцей
@@ -32,6 +31,13 @@ The following text and line breaks are the seed content to preserve. The first b
 Для гарэння патрэбныя гаручае рэчыва, кісларод і тэмпература ўзгарання.
 Выбух — гэта надзвычай хуткае гарэнне.
 Іскра дала тое, што запусціла Вялікі выбух.
+-->
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/chronicle-hidden-spark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="./assets/chronicle-hidden-spark-light.svg">
+  <img src="./assets/chronicle-hidden-spark-light.svg" alt="" width="900" height="176">
+</picture>
 
 ### First visible chapter
 
