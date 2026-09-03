@@ -12,9 +12,11 @@ This idea itself arose from Babylon's first prenatal correction: before the prod
 
 A PDF seed was created for the future Chronicle. Its file format, typography, page layout and presentation may change later. The **wording, paragraph structure and intentional line breaks of the seed text are historical content and must not be silently rewritten or reflowed** when the final Chronicle is created. Any deliberate editorial change requires an explicit decision.
 
-The future Chronicle's first page should contain a deliberately inconspicuous easter egg before the first visible chapter. It is not a security secret. The intended presentation is white text on a white background (or an equivalent visually hidden treatment), so an ordinary reader sees only empty space while the text remains present in the document. It should be excluded from normal printing where the final publication technology permits. Do not claim that only AI can discover it; source inspection, selection, accessibility tools, indexing or other processing may also expose it.
+The future Chronicle's first page should contain a deliberately inconspicuous easter egg before the first visible chapter. It is not a security secret. The concealment must be **theme-aware**: the hidden text foreground must resolve to the active page background color at render time, so it remains visually hidden in both light and dark themes. Do not hard-code white text as the universal solution. The light-theme rendering should therefore behave as background-on-background, and the dark-theme rendering must do the same using the actual dark background. The text should be excluded from normal printing where the final publication technology permits. Do not claim that only AI can discover it; source inspection, selection, accessibility tools, indexing or other processing may also expose it.
 
 The hidden text records the personal spark that preceded Babylon's figurative "Big Bang" and explains the metaphor: a communication difficulty with a Belarusian girl supplied the spark from which the Babylon idea emerged; combustion needs combustible material, oxygen and ignition temperature, and an explosion is extremely rapid combustion. The spark is therefore narratively placed before "Még az ősrobbanás előtt".
+
+For the first-page interleaved layout, the currently empty visible rows **3, 5 and 7** are deliberately reserved for later wording. They must remain empty until that wording is explicitly decided, and no visible text may be placed on top of a row carrying the concealed text.
 
 ## Locked seed text
 
@@ -22,14 +24,14 @@ The following text and line breaks are the seed content to preserve. The first b
 
 ### Hidden block
 
-A szikra
+Іскра
 
-A Babylon eredeti szikrája egy belarusz lánnyal való kommunikáció
-nyelvi nehézségeinek leküzdése volt.
+Першапачатковай іскрай Babylon стала пераадоленне моўных цяжкасцей
+у зносінах з беларускай дзяўчынай.
 
-Az égéshez éghető anyag, oxigén és gyulladási hőmérséklet kell.
-A robbanás rendkívül gyors égés.
-A szikra szolgáltatta azt, ami az ősrobbanást elindította.
+Для гарэння патрэбныя гаручае рэчыва, кісларод і тэмпература ўзгарання.
+Выбух — гэта надзвычай хуткае гарэнне.
+Іскра дала тое, што запусціла Вялікі выбух.
 
 ### First visible chapter
 
