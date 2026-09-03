@@ -35,6 +35,30 @@ A mismatched accepted-sequence acknowledgement is converted to the same ambiguou
 being treated as a harmless client error. This preserves the pending reply so reconciliation can
 prove whether the server consumed it.
 
+## Private adapter response contracts
+
+The private adapter returns an explicit successful acknowledgement with exactly these fields:
+
+- `accepted_sequence`: the exact sequence consumed by the workflow sink;
+- `state`: `waiting`, `approved`, or `rejected`;
+- `terminal`: whether the accepted reply resolved the decision.
+
+The strict machine-readable contract is
+[`docs/schemas/owner-reply-acceptance-v0.1.schema.json`](schemas/owner-reply-acceptance-v0.1.schema.json).
+A client must treat a missing, malformed, out-of-range, or mismatched `accepted_sequence` as
+ambiguous, never as success.
+
+The route-state reconciliation response contains only:
+
+- `workflow`: `pending`, `waiting`, `approved`, or `rejected`;
+- `last_accepted_sequence`: the highest accepted sequence or `null`;
+- `last_accepted_reply_macro_id`: its canonical reply-macro ID or `null`.
+
+Its strict contract is
+[`docs/schemas/owner-reply-reconciliation-v0.1.schema.json`](schemas/owner-reply-reconciliation-v0.1.schema.json).
+The private adapter deliberately omits the router's internal terminal marker and all audit,
+expansion, prompt, result, route-owner, and transport metadata.
+
 ## Reconciliation snapshot
 
 `OwnerReplyTransport.reconcile` returns only the route-bound metadata needed for recovery:
@@ -72,8 +96,12 @@ acknowledgement: a server-proven unconsumed reply is retried at the same sequenc
 server-proven consumed `WAIT` is adopted before a later terminal reply uses the next sequence.
 
 `backend/test/owner-reply-reconciliation.test.ts` covers route/sender/capability binding, persisted
-last reply-macro metadata, the adapter seam, workflow-sink failure, and the ordering guarantee that
-a reconciliation read waits for an in-flight delivery to settle.
+last reply-macro metadata, explicit acceptance, bounded reconciliation, workflow-sink failure, and
+the ordering guarantee that a reconciliation read waits for an in-flight delivery to settle.
+
+`backend/test/owner-reply-response-schemas.test.ts` pins both response field sets, rejects extra
+properties through the schemas, and keeps the reconciliation macro IDs aligned with the canonical
+reply pack.
 
 ## Remaining runtime dependency
 
