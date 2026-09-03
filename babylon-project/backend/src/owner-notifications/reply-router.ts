@@ -196,7 +196,7 @@ export class OwnerReplyRouter {
     if (!eventResult.success || !routeResult.success || !senderResult.success) {
       throw new OwnerReplyError('INVALID_ENVELOPE', 'invalid reconciliation lookup');
     }
-    return this.serialized(lookup.eventId, async () => {
+    return this.serialized(lookup.eventId, () => {
       const route = this.routes.get(lookup.eventId);
       if (route === undefined) {
         throw new OwnerReplyError('UNKNOWN_CORRELATION', 'event correlation is not registered');
@@ -362,7 +362,7 @@ export class OwnerReplyRouter {
     }
   }
 
-  private async serialized<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  private async serialized<T>(key: string, operation: () => T | Promise<T>): Promise<T> {
     const previous = this.queues.get(key) ?? Promise.resolve();
     let release: () => void = () => undefined;
     const current = new Promise<void>((resolve) => {
