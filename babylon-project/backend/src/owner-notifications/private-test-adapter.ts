@@ -5,7 +5,6 @@ import {
 } from './protocol.js';
 import type {
   OwnerReplyRouteLookup,
-  OwnerReplyRouteSnapshot,
   OwnerReplyRouter,
   OwnerWorkflowState,
 } from './reply-router.js';
@@ -14,6 +13,12 @@ export interface OwnerReplyAcceptedResponse {
   readonly accepted_sequence: number;
   readonly state: OwnerWorkflowState;
   readonly terminal: boolean;
+}
+
+export interface OwnerReplyReconciliationResponse {
+  readonly workflow: OwnerWorkflowState;
+  readonly last_accepted_sequence: number | null;
+  readonly last_accepted_reply_macro_id: string | null;
 }
 
 /** Exact private/local adapter seam. Deliberately not mounted in backend/src/server.ts. */
@@ -36,8 +41,15 @@ export class LocalPrivateOwnerReplyAdapter {
     };
   }
 
-  reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
-    return this.router.reconcile(lookup);
+  async reconcile(
+    lookup: OwnerReplyRouteLookup,
+  ): Promise<Readonly<OwnerReplyReconciliationResponse>> {
+    const snapshot = await this.router.reconcile(lookup);
+    return {
+      workflow: snapshot.state,
+      last_accepted_sequence: snapshot.lastSequence ?? null,
+      last_accepted_reply_macro_id: snapshot.lastReplyMacroId ?? null,
+    };
   }
 }
 
@@ -48,7 +60,9 @@ export class LocalOwnerReplyTransport {
     return this.adapter.submit(serializeOwnerDecisionReply(reply));
   }
 
-  reconcile(lookup: OwnerReplyRouteLookup): Promise<Readonly<OwnerReplyRouteSnapshot>> {
+  reconcile(
+    lookup: OwnerReplyRouteLookup,
+  ): Promise<Readonly<OwnerReplyReconciliationResponse>> {
     return this.adapter.reconcile(lookup);
   }
 }
