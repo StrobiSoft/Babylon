@@ -131,6 +131,141 @@ void main() {
     },
   );
 
+  test('deterministic rejection does not consume the sequence', () async {
+    var calls = 0;
+    final transport = LocalOwnerReplyTransport(
+      onReply: (reply) async {
+        calls += 1;
+        if (calls == 1) {
+          return const OwnerReplyDeliveryResult.rejected(
+            code: 'SENDER_MISMATCH',
+          );
+        }
+        return OwnerReplyDeliveryResult.accepted(
+          acceptedSequence: reply.sequence,
+        );
+      },
+    );
+    final controller = OwnerNotificationController(
+      delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
+      transport: transport,
+      senderId: senderId,
+      clock: clock,
+    );
+
+    await expectLater(
+      controller.submit(OwnerDecision.wait),
+      throwsA(isA<OwnerReplyRejectedException>()),
+    );
+    expect(controller.needsReconciliation, isFalse);
+    await controller.submit(OwnerDecision.wait);
+    expect(transport.attempted.map((reply) => reply.sequence), [0, 0]);
+    expect(transport.sent.single.sequence, 0);
+    expect(controller.state, OwnerNotificationState.waiting);
+  });
+
+  test(
+    'ambiguous accepted reply is reconciled before a higher sequence is used',
+    () async {
+      var calls = 0;
+      final transport = LocalOwnerReplyTransport(
+        onReply: (reply) async {
+          calls += 1;
+          if (calls == 1) {
+            return const OwnerReplyDeliveryResult.ambiguous(
+              message: 'connection closed before acknowledgement',
+            );
+          }
+          return OwnerReplyDeliveryResult.accepted(
+            acceptedSequence: reply.sequence,
+          );
+        },
+        onReconcile: ({
+          required eventId,
+          required senderId,
+          required returnRoute,
+        }) async {
+          return const OwnerReplyRemoteSnapshot(
+            state: OwnerReplyRemoteState.waiting,
+            lastSequence: 0,
+            lastReplyMacroId: ownerReplyWaitId,
+          );
+        },
+      );
+      final controller = OwnerNotificationController(
+        delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
+        transport: transport,
+        senderId: senderId,
+        clock: clock,
+      );
+
+      await expectLater(
+        controller.submit(OwnerDecision.wait),
+        throwsA(isA<OwnerReplyAmbiguousDeliveryException>()),
+      );
+      expect(controller.state, OwnerNotificationState.pending);
+      expect(controller.needsReconciliation, isTrue);
+      await expectLater(
+        controller.submit(OwnerDecision.approve),
+        throwsStateError,
+      );
+
+      await controller.reconcilePendingReply();
+      expect(controller.needsReconciliation, isFalse);
+      expect(controller.state, OwnerNotificationState.waiting);
+      expect(controller.lastReply?.decision, OwnerDecision.wait);
+
+      await controller.submit(OwnerDecision.approve);
+      expect(transport.attempted.map((reply) => reply.sequence), [0, 1]);
+      expect(controller.state, OwnerNotificationState.approved);
+    },
+  );
+
+  test(
+    'ambiguous unconsumed reply is retried with the same sequence after reconciliation',
+    () async {
+      var calls = 0;
+      final transport = LocalOwnerReplyTransport(
+        onReply: (reply) async {
+          calls += 1;
+          if (calls == 1) {
+            return const OwnerReplyDeliveryResult.ambiguous();
+          }
+          return OwnerReplyDeliveryResult.accepted(
+            acceptedSequence: reply.sequence,
+          );
+        },
+        onReconcile: ({
+          required eventId,
+          required senderId,
+          required returnRoute,
+        }) async {
+          return const OwnerReplyRemoteSnapshot(
+            state: OwnerReplyRemoteState.pending,
+            lastSequence: null,
+            lastReplyMacroId: null,
+          );
+        },
+      );
+      final controller = OwnerNotificationController(
+        delivery: OwnerNotificationDelivery.fromJson(fixtureJson()),
+        transport: transport,
+        senderId: senderId,
+        clock: clock,
+      );
+
+      await expectLater(
+        controller.submit(OwnerDecision.wait),
+        throwsA(isA<OwnerReplyAmbiguousDeliveryException>()),
+      );
+      await controller.reconcilePendingReply();
+      await controller.submit(OwnerDecision.wait);
+
+      expect(transport.attempted.map((reply) => reply.sequence), [0, 0]);
+      expect(controller.state, OwnerNotificationState.waiting);
+    },
+  );
+
   testWidgets('local fixture renders and sends all three structured owner decisions', (
     tester,
   ) async {
@@ -143,6 +278,9 @@ void main() {
       final transport = LocalOwnerReplyTransport(
         onReply: (reply) async {
           receivedWire = jsonDecode(reply.serialize()) as Map<String, dynamic>;
+          return OwnerReplyDeliveryResult.accepted(
+            acceptedSequence: reply.sequence,
+          );
         },
       );
       await tester.pumpWidget(
