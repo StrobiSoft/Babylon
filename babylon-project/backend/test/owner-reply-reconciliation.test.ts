@@ -62,48 +62,42 @@ function errorCode(operation: () => unknown): string | undefined {
 }
 
 describe('owner reply route-bound reconciliation', () => {
-  it(
-    'records the last non-terminal macro so a lost WAIT acknowledgement can be proven',
-    async () => {
-      const router = routerWith(new RecordingSink());
-      await router.route(reply(OWNER_REPLY_WAIT_ID, 4));
+  it('records the last non-terminal macro so a lost WAIT acknowledgement can be proven', async () => {
+    const router = routerWith(new RecordingSink());
+    await router.route(reply(OWNER_REPLY_WAIT_ID, 4));
 
-      expect(
-        router.reconcile({
-          eventId: EVENT_ID,
-          returnRoute: ROUTE,
-          senderId: SENDER_ID,
-        }),
-      ).toEqual({
-        state: 'waiting',
-        lastSequence: 4,
-        lastReplyMacroId: OWNER_REPLY_WAIT_ID,
-        terminalMacroId: undefined,
-      });
-    },
-  );
+    expect(
+      router.reconcile({
+        eventId: EVENT_ID,
+        returnRoute: ROUTE,
+        senderId: SENDER_ID,
+      }),
+    ).toEqual({
+      state: 'waiting',
+      lastSequence: 4,
+      lastReplyMacroId: OWNER_REPLY_WAIT_ID,
+      terminalMacroId: undefined,
+    });
+  });
 
-  it(
-    'returns terminal state and the exact last accepted macro after a later decision',
-    async () => {
-      const router = routerWith(new RecordingSink());
-      await router.route(reply(OWNER_REPLY_WAIT_ID, 0));
-      await router.route(reply(OWNER_REPLY_OK_ID, 1));
+  it('returns terminal state and the exact last accepted macro after a later decision', async () => {
+    const router = routerWith(new RecordingSink());
+    await router.route(reply(OWNER_REPLY_WAIT_ID, 0));
+    await router.route(reply(OWNER_REPLY_OK_ID, 1));
 
-      expect(
-        router.reconcile({
-          eventId: EVENT_ID,
-          returnRoute: ROUTE,
-          senderId: SENDER_ID,
-        }),
-      ).toEqual({
-        state: 'approved',
-        lastSequence: 1,
-        lastReplyMacroId: OWNER_REPLY_OK_ID,
-        terminalMacroId: OWNER_REPLY_OK_ID,
-      });
-    },
-  );
+    expect(
+      router.reconcile({
+        eventId: EVENT_ID,
+        returnRoute: ROUTE,
+        senderId: SENDER_ID,
+      }),
+    ).toEqual({
+      state: 'approved',
+      lastSequence: 1,
+      lastReplyMacroId: OWNER_REPLY_OK_ID,
+      terminalMacroId: OWNER_REPLY_OK_ID,
+    });
+  });
 
   it('requires the exact route capability and allowed sender binding', () => {
     const router = routerWith(new RecordingSink());
