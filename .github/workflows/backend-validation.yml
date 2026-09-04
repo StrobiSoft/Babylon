@@ -1,15 +1,10 @@
 name: Backend validation
 
-# PR #23 final validation retrigger.
+# This workflow must run for every pull request because `validate-backend`
+# is a required status check on `main`. Path-filtering the workflow itself
+# can leave docs-only PRs permanently waiting for an expected check.
 on:
   pull_request:
-    paths:
-      - 'babylon-project/backend/**'
-      - 'babylon-project/package.json'
-      - 'babylon-project/package-lock.json'
-      - 'babylon-project/eslint.config.js'
-      - 'babylon-project/vitest.config.ts'
-      - '.github/workflows/backend-validation.yml'
   workflow_dispatch:
 
 jobs:
