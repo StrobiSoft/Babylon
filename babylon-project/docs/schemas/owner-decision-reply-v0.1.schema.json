@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://babylon.invalid/schemas/owner-decision-reply-v0.1.schema.json",
+  "title": "Owner decision reply v0.1",
+  "description": "IDs-only reply envelope for the private N Agent owner-decision bridge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "event_id",
+    "reply_macro_id",
+    "sequence",
+    "timestamp",
+    "sender_id",
+    "return_route"
+  ],
+  "properties": {
+    "protocol_version": {
+      "const": "0.1",
+      "description": "Wire protocol and schema version."
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Correlation ID of the originating decision request."
+    },
+    "reply_macro_id": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "enum": [
+        "01K4J8Q2N6C9R5T3V7W0X1YBZA",
+        "01K4J9R3P7D0S6V2W8X1Y5ZBCA",
+        "01K4JAT4Q8E1R7W3X9Y2Z6ABCD"
+      ],
+      "description": "Opaque ID from the reply macro pack; never a display label."
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483647,
+      "description": "Strictly monotonic per event and sender binding."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sender_id": {
+      "$ref": "#/$defs/opaqueHandle",
+      "description": "Opaque client installation or sender handle."
+    },
+    "return_route": {
+      "$ref": "#/$defs/opaqueHandle",
+      "description": "Opaque capability-style correlation handle supplied with the request."
+    }
+  },
+  "$defs": {
+    "opaqueHandle": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    }
+  },
+  "examples": [
+    {
+      "protocol_version": "0.1",
+      "event_id": "10000000-0000-4000-8000-000000000001",
+      "reply_macro_id": "01K4JAT4Q8E1R7W3X9Y2Z6ABCD",
+      "sequence": 0,
+      "timestamp": "2026-09-03T00:01:00.000Z",
+      "sender_id": "install_7V3W9X2Y6Z8A4BCD",
+      "return_route": "route_8R4T2V6W9X3Y7ZAB"
+    }
+  ]
+}

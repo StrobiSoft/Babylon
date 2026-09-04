@@ -14,6 +14,7 @@ Ez a könyvtár önálló Babylon-alkalmazás. Nem része és nem függ a szomsz
 - `docs/AUTH_STATE_MACHINE.md`: a normatív hitelesítési állapotgép.
 - `docs/ARCHITECTURE.md`: architekturális és biztonsági döntések.
 - `docs/SECURITY_ARCHITECTURE.md`: threat model, lifecycle-ok, recovery és adatminimalizálás.
+- `docs/NOTIFICATION_MACRO_CORE.md`: a hordozható v0.1 értesítési makrók, wire-séma és determinisztikus összeállítás.
 - `docs/openapi.yaml`: OpenAPI 3.1 API-szerződés.
 - `compose.yaml`: PostgreSQL 17.10, Mailpit 1.30 és a backend helyi környezete.
 

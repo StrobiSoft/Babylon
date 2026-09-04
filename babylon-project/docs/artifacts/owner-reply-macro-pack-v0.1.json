@@ -1,0 +1,36 @@
+{
+  "pack_version": "0.1.0",
+  "protocol_version": "0.1",
+  "macros": [
+    {
+      "id": "01K4J8Q2N6C9R5T3V7W0X1YBZA",
+      "version": "0.1.0",
+      "client_action": "confirm",
+      "terminal": true,
+      "labels": {
+        "en": "OK",
+        "hu": "Mehet"
+      }
+    },
+    {
+      "id": "01K4J9R3P7D0S6V2W8X1Y5ZBCA",
+      "version": "0.1.0",
+      "client_action": "decline",
+      "terminal": true,
+      "labels": {
+        "en": "No",
+        "hu": "Semmiképp"
+      }
+    },
+    {
+      "id": "01K4JAT4Q8E1R7W3X9Y2Z6ABCD",
+      "version": "0.1.0",
+      "client_action": "pause",
+      "terminal": false,
+      "labels": {
+        "en": "Please wait",
+        "hu": "Kérlek, várj"
+      }
+    }
+  ]
+}

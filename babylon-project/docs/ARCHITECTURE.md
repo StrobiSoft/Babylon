@@ -43,3 +43,12 @@ The authenticated delivery API stores only sender/recipient routing identifiers,
 The delivery contract deliberately knows `transport-v1`, not message text or translation fields. The current client encoder is a replaceable boundary adapter. A later independently audited E2EE/session layer can supply ciphertext through that interface without changing idempotency, routing, acknowledgement, expiry, or retry semantics. This boundary is not an encryption claim and introduces no bespoke cryptographic protocol. Client content remains protected by the existing AES-GCM outbox storage until explicit acknowledgement or documented terminal expiry/failure policy. Payload fields are explicitly redacted from request logs.
 
 Inbound processing uses a durable `registered` → `completed` receipt ledger and a content consumer that must itself transactionally deduplicate on sender/request identity. Completion is persisted before ACK, so an ACK retry cannot repeat user-visible consumption. Receipts contain no payload and remain through the server expiry plus a one-day late-delivery grace period; old ledger formats receive a conservative eight-day migration horizon. Expired entries are pruned on startup/inbound activity, while the identity currently being handled is excluded from that cleanup boundary.
+
+## Private owner-decision reply bridge
+
+The test-only N Agent reply core is specified in [`OWNER_REPLY_BRIDGE.md`](OWNER_REPLY_BRIDGE.md).
+It validates an IDs-only reply envelope, binds event correlation to an opaque return route and
+installation handle, serializes per-event consumption, and delivers an opaque-ID workflow signal.
+Human reply labels are endpoint-only expansion data. The adapter is not mounted in the Babylon HTTP
+server and adds no runtime listener, database table, route, credential, reverse proxy, or public
+exposure. Durable private deployment remains an explicit prerequisite.
