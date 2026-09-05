@@ -24,6 +24,7 @@ build/
 *.apk
 *.aab
 *.log
+load-results/
 
 # Local IDE and platform configuration.
 .idea/
