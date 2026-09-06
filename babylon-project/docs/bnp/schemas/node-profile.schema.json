@@ -105,29 +105,18 @@
     "declared_endpoints": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/endpoint"
+        "$ref": "#/$defs/declared_endpoint"
       }
     },
     "runtime_endpoints": {
       "type": "array",
       "items": {
-        "allOf": [
-          { "$ref": "#/$defs/endpoint" },
-          {
-            "type": "object",
-            "required": ["observed_state"],
-            "properties": {
-              "observed_state": {
-                "enum": ["unknown", "up", "down", "degraded"]
-              }
-            }
-          }
-        ]
+        "$ref": "#/$defs/runtime_endpoint"
       }
     }
   },
   "$defs": {
-    "endpoint": {
+    "declared_endpoint": {
       "type": "object",
       "additionalProperties": false,
       "required": ["endpoint_id", "transport", "address"],
@@ -150,6 +139,35 @@
         "interface_id": {
           "type": "string",
           "maxLength": 128
+        }
+      }
+    },
+    "runtime_endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint_id", "transport", "address", "observed_state"],
+      "properties": {
+        "endpoint_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "transport": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "interface_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "observed_state": {
+          "enum": ["unknown", "up", "down", "degraded"]
         }
       }
     }
