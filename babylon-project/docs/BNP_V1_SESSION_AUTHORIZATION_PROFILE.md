@@ -1,170 +1,78 @@
-# BNP v1 Session Authorization Profile
+# BNP v1 Session Authorization Contract
 
-Status: DRAFT — owner-approved authorization model, package contents not yet frozen
+Status: DRAFT — public interoperability contract
 
 ## 1. Purpose
 
-This profile defines how authenticated BNP nodes acquire effective authority for a connection/session.
+This document defines only the public authorization guarantees required for BNP interoperability.
 
-The core rule is deliberately conservative:
+Deployment-specific authorization packages, exact privilege-transition points, recovery policy, node-to-role assignments, local handler mappings, and diagnostic rules are intentionally outside the public protocol contract.
 
-> Authentication opens the door; authorization decides what the node may do after entering.
+BNP security MUST NOT depend on those deployment details remaining secret.
 
-Possession of an enrolled key, discovery of an endpoint, reconnection of a previously privileged node, or presentation of privilege claims MUST NOT by itself activate elevated authority.
+## 2. Authentication is not authorization
 
-## 2. Identity eligibility before baseline access
+Successful cryptographic authentication proves possession of an eligible enrolled key for a logical node. It does not, by itself, grant unrestricted state access or command authority.
 
-`BASIC-1` is not anonymous access.
+Every protected operation remains subject to authorization after authentication.
 
-Before a session can receive any BNP authorization package, the peer MUST:
+Unknown, invalid, revoked, or otherwise ineligible identities fail closed.
 
-1. present a syntactically valid BNP request/handshake;
-2. resolve to an enrolled logical `node_id`;
-3. prove possession of an eligible enrolled private key;
-4. pass node/key lifecycle checks;
-5. pass recipient/trust-domain checks required by the deployment.
+## 3. Session authority is deployment-controlled
 
-Unknown, invalid, revoked, or otherwise non-eligible peers are denied and receive no BNP baseline authority.
+A BNP implementation MUST NOT assume that authority from a previous connection or session automatically becomes effective in a later one.
 
-## 3. Connection reset invariant
+Deployments MAY re-evaluate, reduce, suspend, replace, or require renewed approval for effective authority across connection, lifecycle, policy, or recovery transitions.
 
-Every successfully authenticated eligible BNP connection/session MUST begin with:
+A peer-supplied role, privilege claim, endpoint, command identifier, or previous success MUST NOT by itself activate additional authority.
 
-```text
-effective_profile = BASIC-1
-```
+## 4. Authorization profiles
 
-This rule applies regardless of:
+Deployments MAY represent permission sets as versioned profiles/packages rather than ad-hoc capability lists.
 
-- the node's prior session authority;
-- its durable assigned role/profile;
-- permissions claimed by the peer;
-- the key used to authenticate;
-- whether the node is reconnecting after a normal disconnect, restart, or reversible suspension.
+The exact names, contents, assignment rules, transition rules, and activation policy of those profiles are deployment configuration rather than BNP wire-level requirements.
 
-Incoming privilege claims MUST NOT increase `effective_profile`.
+Independent implementations therefore must not rely on a specific public role vocabulary.
 
-A reconnect is therefore a privilege reset point.
+## 5. Elevated authority
 
-## 4. Assigned versus effective authority
+If a deployment supports authority above its normal baseline, activation of that authority requires an explicit policy decision after identity has been established.
 
-BNP distinguishes durable policy assignment from currently active authority.
+The mechanism may depend on deployment policy, current lifecycle state, operator approval, time bounds, current task scope, or other local controls.
 
-Conceptually:
+Failure, ambiguity, expiry, or denial MUST fail closed rather than silently activating broader authority.
 
-```text
-assigned_profile  = policy package approved for the logical node/work role
-effective_profile = package currently active for this authenticated session
-```
-
-Example:
-
-```text
-node_id: <opaque node id>
-assigned_profile: WORKER@2
-effective_profile: BASIC-1
-```
-
-After a successful step-up decision:
-
-```text
-assigned_profile: WORKER@2
-effective_profile: WORKER@2
-```
-
-The two fields MUST NOT be treated as synonyms.
-
-## 5. Versioned permission packages
-
-Permission packages are stored as versioned descriptors and assigned by reference rather than by copying ad-hoc capability lists into transient sessions.
-
-A package descriptor SHOULD be able to define at least:
-
-```text
-profile_id
-profile_version
-capabilities[]
-visibility_scope[]
-command_tables[]
-constraints[]
-resume_policy
-session_policy
-```
-
-Possible package names such as `BASIC-1`, `WORKER`, `SUPERVISOR`, `BENCHMARK`, or `MAINTENANCE` are deployment vocabulary, not automatically granted protocol roles.
-
-The exact capability contents of `BASIC-1` remain an explicit freeze item. The package MUST be minimal and MUST NOT include broad execution or administrative authority.
-
-## 6. Step-up authorization
-
-Elevated authority requires a separate post-authentication authorization decision.
-
-A conforming implementation MUST NOT infer step-up merely because:
-
-- the node had elevated authority previously;
-- the presented key was previously associated with a privileged node;
-- the node advertises a role;
-- the node knows a command-table or command identifier;
-- the node reconnects from a previously known endpoint.
-
-Step-up evaluates the current policy for the authenticated logical node and session.
-
-Conceptual flow:
-
-```text
-CONNECT
-  -> AUTHENTICATE IDENTITY
-  -> BASIC-1
-  -> STEP-UP POLICY EVALUATION
-  -> APPROVED PROFILE OR REMAIN BASIC-1
-```
-
-A denied, unavailable, expired, or ambiguous step-up decision leaves the session at `BASIC-1`.
-
-## 7. Suspension and fast resume
+## 6. Suspension and revocation
 
 `suspended` is reversible and distinct from `revoked`.
 
-A suspended logical node MAY preserve:
+A deployment MAY preserve logical identity and selected configuration for a suspended node so it can return without full reprovisioning, but suspension does not imply continued elevated authority.
 
-- `node_id`;
-- enrolled key/fingerprint metadata subject to lifecycle policy;
-- assigned permission profile;
-- interfaces and profile metadata;
-- replay/idempotency state;
-- bounded routing/endpoint metadata allowed by policy.
+A revoked node/key is not eligible for ordinary authorization recovery and fails closed until an explicit enrollment/recovery process establishes new eligible identity material.
 
-Suspension MUST disable ordinary elevated authority.
+## 7. Replay state survives authorization transitions
 
-On reconnection, even a previously elevated suspended node starts at `BASIC-1` after successful authentication.
+Connection changes, process restart, authorization downgrade, suspension, or policy re-evaluation MUST NOT erase replay/idempotency state required to prevent duplicate unsafe COMMAND execution.
 
-The previously assigned profile may then be reactivated through step-up policy without reprovisioning the node from scratch.
+An authorization transition never makes an already processed unsafe request executable again.
 
-Security-sensitive suspension reasons MAY require stronger recovery such as explicit operator approval or re-key before any elevated profile can become effective.
+## 8. Information minimization
 
-## 8. Revocation
+BNP error responses SHOULD expose only the information required for interoperable behavior.
 
-Revocation is not a fast-resume state.
+Implementations MAY keep richer internal audit reasons than they return to the peer. They are not required to disclose deployment-specific authorization branches, role mappings, recovery conditions, or policy transition details.
 
-A revoked node/key fails closed before baseline access and cannot regain authority through ordinary session step-up.
+This is information minimization, not a substitute for cryptographic authentication, authorization, replay protection, or host-local privilege enforcement.
 
-Recovery from revocation requires an explicit enrollment/recovery process defined outside ordinary reconnect semantics.
+## 9. Authorization evaluation
 
-## 9. Replay preservation across reset and suspension
-
-Connection reset, reconnect, process restart, profile downgrade, and suspension MUST NOT erase replay state needed to prevent duplicate unsafe COMMAND execution.
-
-Returning to `BASIC-1` never makes an already processed message executable again.
-
-## 10. Authorization evaluation
-
-For each operation the effective authority is conceptually bounded by all applicable gates:
+For each protected operation, the effective decision is bounded by all applicable gates, including:
 
 ```text
 protocol validity
 AND authenticated eligible identity
 AND lifecycle state
-AND session effective_profile
+AND deployment authorization policy
 AND operation capability
 AND visibility scope
 AND command-table/version policy
@@ -174,46 +82,22 @@ AND current state guards
 
 Failure of any required gate results in deny/fail-closed behavior.
 
-## 11. Permission package changes
+## 10. Public conformance requirements
 
-Changing the contents or meaning of a package SHOULD create a new profile version rather than silently mutating historical semantics when compatibility or auditability would be affected.
+The BNP v1 conformance suite MUST prove at least that:
 
-A node's `assigned_profile` may be changed by an authorized policy decision. Existing sessions SHOULD NOT silently gain newly added authority without an explicit step-up/re-evaluation event.
+1. forged or invalid authentication cannot obtain protected access;
+2. revoked identity material fails closed;
+3. peer-supplied privilege claims cannot increase authority by themselves;
+4. knowledge of a command ID or table does not grant capability;
+5. protected operations are authorized independently from authentication;
+6. denied or ambiguous authority elevation fails closed;
+7. replay protection remains effective across reconnect/restart/lifecycle transitions;
+8. host-local policy can still deny an operation otherwise allowed by BNP-level policy;
+9. external errors do not need to reveal private deployment authorization topology.
 
-## 12. Optional leases
+## 11. Public/private boundary
 
-Deployments MAY make elevated effective profiles time-bounded leases.
+The public BNP specification SHOULD document security invariants and interoperability behavior, but SHOULD NOT require publication of a deployment's exact authorization packages, privilege-transition logic, recovery thresholds, node assignments, local execution bindings, or internal diagnostic map.
 
-If a lease expires, effective authority MUST fall back to `BASIC-1` or terminate the session according to deployment policy; it MUST NOT continue elevated authority implicitly.
-
-Lease duration and whether elevated profiles are always leased remain deployment/profile decisions and are not yet BNP v1 core requirements.
-
-## 13. Conformance requirements
-
-The BNP v1 conformance suite MUST include negative tests proving at least:
-
-1. unknown key gets no `BASIC-1` access;
-2. revoked key gets no `BASIC-1` access;
-3. authenticated privileged node reconnects as `BASIC-1`;
-4. peer-supplied privilege claims do not change effective authority;
-5. prior elevated session authority is not inherited by a new session;
-6. step-up denial leaves the node at `BASIC-1`;
-7. approved step-up activates only the approved versioned package;
-8. suspension preserves assigned profile but reconnect begins at `BASIC-1`;
-9. security-sensitive suspension can require approval/re-key;
-10. replay state survives reconnect/suspension/profile reset;
-11. knowledge of command IDs does not grant capability;
-12. host-local policy can still deny an operation permitted by BNP profile policy.
-
-## 14. Open freeze items
-
-The following remain to be decided explicitly:
-
-- exact `BASIC-1` capability/visibility contents;
-- mandatory versus optional lease behavior for elevated profiles;
-- exact step-up handshake/messages;
-- profile descriptor schema and digest/version semantics;
-- automatic reactivation rules for non-security suspension reasons;
-- approval/re-key rules for security-sensitive suspension reasons.
-
-No implementation may use these open items to grant broader authority by default.
+Those details may remain private without weakening the public protocol contract.
