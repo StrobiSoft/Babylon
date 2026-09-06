@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bnp.invalid/schema/v1/command-crate.schema.json",
+  "title": "BNP v1 Command Crate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["crate_id", "crate_version", "protocol", "tables"],
+  "properties": {
+    "crate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "crate_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "protocol": {
+      "const": "BNP/1"
+    },
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/table"
+      }
+    }
+  },
+  "$defs": {
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table_id", "table_version", "visibility", "commands"],
+      "properties": {
+        "table_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "table_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "visibility": {
+          "enum": ["public", "private"]
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/command"
+          }
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "required_capability",
+        "execution_semantics",
+        "parameters",
+        "result_contract",
+        "deprecated"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "required_capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "execution_semantics": {
+          "enum": ["idempotent", "at-most-once", "state-checked"]
+        },
+        "parameters": {
+          "type": "null"
+        },
+        "result_contract": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "deprecated": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
