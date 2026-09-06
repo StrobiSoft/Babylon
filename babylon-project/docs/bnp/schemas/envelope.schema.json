@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bnp.invalid/schema/v1/envelope.schema.json",
+  "title": "BNP v1 Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bnp",
+    "kind",
+    "message_id",
+    "from",
+    "to",
+    "issued_at",
+    "expires_at",
+    "key_fingerprint",
+    "body",
+    "signature"
+  ],
+  "properties": {
+    "bnp": {
+      "const": "1"
+    },
+    "kind": {
+      "enum": [
+        "wake",
+        "read",
+        "read_result",
+        "command",
+        "command_result",
+        "ack",
+        "error"
+      ]
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128
+    },
+    "from": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "to": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "key_fingerprint": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 256
+    },
+    "body": {
+      "type": "object"
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 512
+    }
+  }
+}
