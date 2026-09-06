@@ -36,7 +36,7 @@ case=r'''  babylon-bench-series-summary)
       ROOT=/srv/noemi-babylon-lab/results/b1-a-b-20260906
       for label in b1 a b; do
         dir="$ROOT/$label"
-        f="$(find "$dir" -maxdepth 1 -type f -name "*.csv" | sort | head -1)"
+        f="$(find "$dir" -maxdepth 1 -type f -name "*.csv" | sort | tail -1)"
         test -n "$f"
         echo "=== ${label^^} ==="
         cat "$f"
