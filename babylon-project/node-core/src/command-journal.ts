@@ -40,6 +40,14 @@ export interface CommandReceiveInput {
   receivedAtMs: number;
 }
 
+export interface CommandStartInput {
+  senderNodeId: string;
+  messageId: string;
+  envelopeDigest: string;
+  attemptId: string;
+  validUntilMs: number;
+}
+
 export type CommandReceiveResult =
   | { kind: 'fresh'; entry: CommandJournalEntry }
   | { kind: 'duplicate'; entry: CommandJournalEntry }
@@ -50,10 +58,18 @@ export type CommandTransitionResult =
   | { kind: 'stale'; entry: CommandJournalEntry }
   | { kind: 'conflict'; entry: CommandJournalEntry };
 
+export type CommandStartResult =
+  | CommandTransitionResult
+  | { kind: 'expired'; entry: CommandJournalEntry };
+
 /**
  * Durable source of truth for COMMAND replay identity and execution state.
  *
  * A production implementation must make receive/start/terminal transitions atomic.
+ * `start` must obtain its transition time from the durable store's authoritative
+ * clock and enforce `validUntilMs` in the same atomic operation that commits
+ * STARTED. It must return `expired` without changing a RECEIVED entry when that
+ * transition time is later than the deadline.
  * `terminal` is immutable, and transition methods must reject stale attempt IDs.
  * Non-terminal entries MUST NOT be evicted solely because `retainUntilMs` passed;
  * otherwise the system could forget an unresolved effect and admit a duplicate.
@@ -68,13 +84,7 @@ export interface CommandJournal {
 
   receive(input: CommandReceiveInput): Promise<CommandReceiveResult>;
 
-  start(
-    senderNodeId: string,
-    messageId: string,
-    envelopeDigest: string,
-    attemptId: string,
-    startedAtMs: number,
-  ): Promise<CommandTransitionResult>;
+  start(input: CommandStartInput): Promise<CommandStartResult>;
 
   markIndeterminate(
     senderNodeId: string,

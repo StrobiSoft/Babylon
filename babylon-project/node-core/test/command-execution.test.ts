@@ -8,6 +8,7 @@ import {
   NodeCore,
   replayEnvelopeDigest,
   signEnvelope,
+  type CommandDefinition,
   type PeerIdentity,
   type SignedBnpEnvelope,
   type UnsignedBnpEnvelope,
@@ -23,6 +24,10 @@ const TIME_POLICY = {
 const COMMAND_POLICY = {
   maxResultBytes: 16_384,
   resultRetentionMs: 600_000,
+};
+
+type MutableCommandDefinition = {
+  -readonly [Key in keyof CommandDefinition]: CommandDefinition[Key];
 };
 
 function makeIdentity(nodeId: string, capabilities: string[] = []) {
@@ -66,10 +71,11 @@ function makeCommandFixture(options?: {
 }) {
   const sender = makeIdentity('node-sender-01', ['command.execute:core/status']);
   const local = makeIdentity('node-local-0001');
-  const journal = options?.journal ?? new TestDurableCommandJournal();
+  const now = options?.now ?? (() => NOW);
+  const journal = options?.journal ?? new TestDurableCommandJournal(now);
   const registry = new CommandRegistry();
   let executions = 0;
-  registry.register({
+  const definition: MutableCommandDefinition = {
     table_id: 'core',
     table_version: '1',
     command_id: 'status',
@@ -80,7 +86,8 @@ function makeCommandFixture(options?: {
       const result = await (options?.handler?.() ?? Promise.resolve({ ok: true }));
       return result as never;
     },
-  });
+  };
+  registry.register(definition);
   const core = new NodeCore({
     nodeId: local.peer.nodeId,
     privateKey: local.privateKey,
@@ -96,7 +103,7 @@ function makeCommandFixture(options?: {
     responseLifetimeMs: 60_000,
     resolvePeer: () => sender.peer,
     authorize: options?.authorize ?? (() => true),
-    now: options?.now ?? (() => NOW),
+    now,
     ...(options?.onCommandTrace === undefined
       ? {}
       : { onCommandTrace: options.onCommandTrace as never }),
@@ -108,7 +115,16 @@ function makeCommandFixture(options?: {
     to: local.peer.nodeId,
     body: { table_id: 'core', table_version: '1', command_id: 'status' },
   });
-  return { sender, local, journal, registry, core, request, executions: () => executions };
+  return {
+    sender,
+    local,
+    journal,
+    registry,
+    definition,
+    core,
+    request,
+    executions: () => executions,
+  };
 }
 
 describe('NODE IJET COMMAND execution journal', () => {
@@ -132,7 +148,7 @@ describe('NODE IJET COMMAND execution journal', () => {
 
   it('rejects a durable RECEIVED command retried after expiry plus skew', async () => {
     let now = NOW;
-    const journal = new TestDurableCommandJournal();
+    const journal = new TestDurableCommandJournal(() => now);
     journal.failNextStart = true;
     const fixture = makeCommandFixture({ journal, now: () => now });
 
@@ -177,6 +193,57 @@ describe('NODE IJET COMMAND execution journal', () => {
     expect(fixture.executions()).toBe(0);
   });
 
+  it('rejects a delayed START that crosses expiry at the atomic journal boundary', async () => {
+    let now = NOW;
+    const journal = new TestDurableCommandJournal(() => now);
+    journal.beforeStart = () => {
+      now = NOW + 60_000 + TIME_POLICY.maxLateSkewMs + 1;
+      return Promise.resolve();
+    };
+    const fixture = makeCommandFixture({ journal, now: () => now });
+
+    await expect(fixture.core.process(fixture.request)).rejects.toMatchObject({
+      code: 'INVALID_TIME',
+    });
+    expect(
+      (await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('received');
+    expect(fixture.executions()).toBe(0);
+  });
+
+  it('binds final authorization to an immutable command definition and handler snapshot', async () => {
+    const finalAuthorizationMutations: (() => void)[] = [];
+    let authorizations = 0;
+    let replacementExecutions = 0;
+    const fixture = makeCommandFixture({
+      authorize: () => {
+        authorizations += 1;
+        if (authorizations === 2) {
+          finalAuthorizationMutations.forEach((mutate) => mutate());
+        }
+        return true;
+      },
+    });
+    finalAuthorizationMutations.push(() => {
+      fixture.definition.requiredCapability = 'command.execute:core/replacement';
+      fixture.definition.handler = async () => {
+        replacementExecutions += 1;
+        return { replacement: true };
+      };
+      expect(() => fixture.registry.register(fixture.definition)).toThrow(
+        'duplicate command registration',
+      );
+    });
+
+    const result = await fixture.core.process(fixture.request);
+
+    expect(result.body['state']).toBe('completed');
+    expect(result.body['result']).toEqual({ ok: true });
+    expect(authorizations).toBe(2);
+    expect(fixture.executions()).toBe(1);
+    expect(replacementExecutions).toBe(0);
+  });
+
   it('quarantines handler failure as INDETERMINATE and does not auto-rerun it', async () => {
     const fixture = makeCommandFixture({
       handler: () => Promise.reject(new Error('effect outcome unknown')),
@@ -211,6 +278,41 @@ describe('NODE IJET COMMAND execution journal', () => {
     expect(fixture.executions()).toBe(1);
   });
 
+  it('recovers a terminal result when complete commits and then throws', async () => {
+    const journal = new TestDurableCommandJournal();
+    journal.throwAfterNextComplete = true;
+    const fixture = makeCommandFixture({ journal });
+
+    const result = await fixture.core.process(fixture.request);
+
+    expect(result.body['state']).toBe('completed');
+    expect(
+      (await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('terminal');
+    expect(fixture.executions()).toBe(1);
+  });
+
+  it('retains INDETERMINATE when markIndeterminate commits and then throws', async () => {
+    const journal = new TestDurableCommandJournal();
+    journal.throwAfterNextIndeterminate = true;
+    const fixture = makeCommandFixture({
+      journal,
+      handler: () => Promise.reject(new Error('effect outcome unknown')),
+    });
+
+    await expect(fixture.core.process(fixture.request)).rejects.toMatchObject({
+      code: 'COMMAND_JOURNAL_FAILURE',
+    });
+    expect(
+      (await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('indeterminate');
+
+    const duplicate = await fixture.core.process(fixture.request);
+    expect(duplicate.body['state']).toBe('blocked');
+    expect(duplicate.body['reason_code']).toBe('INDETERMINATE');
+    expect(fixture.executions()).toBe(1);
+  });
+
   it('allows only one concurrent executor past the atomic STARTED gate', async () => {
     let releaseHandler: (() => void) | undefined;
     let reportEntered: (() => void) | undefined;
@@ -237,6 +339,68 @@ describe('NODE IJET COMMAND execution journal', () => {
     releaseHandler?.();
     const first = await firstPromise;
     expect(first.body['state']).toBe('completed');
+    expect(fixture.executions()).toBe(1);
+  });
+
+  it('preserves one executor across lookup/receive and receive/start contention', async () => {
+    const journal = new TestDurableCommandJournal();
+    let lookupArrivals = 0;
+    let releaseLookups: (() => void) | undefined;
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookups = resolve;
+    });
+    journal.beforeLookup = async () => {
+      lookupArrivals += 1;
+      if (lookupArrivals === 2) {
+        journal.beforeLookup = undefined;
+        releaseLookups?.();
+      }
+      await lookupGate;
+    };
+
+    let startArrivals = 0;
+    let releaseStarts: (() => void) | undefined;
+    const startGate = new Promise<void>((resolve) => {
+      releaseStarts = resolve;
+    });
+    journal.beforeStart = async () => {
+      startArrivals += 1;
+      if (startArrivals === 2) {
+        journal.beforeStart = undefined;
+        releaseStarts?.();
+      }
+      await startGate;
+    };
+
+    let releaseHandler: (() => void) | undefined;
+    let reportHandlerEntered: (() => void) | undefined;
+    const handlerEntered = new Promise<void>((resolve) => {
+      reportHandlerEntered = resolve;
+    });
+    const handlerGate = new Promise<void>((resolve) => {
+      releaseHandler = resolve;
+    });
+    const fixture = makeCommandFixture({
+      journal,
+      handler: async () => {
+        reportHandlerEntered?.();
+        await handlerGate;
+        return { ok: true };
+      },
+    });
+
+    const firstPromise = fixture.core.process(fixture.request);
+    const secondPromise = fixture.core.process(fixture.request);
+    await handlerEntered;
+    const firstSettled = await Promise.race([firstPromise, secondPromise]);
+    expect(firstSettled.body['state']).toBe('accepted');
+    expect(lookupArrivals).toBe(2);
+    expect(startArrivals).toBe(2);
+    expect(fixture.executions()).toBe(1);
+
+    releaseHandler?.();
+    const results = await Promise.all([firstPromise, secondPromise]);
+    expect(results.map((result) => result.body['state']).sort()).toEqual(['accepted', 'completed']);
     expect(fixture.executions()).toBe(1);
   });
 
@@ -320,7 +484,83 @@ describe('NODE IJET COMMAND execution journal', () => {
     expect(phases).toContain('response_signed');
   });
 
-  it('keeps TERMINAL immutable against a stale attempt', async () => {
+  it('rejects stale attempts across STARTED, INDETERMINATE, and TERMINAL transitions', async () => {
+    const journal = new TestDurableCommandJournal();
+    const digest = replayEnvelopeDigest(makeCommandFixture().request);
+    await journal.receive({
+      senderNodeId: 'node-sender-01',
+      messageId: 'stale-transition-0001',
+      envelopeDigest: digest,
+      retainUntilMs: NOW + COMMAND_POLICY.resultRetentionMs,
+      command: {
+        tableId: 'core',
+        tableVersion: '1',
+        commandId: 'status',
+        requiredCapability: 'command.execute:core/status',
+        executionSemantics: 'at-most-once',
+      },
+      receivedAtMs: NOW,
+    });
+    const started = await journal.start({
+      senderNodeId: 'node-sender-01',
+      messageId: 'stale-transition-0001',
+      envelopeDigest: digest,
+      attemptId: 'current-attempt',
+      validUntilMs: NOW + 1,
+    });
+    expect(started.kind).toBe('applied');
+
+    const staleStartedMark = await journal.markIndeterminate(
+      'node-sender-01',
+      'stale-transition-0001',
+      digest,
+      'stale-attempt',
+      NOW,
+    );
+    const staleStartedComplete = await journal.complete(
+      'node-sender-01',
+      'stale-transition-0001',
+      digest,
+      'stale-attempt',
+      { state: 'failed' },
+      NOW,
+      NOW + COMMAND_POLICY.resultRetentionMs,
+    );
+    expect(staleStartedMark.kind).toBe('stale');
+    expect(staleStartedComplete.kind).toBe('stale');
+    expect((await journal.inspect('node-sender-01', 'stale-transition-0001')).state).toBe(
+      'started',
+    );
+
+    await journal.markIndeterminate(
+      'node-sender-01',
+      'stale-transition-0001',
+      digest,
+      'current-attempt',
+      NOW,
+    );
+    const staleIndeterminateStart = await journal.start({
+      senderNodeId: 'node-sender-01',
+      messageId: 'stale-transition-0001',
+      envelopeDigest: digest,
+      attemptId: 'stale-attempt',
+      validUntilMs: NOW + 1,
+    });
+    const staleIndeterminateComplete = await journal.complete(
+      'node-sender-01',
+      'stale-transition-0001',
+      digest,
+      'stale-attempt',
+      { state: 'failed' },
+      NOW,
+      NOW + COMMAND_POLICY.resultRetentionMs,
+    );
+    expect(staleIndeterminateStart.kind).toBe('stale');
+    expect(staleIndeterminateComplete.kind).toBe('stale');
+    expect((await journal.inspect('node-sender-01', 'stale-transition-0001')).state).toBe(
+      'indeterminate',
+    );
+
     const fixture = makeCommandFixture();
     await fixture.core.process(fixture.request);
     const terminal = await fixture.journal.inspect(
@@ -329,7 +569,21 @@ describe('NODE IJET COMMAND execution journal', () => {
     );
     expect(terminal.state).toBe('terminal');
 
-    const stale = await fixture.journal.complete(
+    const staleTerminalStart = await fixture.journal.start({
+      senderNodeId: fixture.sender.peer.nodeId,
+      messageId: fixture.request.message_id,
+      envelopeDigest: replayEnvelopeDigest(fixture.request),
+      attemptId: 'stale-attempt-id',
+      validUntilMs: NOW + 1,
+    });
+    const staleTerminalMark = await fixture.journal.markIndeterminate(
+      fixture.sender.peer.nodeId,
+      fixture.request.message_id,
+      replayEnvelopeDigest(fixture.request),
+      'stale-attempt-id',
+      NOW + 1,
+    );
+    const staleTerminalComplete = await fixture.journal.complete(
       fixture.sender.peer.nodeId,
       fixture.request.message_id,
       replayEnvelopeDigest(fixture.request),
@@ -338,8 +592,10 @@ describe('NODE IJET COMMAND execution journal', () => {
       NOW + 1,
       NOW + COMMAND_POLICY.resultRetentionMs + 1,
     );
-    expect(stale.kind).toBe('stale');
-    expect(stale.entry.state).toBe('terminal');
-    expect(stale.entry.terminal?.state).toBe('completed');
+    expect(staleTerminalStart.kind).toBe('stale');
+    expect(staleTerminalMark.kind).toBe('stale');
+    expect(staleTerminalComplete.kind).toBe('stale');
+    expect(staleTerminalComplete.entry.state).toBe('terminal');
+    expect(staleTerminalComplete.entry.terminal?.state).toBe('completed');
   });
 });

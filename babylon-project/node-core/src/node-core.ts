@@ -164,7 +164,7 @@ function commandExecutionKey(
   return `${senderNodeId}\u0000${messageId}\u0000${envelopeDigest}`;
 }
 
-function descriptorFromDefinition(definition: CommandDefinition): CommandDescriptor {
+function descriptorFromDefinition(definition: Readonly<CommandDefinition>): CommandDescriptor {
   return {
     tableId: definition.table_id,
     tableVersion: definition.table_version,
@@ -175,7 +175,7 @@ function descriptorFromDefinition(definition: CommandDefinition): CommandDescrip
 }
 
 function definitionMatchesDescriptor(
-  definition: CommandDefinition,
+  definition: Readonly<CommandDefinition>,
   descriptor: CommandDescriptor,
 ): boolean {
   return (
@@ -441,7 +441,7 @@ export class NodeCore {
     sender: PeerIdentity,
     envelope: SignedBnpEnvelope,
     entry: CommandJournalEntry,
-    definition: CommandDefinition,
+    definition: Readonly<CommandDefinition>,
   ): Promise<SignedBnpEnvelope> {
     const journal = this.#options.commandJournal;
     const policy = this.#options.commandExecutionPolicy;
@@ -457,27 +457,23 @@ export class NodeCore {
     this.#trace('authorized', sender.nodeId, envelope.message_id, entry.attemptId);
 
     const attemptId = createMessageId();
-    const startedAtMs = this.#now();
-    try {
-      validateEnvelopeTime(envelope, startedAtMs, this.#options.timePolicy);
-    } catch {
-      throw new NodeCoreError('INVALID_TIME');
-    }
-
     const started = await this.#journal(() =>
-      journal.start(
-        sender.nodeId,
-        envelope.message_id,
-        entry.envelopeDigest,
+      journal.start({
+        senderNodeId: sender.nodeId,
+        messageId: envelope.message_id,
+        envelopeDigest: entry.envelopeDigest,
         attemptId,
-        startedAtMs,
-      ),
+        validUntilMs: replayRetentionUntilMs(envelope, this.#options.timePolicy),
+      }),
     );
     if (started.kind === 'conflict') {
       throw new NodeCoreError('REPLAY_DETECTED');
     }
     if (started.kind === 'stale') {
       return this.#replyForJournalEntry(envelope, started.entry);
+    }
+    if (started.kind === 'expired') {
+      throw new NodeCoreError('INVALID_TIME');
     }
 
     this.#trace('started', sender.nodeId, envelope.message_id, attemptId);
@@ -567,7 +563,7 @@ export class NodeCore {
     return this.#replyForJournalEntry(envelope, transition.entry);
   }
 
-  #resolveCommandDefinition(envelope: SignedBnpEnvelope): CommandDefinition {
+  #resolveCommandDefinition(envelope: SignedBnpEnvelope): Readonly<CommandDefinition> {
     let reference;
     try {
       reference = parseCommandReference(envelope.body);

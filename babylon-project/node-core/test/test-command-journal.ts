@@ -3,6 +3,8 @@ import type {
   CommandJournalEntry,
   CommandReceiveInput,
   CommandReceiveResult,
+  CommandStartInput,
+  CommandStartResult,
   CommandTerminalOutcome,
   CommandTransitionResult,
 } from '../src/index.js';
@@ -35,10 +37,17 @@ export class TestDurableCommandJournal implements CommandJournal {
   failNextStart = false;
   failNextComplete = false;
   failNextIndeterminate = false;
+  throwAfterNextComplete = false;
+  throwAfterNextIndeterminate = false;
+  beforeLookup: (() => Promise<void>) | undefined;
+  beforeStart: (() => Promise<void>) | undefined;
 
-  lookup(senderNodeId: string, messageId: string): Promise<CommandJournalEntry | null> {
+  constructor(readonly now: () => number = () => Date.parse('2026-09-07T03:00:00.000Z')) {}
+
+  async lookup(senderNodeId: string, messageId: string): Promise<CommandJournalEntry | null> {
+    await this.beforeLookup?.();
     const entry = this.#entries.get(key(senderNodeId, messageId));
-    return Promise.resolve(entry === undefined ? null : cloneEntry(entry));
+    return entry === undefined ? null : cloneEntry(entry);
   }
 
   receive(input: CommandReceiveInput): Promise<CommandReceiveResult> {
@@ -63,28 +72,27 @@ export class TestDurableCommandJournal implements CommandJournal {
     return Promise.resolve({ kind: 'fresh', entry: cloneEntry(entry) });
   }
 
-  start(
-    senderNodeId: string,
-    messageId: string,
-    envelopeDigest: string,
-    attemptId: string,
-    startedAtMs: number,
-  ): Promise<CommandTransitionResult> {
+  async start(input: CommandStartInput): Promise<CommandStartResult> {
     if (this.failNextStart) {
       this.failNextStart = false;
-      return Promise.reject(new Error('injected start failure'));
+      throw new Error('injected start failure');
     }
-    const entry = this.#required(senderNodeId, messageId);
-    if (entry.envelopeDigest !== envelopeDigest) {
-      return Promise.resolve({ kind: 'conflict', entry: cloneEntry(entry) });
+    await this.beforeStart?.();
+    const entry = this.#required(input.senderNodeId, input.messageId);
+    if (entry.envelopeDigest !== input.envelopeDigest) {
+      return { kind: 'conflict', entry: cloneEntry(entry) };
     }
     if (entry.state !== 'received') {
-      return Promise.resolve({ kind: 'stale', entry: cloneEntry(entry) });
+      return { kind: 'stale', entry: cloneEntry(entry) };
+    }
+    const startedAtMs = this.now();
+    if (startedAtMs > input.validUntilMs) {
+      return { kind: 'expired', entry: cloneEntry(entry) };
     }
     entry.state = 'started';
-    entry.attemptId = attemptId;
+    entry.attemptId = input.attemptId;
     entry.startedAtMs = startedAtMs;
-    return Promise.resolve({ kind: 'applied', entry: cloneEntry(entry) });
+    return { kind: 'applied', entry: cloneEntry(entry) };
   }
 
   markIndeterminate(
@@ -107,6 +115,10 @@ export class TestDurableCommandJournal implements CommandJournal {
     }
     entry.state = 'indeterminate';
     entry.indeterminateAtMs = indeterminateAtMs;
+    if (this.throwAfterNextIndeterminate) {
+      this.throwAfterNextIndeterminate = false;
+      return Promise.reject(new Error('injected post-commit indeterminate failure'));
+    }
     return Promise.resolve({ kind: 'applied', entry: cloneEntry(entry) });
   }
 
@@ -137,6 +149,10 @@ export class TestDurableCommandJournal implements CommandJournal {
       ...outcome,
       ...(outcome.result === undefined ? {} : { result: structuredClone(outcome.result) }),
     };
+    if (this.throwAfterNextComplete) {
+      this.throwAfterNextComplete = false;
+      return Promise.reject(new Error('injected post-commit complete failure'));
+    }
     return Promise.resolve({ kind: 'applied', entry: cloneEntry(entry) });
   }
 

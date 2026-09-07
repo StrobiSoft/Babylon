@@ -18,6 +18,7 @@ Current slice:
 - structural envelope validation and caller-supplied time policy;
 - atomic replay-store interface with an in-memory non-durable implementation for WAKE/READ;
 - a separate durable COMMAND journal contract that is the single source of truth for COMMAND replay identity and execution state;
+- an atomic START deadline gate evaluated by the durable journal at the transition boundary;
 - COMMAND execution states `received -> started -> terminal`, with `started -> indeterminate` as the conservative uncertainty path;
 - immutable terminal outcomes and stale-attempt rejection at the journal boundary;
 - unresolved `received`, `started`, and `indeterminate` records may not be forgotten merely because a replay/result retention deadline passed;
@@ -26,13 +27,14 @@ Current slice:
 - deployment-supplied COMMAND result-size and result-retention policy, with no protocol default frozen here;
 - metadata-only optional COMMAND phase tracing that cannot block execution;
 - versioned local command registry with no sender-selected executable surface;
+- immutable registry snapshots that bind execution to the exact definition and handler authorized before START;
 - local authorization callback as an independent policy boundary;
 - WAKE, READ, and COMMAND receive paths with signed correlated replies.
 
 Reply correlation is the signed top-level `in_reply_to` field. The bundled deterministic public
 test vector is at `docs/bnp/vectors/crypto-replay-v1.json`; its fixed key is unsafe for non-test use.
 
-For COMMAND, the replay claim and execution record are intentionally not split across two sources of truth. A production `CommandJournal` implementation must provide atomic receive/start/terminal transitions, reject stale attempt IDs, keep terminal outcomes immutable, and retain every unresolved non-terminal record until an explicit recovery/resolution policy says otherwise. No production storage technology is selected by Node Core.
+For COMMAND, the replay claim and execution record are intentionally not split across two sources of truth. A production `CommandJournal` implementation must provide atomic receive/start/terminal transitions, enforce the supplied START validity deadline against its authoritative clock in the same operation that commits STARTED, reject stale attempt IDs, keep terminal outcomes immutable, and retain every unresolved non-terminal record until an explicit recovery/resolution policy says otherwise. No production storage technology is selected by Node Core.
 
 A known exact COMMAND may return its stored terminal outcome after the original request validity window has expired. A previously unseen expired COMMAND is still rejected and cannot start a new side effect. The terminal outcome retention deadline is anchored to terminal commit time rather than initial receipt time.
 
