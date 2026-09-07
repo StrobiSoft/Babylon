@@ -14,24 +14,7 @@ import {
   type SignedBnpEnvelope,
   type UnsignedBnpEnvelope,
 } from '../src/index.js';
-
-class TestDurableReplayStore implements ReplayStore {
-  readonly durable = true;
-  readonly #seen: Set<string>;
-
-  constructor(seen = new Set<string>()) {
-    this.#seen = seen;
-  }
-
-  async claim(senderNodeId: string, messageId: string): Promise<ReplayClaim> {
-    const key = `${senderNodeId}\u0000${messageId}`;
-    if (this.#seen.has(key)) {
-      return 'duplicate';
-    }
-    this.#seen.add(key);
-    return 'fresh';
-  }
-}
+import { TestDurableCommandJournal } from './test-command-journal.js';
 
 class RecordingReplayStore implements ReplayStore {
   readonly durable = true;
@@ -48,6 +31,10 @@ const TIME_POLICY = {
   maxFutureSkewMs: 30_000,
   maxLateSkewMs: 30_000,
   maxLifetimeMs: 300_000,
+};
+const COMMAND_POLICY = {
+  maxResultBytes: 16_384,
+  resultRetentionMs: 600_000,
 };
 
 function makeIdentity(nodeId: string, capabilities: string[] = []) {
@@ -96,10 +83,11 @@ describe('NODE IJET Node Core', () => {
     );
   });
 
-  it('executes an authorized command once and blocks transport replay', async () => {
+  it('executes an authorized command once and replays its durable terminal outcome', async () => {
     const sender = makeIdentity('node-sender-01', ['command.execute:core/status']);
     const local = makeIdentity('node-local-0001');
     const registry = new CommandRegistry();
+    const journal = new TestDurableCommandJournal();
     let executions = 0;
     registry.register({
       table_id: 'core',
@@ -113,13 +101,14 @@ describe('NODE IJET Node Core', () => {
       },
     });
 
-    const persistedReplayState = new Set<string>();
     const makeCore = () =>
       new NodeCore({
         nodeId: local.peer.nodeId,
         privateKey: local.privateKey,
         keyFingerprint: local.fingerprint,
-        replayStore: new TestDurableReplayStore(persistedReplayState),
+        replayStore: new InMemoryReplayStore(),
+        commandJournal: journal,
+        commandExecutionPolicy: COMMAND_POLICY,
         commandRegistry: registry,
         timePolicy: TIME_POLICY,
         responseLifetimeMs: 60_000,
@@ -138,12 +127,14 @@ describe('NODE IJET Node Core', () => {
 
     const result = await core.process(request);
     expect(result.kind).toBe('command_result');
+    expect(result.body['state']).toBe('completed');
     expect(result.in_reply_to).toBe(request.message_id);
     expect(executions).toBe(1);
 
-    await expect(core.process(request)).rejects.toMatchObject({
-      code: 'REPLAY_DETECTED',
-    });
+    const duplicate = await core.process(request);
+    expect(duplicate.body['state']).toBe('completed');
+    expect(executions).toBe(1);
+
     const changedContent = signRequest(sender.privateKey, sender.fingerprint, {
       kind: 'command',
       from: sender.peer.nodeId,
@@ -153,13 +144,13 @@ describe('NODE IJET Node Core', () => {
     await expect(core.process(changedContent)).rejects.toMatchObject({
       code: 'REPLAY_DETECTED',
     });
-    await expect(makeCore().process(request)).rejects.toMatchObject({
-      code: 'REPLAY_DETECTED',
-    });
+
+    const afterRestart = await makeCore().process(request);
+    expect(afterRestart.body['state']).toBe('completed');
     expect(executions).toBe(1);
   });
 
-  it('refuses COMMAND when replay storage is volatile', async () => {
+  it('refuses COMMAND when the durable command journal is unavailable', async () => {
     const sender = makeIdentity('node-sender-01', ['command.execute:core/status']);
     const local = makeIdentity('node-local-0001');
     const registry = new CommandRegistry();
@@ -177,6 +168,7 @@ describe('NODE IJET Node Core', () => {
       privateKey: local.privateKey,
       keyFingerprint: local.fingerprint,
       replayStore: new InMemoryReplayStore(),
+      commandExecutionPolicy: COMMAND_POLICY,
       commandRegistry: registry,
       timePolicy: TIME_POLICY,
       responseLifetimeMs: 60_000,
@@ -474,7 +466,9 @@ describe('NODE IJET Node Core', () => {
       nodeId: local.peer.nodeId,
       privateKey: local.privateKey,
       keyFingerprint: local.fingerprint,
-      replayStore: new TestDurableReplayStore(),
+      replayStore: new InMemoryReplayStore(),
+      commandJournal: new TestDurableCommandJournal(),
+      commandExecutionPolicy: COMMAND_POLICY,
       commandRegistry: registry,
       timePolicy: TIME_POLICY,
       responseLifetimeMs: 60_000,
@@ -526,7 +520,9 @@ describe('NODE IJET Node Core', () => {
       nodeId: local.peer.nodeId,
       privateKey: local.privateKey,
       keyFingerprint: local.fingerprint,
-      replayStore: new TestDurableReplayStore(),
+      replayStore: new InMemoryReplayStore(),
+      commandJournal: new TestDurableCommandJournal(),
+      commandExecutionPolicy: COMMAND_POLICY,
       commandRegistry: registry,
       timePolicy: TIME_POLICY,
       responseLifetimeMs: 60_000,

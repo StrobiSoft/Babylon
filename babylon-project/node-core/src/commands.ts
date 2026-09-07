@@ -9,6 +9,8 @@ export interface CommandReference {
 export interface CommandContext {
   senderNodeId: string;
   messageId: string;
+  attemptId: string;
+  executionKey: string;
 }
 
 export interface CommandDefinition extends CommandReference {

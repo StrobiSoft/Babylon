@@ -1,6 +1,13 @@
 import { createPublicKey, type KeyObject } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 
-import { CommandRegistry, parseCommandReference } from './commands.js';
+import type {
+  CommandDescriptor,
+  CommandJournal,
+  CommandJournalEntry,
+  CommandTerminalOutcome,
+} from './command-journal.js';
+import { CommandRegistry, parseCommandReference, type CommandDefinition } from './commands.js';
 import {
   fingerprintPublicKey,
   replayEnvelopeDigest,
@@ -13,6 +20,7 @@ import {
   type TimePolicy,
   validateEnvelopeTime,
 } from './envelope.js';
+import { canonicalizeJcs } from './jcs.js';
 import type { ReplayStore } from './replay.js';
 import type {
   BnpKind,
@@ -34,6 +42,9 @@ export type NodeCoreErrorCode =
   | 'REPLAY_DETECTED'
   | 'REPLAY_CONFLICT'
   | 'DURABLE_REPLAY_REQUIRED'
+  | 'COMMAND_EXECUTION_POLICY_REQUIRED'
+  | 'COMMAND_JOURNAL_FAILURE'
+  | 'COMMAND_DEFINITION_CHANGED'
   | 'CAPABILITY_DENIED'
   | 'UNKNOWN_COMMAND'
   | 'UNSUPPORTED_OPERATION'
@@ -72,11 +83,36 @@ export interface AuthorizationContext {
   };
 }
 
+export interface CommandExecutionPolicy {
+  maxResultBytes: number;
+  resultRetentionMs: number;
+}
+
+export type CommandTracePhase =
+  | 'received'
+  | 'authorized'
+  | 'duplicate_observed'
+  | 'started'
+  | 'handler_returned'
+  | 'indeterminate'
+  | 'terminal_committed'
+  | 'response_signed';
+
+export interface CommandTraceEvent {
+  phase: CommandTracePhase;
+  senderNodeId: string;
+  messageId: string;
+  atMs: number;
+  attemptId?: string;
+}
+
 export interface NodeCoreOptions {
   nodeId: string;
   privateKey: KeyObject;
   keyFingerprint: string;
   replayStore: ReplayStore;
+  commandJournal?: CommandJournal;
+  commandExecutionPolicy?: CommandExecutionPolicy;
   commandRegistry: CommandRegistry;
   timePolicy: TimePolicy;
   responseLifetimeMs: number;
@@ -88,7 +124,9 @@ export interface NodeCoreOptions {
     resource: string,
     view: string,
   ) => Promise<JsonObject> | JsonObject;
+  onCommandTrace?: (event: CommandTraceEvent) => void;
   now?: () => number;
+  monotonicNow?: () => number;
 }
 
 function activeLifecycle(status: NodeLifecycleStatus): boolean {
@@ -114,6 +152,41 @@ function replayRetentionUntilMs(envelope: SignedBnpEnvelope, policy: TimePolicy)
   return Math.min(Number.MAX_SAFE_INTEGER, Date.parse(envelope.expires_at) + policy.maxLateSkewMs);
 }
 
+function saturatingAdd(left: number, right: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, left + right);
+}
+
+function commandExecutionKey(
+  senderNodeId: string,
+  messageId: string,
+  envelopeDigest: string,
+): string {
+  return `${senderNodeId}\u0000${messageId}\u0000${envelopeDigest}`;
+}
+
+function descriptorFromDefinition(definition: CommandDefinition): CommandDescriptor {
+  return {
+    tableId: definition.table_id,
+    tableVersion: definition.table_version,
+    commandId: definition.command_id,
+    requiredCapability: definition.requiredCapability,
+    executionSemantics: definition.executionSemantics,
+  };
+}
+
+function definitionMatchesDescriptor(
+  definition: CommandDefinition,
+  descriptor: CommandDescriptor,
+): boolean {
+  return (
+    definition.table_id === descriptor.tableId &&
+    definition.table_version === descriptor.tableVersion &&
+    definition.command_id === descriptor.commandId &&
+    definition.requiredCapability === descriptor.requiredCapability &&
+    definition.executionSemantics === descriptor.executionSemantics
+  );
+}
+
 export class NodeCore {
   readonly #options: NodeCoreOptions;
 
@@ -127,6 +200,15 @@ export class NodeCore {
       options.responseLifetimeMs > options.timePolicy.maxLifetimeMs
     ) {
       throw new TypeError('responseLifetimeMs must be positive and within maxLifetimeMs');
+    }
+    if (options.commandExecutionPolicy !== undefined) {
+      const { maxResultBytes, resultRetentionMs } = options.commandExecutionPolicy;
+      if (!Number.isSafeInteger(maxResultBytes) || maxResultBytes <= 0) {
+        throw new TypeError('maxResultBytes must be a positive safe integer');
+      }
+      if (!Number.isSafeInteger(resultRetentionMs) || resultRetentionMs <= 0) {
+        throw new TypeError('resultRetentionMs must be a positive safe integer');
+      }
     }
     const derivedFingerprint = fingerprintPublicKey(createPublicKey(options.privateKey));
     if (derivedFingerprint !== options.keyFingerprint) {
@@ -185,14 +267,14 @@ export class NodeCore {
     }
 
     const nowMs = this.#now();
+    if (envelope.kind === 'command') {
+      return this.#handleCommand(sender, envelope, nowMs);
+    }
+
     try {
       validateEnvelopeTime(envelope, nowMs, this.#options.timePolicy);
     } catch {
       throw new NodeCoreError('INVALID_TIME');
-    }
-
-    if (envelope.kind === 'command' && !this.#options.replayStore.durable) {
-      throw new NodeCoreError('DURABLE_REPLAY_REQUIRED');
     }
 
     const replay = await this.#options.replayStore.claim(
@@ -220,8 +302,6 @@ export class NodeCore {
         return this.#handleWake(sender, envelope);
       case 'read':
         return this.#handleRead(sender, envelope);
-      case 'command':
-        return this.#handleCommand(sender, envelope);
       default:
         throw new NodeCoreError('UNSUPPORTED_OPERATION');
     }
@@ -272,50 +352,343 @@ export class NodeCore {
   async #handleCommand(
     sender: PeerIdentity,
     envelope: SignedBnpEnvelope,
+    nowMs: number,
   ): Promise<SignedBnpEnvelope> {
+    const journal = this.#options.commandJournal;
+    if (journal === undefined || !journal.durable) {
+      throw new NodeCoreError('DURABLE_REPLAY_REQUIRED');
+    }
+    const policy = this.#options.commandExecutionPolicy;
+    if (policy === undefined) {
+      throw new NodeCoreError('COMMAND_EXECUTION_POLICY_REQUIRED');
+    }
+
+    const envelopeDigest = replayEnvelopeDigest(envelope);
+    const existing = await this.#journal(() => journal.lookup(sender.nodeId, envelope.message_id));
+    if (existing !== null) {
+      if (existing.envelopeDigest !== envelopeDigest) {
+        throw new NodeCoreError('REPLAY_DETECTED');
+      }
+      this.#trace('duplicate_observed', sender.nodeId, envelope.message_id, existing.attemptId);
+      return this.#handleExistingCommand(sender, envelope, existing);
+    }
+
+    try {
+      validateEnvelopeTime(envelope, nowMs, this.#options.timePolicy);
+    } catch {
+      throw new NodeCoreError('INVALID_TIME');
+    }
+
+    const definition = this.#resolveCommandDefinition(envelope);
+    const descriptor = descriptorFromDefinition(definition);
+    await this.#authorizeCommand(sender, envelope, descriptor);
+    this.#trace('authorized', sender.nodeId, envelope.message_id);
+
+    const replayUntil = replayRetentionUntilMs(envelope, this.#options.timePolicy);
+    const resultUntil = saturatingAdd(nowMs, policy.resultRetentionMs);
+    const receive = await this.#journal(() =>
+      journal.receive({
+        senderNodeId: sender.nodeId,
+        messageId: envelope.message_id,
+        envelopeDigest,
+        retainUntilMs: Math.max(replayUntil, resultUntil),
+        command: descriptor,
+        receivedAtMs: nowMs,
+      }),
+    );
+
+    if (receive.kind === 'conflict') {
+      throw new NodeCoreError('REPLAY_DETECTED');
+    }
+    if (receive.kind === 'duplicate') {
+      this.#trace(
+        'duplicate_observed',
+        sender.nodeId,
+        envelope.message_id,
+        receive.entry.attemptId,
+      );
+      return this.#handleExistingCommand(sender, envelope, receive.entry);
+    }
+
+    this.#trace('received', sender.nodeId, envelope.message_id);
+    return this.#startAndExecute(sender, envelope, receive.entry, definition);
+  }
+
+  async #handleExistingCommand(
+    sender: PeerIdentity,
+    envelope: SignedBnpEnvelope,
+    entry: CommandJournalEntry,
+  ): Promise<SignedBnpEnvelope> {
+    await this.#authorizeCommand(sender, envelope, entry.command);
+    this.#trace('authorized', sender.nodeId, envelope.message_id, entry.attemptId);
+
+    switch (entry.state) {
+      case 'terminal':
+      case 'started':
+      case 'indeterminate':
+        return this.#replyForJournalEntry(envelope, entry);
+      case 'received': {
+        const definition = this.#resolveCommandDefinition(envelope);
+        if (!definitionMatchesDescriptor(definition, entry.command)) {
+          throw new NodeCoreError('COMMAND_DEFINITION_CHANGED');
+        }
+        return this.#startAndExecute(sender, envelope, entry, definition);
+      }
+    }
+  }
+
+  async #startAndExecute(
+    sender: PeerIdentity,
+    envelope: SignedBnpEnvelope,
+    entry: CommandJournalEntry,
+    definition: CommandDefinition,
+  ): Promise<SignedBnpEnvelope> {
+    const journal = this.#options.commandJournal;
+    const policy = this.#options.commandExecutionPolicy;
+    if (journal === undefined || policy === undefined) {
+      throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+    }
+    if (!definitionMatchesDescriptor(definition, entry.command)) {
+      throw new NodeCoreError('COMMAND_DEFINITION_CHANGED');
+    }
+
+    // Re-check current authorization immediately before the durable STARTED gate.
+    await this.#authorizeCommand(sender, envelope, entry.command);
+    this.#trace('authorized', sender.nodeId, envelope.message_id, entry.attemptId);
+
+    const attemptId = createMessageId();
+    const started = await this.#journal(() =>
+      journal.start(
+        sender.nodeId,
+        envelope.message_id,
+        entry.envelopeDigest,
+        attemptId,
+        this.#now(),
+      ),
+    );
+    if (started.kind === 'conflict') {
+      throw new NodeCoreError('REPLAY_DETECTED');
+    }
+    if (started.kind === 'stale') {
+      return this.#replyForJournalEntry(envelope, started.entry);
+    }
+
+    this.#trace('started', sender.nodeId, envelope.message_id, attemptId);
+
+    let result: JsonObject;
+    try {
+      result = await definition.handler({
+        senderNodeId: sender.nodeId,
+        messageId: envelope.message_id,
+        attemptId,
+        executionKey: commandExecutionKey(
+          sender.nodeId,
+          envelope.message_id,
+          entry.envelopeDigest,
+        ),
+      });
+      this.#trace('handler_returned', sender.nodeId, envelope.message_id, attemptId);
+      this.#assertBoundedCommandResult(result, policy.maxResultBytes);
+    } catch {
+      return this.#recordIndeterminate(sender, envelope, entry, attemptId);
+    }
+
+    const outcome: CommandTerminalOutcome = { state: 'completed', result };
+    let completed;
+    try {
+      completed = await journal.complete(
+        sender.nodeId,
+        envelope.message_id,
+        entry.envelopeDigest,
+        attemptId,
+        outcome,
+        this.#now(),
+      );
+    } catch {
+      const observed = await this.#journal(() =>
+        journal.lookup(sender.nodeId, envelope.message_id),
+      );
+      if (observed !== null && observed.envelopeDigest === entry.envelopeDigest) {
+        if (observed.state === 'terminal') {
+          return this.#replyForJournalEntry(envelope, observed);
+        }
+      }
+      throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+    }
+
+    if (completed.kind === 'conflict') {
+      throw new NodeCoreError('REPLAY_DETECTED');
+    }
+    if (completed.kind === 'stale') {
+      return this.#replyForJournalEntry(envelope, completed.entry);
+    }
+
+    this.#trace('terminal_committed', sender.nodeId, envelope.message_id, attemptId);
+    return this.#replyForJournalEntry(envelope, completed.entry);
+  }
+
+  async #recordIndeterminate(
+    sender: PeerIdentity,
+    envelope: SignedBnpEnvelope,
+    entry: CommandJournalEntry,
+    attemptId: string,
+  ): Promise<SignedBnpEnvelope> {
+    const journal = this.#options.commandJournal;
+    if (journal === undefined) {
+      throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+    }
+    const transition = await this.#journal(() =>
+      journal.markIndeterminate(
+        sender.nodeId,
+        envelope.message_id,
+        entry.envelopeDigest,
+        attemptId,
+        this.#now(),
+      ),
+    );
+    if (transition.kind === 'conflict') {
+      throw new NodeCoreError('REPLAY_DETECTED');
+    }
+    if (transition.kind === 'stale' && transition.entry.state === 'received') {
+      throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+    }
+    if (transition.entry.state === 'indeterminate') {
+      this.#trace('indeterminate', sender.nodeId, envelope.message_id, attemptId);
+    }
+    return this.#replyForJournalEntry(envelope, transition.entry);
+  }
+
+  #resolveCommandDefinition(envelope: SignedBnpEnvelope): CommandDefinition {
     let reference;
     try {
       reference = parseCommandReference(envelope.body);
     } catch {
       throw new NodeCoreError('INVALID_OPERATION_BODY');
     }
-
     const command = this.#options.commandRegistry.resolve(reference);
     if (command === undefined) {
       throw new NodeCoreError('UNKNOWN_COMMAND');
     }
-    if (!sender.capabilities.has(command.requiredCapability)) {
+    return command;
+  }
+
+  async #authorizeCommand(
+    sender: PeerIdentity,
+    envelope: SignedBnpEnvelope,
+    descriptor: CommandDescriptor,
+  ): Promise<void> {
+    if (!sender.capabilities.has(descriptor.requiredCapability)) {
       throw new NodeCoreError('CAPABILITY_DENIED');
     }
-
     const allowed = await this.#options.authorize({
       sender,
       envelope,
       operation: 'command',
       command: {
-        tableId: command.table_id,
-        tableVersion: command.table_version,
-        commandId: command.command_id,
-        requiredCapability: command.requiredCapability,
+        tableId: descriptor.tableId,
+        tableVersion: descriptor.tableVersion,
+        commandId: descriptor.commandId,
+        requiredCapability: descriptor.requiredCapability,
       },
     });
     if (!allowed) {
       throw new NodeCoreError('CAPABILITY_DENIED');
     }
+  }
 
-    const result = await command.handler({
-      senderNodeId: sender.nodeId,
-      messageId: envelope.message_id,
-    });
+  #replyForJournalEntry(
+    request: SignedBnpEnvelope,
+    entry: CommandJournalEntry,
+  ): SignedBnpEnvelope {
+    let response: SignedBnpEnvelope;
+    switch (entry.state) {
+      case 'received':
+        throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+      case 'started':
+        response = this.#commandReply(request, entry.command, 'accepted');
+        break;
+      case 'indeterminate':
+        response = this.#commandReply(request, entry.command, 'blocked', undefined, 'INDETERMINATE');
+        break;
+      case 'terminal': {
+        if (entry.terminal === undefined) {
+          throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+        }
+        response = this.#commandReply(
+          request,
+          entry.command,
+          entry.terminal.state,
+          entry.terminal.result,
+          entry.terminal.reasonCode,
+        );
+        break;
+      }
+    }
+    this.#trace('response_signed', request.from, request.message_id, entry.attemptId);
+    return response;
+  }
 
-    return this.#reply(envelope, 'command_result', {
-      table_id: command.table_id,
-      table_version: command.table_version,
-      command_id: command.command_id,
-      execution_semantics: command.executionSemantics,
-      state: 'completed',
-      result,
-    });
+  #commandReply(
+    request: SignedBnpEnvelope,
+    descriptor: CommandDescriptor,
+    state: CommandTerminalOutcome['state'] | 'accepted',
+    result?: JsonObject,
+    reasonCode?: string,
+  ): SignedBnpEnvelope {
+    const body: JsonObject = {
+      table_id: descriptor.tableId,
+      table_version: descriptor.tableVersion,
+      command_id: descriptor.commandId,
+      execution_semantics: descriptor.executionSemantics,
+      state,
+    };
+    if (result !== undefined) {
+      body['result'] = result;
+    }
+    if (reasonCode !== undefined) {
+      body['reason_code'] = reasonCode;
+    }
+    return this.#reply(request, 'command_result', body);
+  }
+
+  #assertBoundedCommandResult(result: JsonObject, maxBytes: number): void {
+    if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+      throw new TypeError('command result must be a JSON object');
+    }
+    const canonical = canonicalizeJcs(result);
+    if (Buffer.byteLength(canonical, 'utf8') > maxBytes) {
+      throw new TypeError('command result exceeds configured bound');
+    }
+  }
+
+  async #journal<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch {
+      throw new NodeCoreError('COMMAND_JOURNAL_FAILURE');
+    }
+  }
+
+  #trace(
+    phase: CommandTracePhase,
+    senderNodeId: string,
+    messageId: string,
+    attemptId?: string,
+  ): void {
+    if (this.#options.onCommandTrace === undefined) {
+      return;
+    }
+    try {
+      this.#options.onCommandTrace({
+        phase,
+        senderNodeId,
+        messageId,
+        atMs: this.#options.monotonicNow?.() ?? performance.now(),
+        ...(attemptId === undefined ? {} : { attemptId }),
+      });
+    } catch {
+      // Observability must never become an execution dependency.
+    }
   }
 
   #reply(request: SignedBnpEnvelope, kind: BnpKind, body: JsonObject): SignedBnpEnvelope {

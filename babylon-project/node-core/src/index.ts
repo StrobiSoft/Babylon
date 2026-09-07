@@ -1,3 +1,4 @@
+export * from './command-journal.js';
 export * from './commands.js';
 export * from './crypto.js';
 export * from './envelope.js';
