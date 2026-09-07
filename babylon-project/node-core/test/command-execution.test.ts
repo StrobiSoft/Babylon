@@ -213,6 +213,26 @@ describe('NODE IJET COMMAND execution journal', () => {
     await expect(fixture.core.process(newExpired)).rejects.toMatchObject({ code: 'INVALID_TIME' });
   });
 
+  it('extends terminal retention from the actual terminal commit time', async () => {
+    let now = NOW;
+    const fixture = makeCommandFixture({
+      now: () => now,
+      handler: () => {
+        now = NOW + 20 * 60_000;
+        return { ok: true };
+      },
+    });
+
+    await fixture.core.process(fixture.request);
+    const terminal = await fixture.journal.inspect(
+      fixture.sender.peer.nodeId,
+      fixture.request.message_id,
+    );
+    expect(terminal.state).toBe('terminal');
+    expect(terminal.terminalAtMs).toBe(now);
+    expect(terminal.retainUntilMs).toBe(now + COMMAND_POLICY.resultRetentionMs);
+  });
+
   it('treats an oversized handler result as INDETERMINATE rather than pretending the effect failed', async () => {
     const fixture = makeCommandFixture({
       maxResultBytes: 16,
@@ -268,6 +288,7 @@ describe('NODE IJET COMMAND execution journal', () => {
       'stale-attempt-id',
       { state: 'failed', reasonCode: 'STALE_WRITE' },
       NOW + 1,
+      NOW + COMMAND_POLICY.resultRetentionMs + 1,
     );
     expect(stale.kind).toBe('stale');
     expect(stale.entry.state).toBe('terminal');

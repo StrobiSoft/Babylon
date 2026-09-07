@@ -55,6 +55,10 @@ export type CommandTransitionResult =
  *
  * A production implementation must make receive/start/terminal transitions atomic.
  * `terminal` is immutable, and transition methods must reject stale attempt IDs.
+ * Non-terminal entries MUST NOT be evicted solely because `retainUntilMs` passed;
+ * otherwise the system could forget an unresolved effect and admit a duplicate.
+ * For terminal entries, `retainUntilMs` is the earliest replay/result retention
+ * deadline and may be extended by the terminal transition.
  * The interface deliberately does not select a storage technology.
  */
 export interface CommandJournal {
@@ -87,5 +91,6 @@ export interface CommandJournal {
     attemptId: string,
     outcome: CommandTerminalOutcome,
     terminalAtMs: number,
+    retainUntilMs: number,
   ): Promise<CommandTransitionResult>;
 }

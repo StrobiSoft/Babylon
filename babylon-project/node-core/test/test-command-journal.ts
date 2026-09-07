@@ -117,6 +117,7 @@ export class TestDurableCommandJournal implements CommandJournal {
     attemptId: string,
     outcome: CommandTerminalOutcome,
     terminalAtMs: number,
+    retainUntilMs: number,
   ): Promise<CommandTransitionResult> {
     if (this.failNextComplete) {
       this.failNextComplete = false;
@@ -131,6 +132,7 @@ export class TestDurableCommandJournal implements CommandJournal {
     }
     entry.state = 'terminal';
     entry.terminalAtMs = terminalAtMs;
+    entry.retainUntilMs = Math.max(entry.retainUntilMs, retainUntilMs);
     entry.terminal = {
       ...outcome,
       ...(outcome.result === undefined ? {} : { result: structuredClone(outcome.result) }),

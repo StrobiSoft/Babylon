@@ -490,6 +490,11 @@ export class NodeCore {
     }
 
     const outcome: CommandTerminalOutcome = { state: 'completed', result };
+    const terminalAtMs = this.#now();
+    const terminalRetainUntilMs = Math.max(
+      entry.retainUntilMs,
+      saturatingAdd(terminalAtMs, policy.resultRetentionMs),
+    );
     let completed;
     try {
       completed = await journal.complete(
@@ -498,7 +503,8 @@ export class NodeCore {
         entry.envelopeDigest,
         attemptId,
         outcome,
-        this.#now(),
+        terminalAtMs,
+        terminalRetainUntilMs,
       );
     } catch {
       const observed = await this.#journal(() =>
