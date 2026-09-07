@@ -10,6 +10,8 @@ DISPATCH=/usr/local/sbin/noemi-babylon-bench-dispatch
 ACTION_STATUS=babylon-bench-control-status
 ACTION_NORMALIZE=babylon-bench-control-normalize-run-mode
 ACTION_SYNC=babylon-bench-control-sync-drainmap-500
+MAINT_BASE_SHA256=96a3e9ef903717b50f4a16c3a587a526aa7123ef1c3ac7a05e200dfaacde5c1d
+DISPATCH_BASE_SHA256=8b073e42d96ffca4752c056974fafa8eebb90de2ed598e8febd5b5fb1c3eb9aa
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 if [[ $EUID -ne 0 || $# -ne 0 ]]; then
@@ -25,6 +27,22 @@ for target in "$MAINT" "$DISPATCH"; do
         exit 81
     fi
 done
+
+if ! grep -Fq "$ACTION_STATUS" "$MAINT" &&
+    ! grep -Fq "$ACTION_NORMALIZE" "$MAINT" &&
+    ! grep -Fq "$ACTION_SYNC" "$MAINT" &&
+    ! grep -Fq "$ACTION_STATUS" "$DISPATCH" &&
+    ! grep -Fq "$ACTION_NORMALIZE" "$DISPATCH" &&
+    ! grep -Fq "$ACTION_SYNC" "$DISPATCH"; then
+    maint_hash=$(sha256sum "$MAINT")
+    dispatch_hash=$(sha256sum "$DISPATCH")
+    if [[ ${maint_hash%% *} != "$MAINT_BASE_SHA256" ||
+        ${dispatch_hash%% *} != "$DISPATCH_BASE_SHA256" ]]; then
+        echo DRAINMAP_CONTROL_ACTION_INSTALL=BLOCKED
+        echo reason=maintenance_baseline_hash_mismatch
+        exit 82
+    fi
+fi
 
 STAGE=$(mktemp -d /tmp/drainmap-mode-action.XXXXXX)
 BACKUP_MAINT="$MAINT.pre-drainmap-mode-$STAMP"
@@ -264,7 +282,7 @@ fi
 if [[ -e "$BACKUP_MAINT" || -e "$BACKUP_DISPATCH" ]]; then
     echo DRAINMAP_CONTROL_ACTION_INSTALL=BLOCKED
     echo reason=backup_path_collision
-    exit 82
+    exit 83
 fi
 cp -a -- "$MAINT" "$BACKUP_MAINT"
 cp -a -- "$DISPATCH" "$BACKUP_DISPATCH"
