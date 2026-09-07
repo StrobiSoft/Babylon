@@ -24,6 +24,10 @@ export function signatureTranscript(envelope: UnsignedBnpEnvelope): Buffer {
   return Buffer.concat([SIGNATURE_DOMAIN, canonical]);
 }
 
+export function replayEnvelopeDigest(envelope: SignedBnpEnvelope): string {
+  return createHash('sha256').update(canonicalizeJcs(envelope), 'utf8').digest('base64url');
+}
+
 export function signEnvelope(
   envelope: UnsignedBnpEnvelope,
   privateKey: KeyObject,
