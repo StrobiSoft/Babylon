@@ -26,19 +26,6 @@ for target in "$MAINT" "$DISPATCH"; do
     fi
 done
 
-if grep -Fq "\"$ACTION_STATUS\"" "$MAINT" &&
-    grep -Fq "\"$ACTION_NORMALIZE\"" "$MAINT" &&
-    grep -Fq "\"$ACTION_SYNC\"" "$MAINT" &&
-    grep -Fq "  $ACTION_STATUS)" "$DISPATCH" &&
-    grep -Fq "  $ACTION_NORMALIZE)" "$DISPATCH" &&
-    grep -Fq "  $ACTION_SYNC)" "$DISPATCH"; then
-    python3 -m py_compile "$MAINT"
-    bash -n "$DISPATCH"
-    echo DRAINMAP_CONTROL_ACTION_INSTALL=PASS
-    echo state=already_installed
-    exit 0
-fi
-
 STAGE=$(mktemp -d /tmp/drainmap-mode-action.XXXXXX)
 BACKUP_MAINT="$MAINT.pre-drainmap-mode-$STAMP"
 BACKUP_DISPATCH="$DISPATCH.pre-drainmap-mode-$STAMP"
@@ -55,8 +42,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -a -- "$MAINT" "$BACKUP_MAINT"
-cp -a -- "$DISPATCH" "$BACKUP_DISPATCH"
 cp -a -- "$MAINT" "$STAGE/maint.py"
 cp -a -- "$DISPATCH" "$STAGE/dispatch"
 
@@ -77,6 +62,8 @@ if missing:
     if text.count(marker) != 1:
         raise SystemExit("maint allowlist anchor missing or ambiguous")
     text = text.replace(marker, missing + marker, 1)
+if any(text.count(action) != 1 for action in actions):
+    raise SystemExit("maint allowlist action missing or duplicated")
 path.write_text(text, encoding="utf-8")
 PY
 
@@ -247,13 +234,16 @@ actions = (
     "  babylon-bench-control-normalize-run-mode)",
     "  babylon-bench-control-sync-drainmap-500)",
 )
-if not all(action in text for action in actions):
-    if any(action in text for action in actions):
+present = tuple(action in text for action in actions)
+if not all(present):
+    if any(present):
         raise SystemExit("dispatcher has a partial DrainMap action installation")
     marker = "  babylon-bench-control-sync)\n"
     if text.count(marker) != 1:
         raise SystemExit("dispatcher insertion anchor missing or ambiguous")
     text = text.replace(marker, case + marker, 1)
+elif text.count(case) != 1:
+    raise SystemExit("installed DrainMap action body differs from reviewed body")
 path.write_text(text, encoding="utf-8")
 PY
 
@@ -263,6 +253,21 @@ for action in "$ACTION_STATUS" "$ACTION_NORMALIZE" "$ACTION_SYNC"; do
     grep -Fq "\"$action\"" "$STAGE/maint.py"
     grep -Fq "  $action)" "$STAGE/dispatch"
 done
+
+if cmp -s "$STAGE/maint.py" "$MAINT" && cmp -s "$STAGE/dispatch" "$DISPATCH"; then
+    COMMITTED=1
+    echo DRAINMAP_CONTROL_ACTION_INSTALL=PASS
+    echo state=already_installed
+    exit 0
+fi
+
+if [[ -e "$BACKUP_MAINT" || -e "$BACKUP_DISPATCH" ]]; then
+    echo DRAINMAP_CONTROL_ACTION_INSTALL=BLOCKED
+    echo reason=backup_path_collision
+    exit 82
+fi
+cp -a -- "$MAINT" "$BACKUP_MAINT"
+cp -a -- "$DISPATCH" "$BACKUP_DISPATCH"
 
 install -o root -g root -m 0755 "$STAGE/maint.py" "$MAINT.next-drainmap-mode"
 install -o root -g root -m 0755 "$STAGE/dispatch" "$DISPATCH.next-drainmap-mode"
