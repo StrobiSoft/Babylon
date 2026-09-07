@@ -98,6 +98,11 @@ function assertOnlyKeys(body: JsonObject, allowed: readonly string[]): void {
   }
 }
 
+function replayRetentionUntilMs(envelope: SignedBnpEnvelope, policy: TimePolicy): number {
+  const expiresAtMs = Date.parse(envelope.expires_at);
+  return Math.min(Number.MAX_SAFE_INTEGER, expiresAtMs + policy.maxLateSkewMs);
+}
+
 export class NodeCore {
   readonly #options: NodeCoreOptions;
 
@@ -168,7 +173,7 @@ export class NodeCore {
     const replay = await this.#options.replayStore.claim(
       sender.nodeId,
       envelope.message_id,
-      Date.parse(envelope.expires_at),
+      replayRetentionUntilMs(envelope, this.#options.timePolicy),
       nowMs,
     );
     if (replay === 'duplicate') {
