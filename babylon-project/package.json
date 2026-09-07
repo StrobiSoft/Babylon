@@ -10,17 +10,18 @@
     "esbuild": "0.28.1"
   },
   "scripts": {
-    "build": "tsc -p backend/tsconfig.json",
-    "check": "tsc -p backend/tsconfig.json --noEmit",
-    "check:test": "tsc -p backend/test/tsconfig.json --noEmit",
+    "build": "tsc -p backend/tsconfig.json && tsc -p node-core/tsconfig.json",
+    "check": "tsc -p backend/tsconfig.json --noEmit && tsc -p node-core/tsconfig.json --noEmit",
+    "check:test": "tsc -p backend/test/tsconfig.json --noEmit && tsc -p node-core/test/tsconfig.json --noEmit",
     "dev": "tsx watch backend/src/main.ts",
-    "format": "prettier --write \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
-    "format:check": "prettier --check \"backend/**/*.{ts,json}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
-    "lint": "eslint backend/src backend/test",
+    "format": "prettier --write \"backend/**/*.{ts,json}\" \"node-core/**/*.{ts,json,md}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
+    "format:check": "prettier --check \"backend/**/*.{ts,json}\" \"node-core/**/*.{ts,json,md}\" \"*.{json,yaml,md}\" \"docs/**/*.{md,yaml}\"",
+    "lint": "eslint backend/src backend/test node-core/src node-core/test",
     "migrate": "tsx backend/src/migrate-cli.ts",
     "start": "node backend/dist/main.js",
     "test": "vitest run --coverage",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run",
+    "test:node-core": "vitest run node-core/test"
   },
   "dependencies": {
     "@fastify/cors": "11.3.0",

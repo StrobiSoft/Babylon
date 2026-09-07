@@ -4,6 +4,18 @@ Babylon is a multi-platform Flutter client and a security-focused authentication
 
 The application lives in [`babylon-project/`](babylon-project/README.md). The existing repository history also contains the independent `services/zoolab-monitor` operational component; it is not a Babylon application dependency. The local `services/babylon-status` service is explicitly excluded from this repository.
 
+## NODE IJET
+
+**NODE IJET — Intelligent Junction & Entry Technology** is the public technology/project name for the compact node-control work developed alongside Babylon. Its underlying interoperability and wire protocol remains **BNP — Bridge Node Protocol** (`BNP/1`).
+
+This naming boundary is intentional: NODE IJET identifies the technology, while BNP remains the stable protocol contract used by specifications, schemas, conformance rules, and wire identifiers.
+
+NODE IJET is designed around a small trusted BNP core and strong security properties. Its goal is high **security density**: authenticated asymmetric node identity, signed and destination-bound messages, per-operation authorization, replay protection, bounded semantic commands, lifecycle/revocation handling, and host-local policy without requiring a large orchestration platform or a provider-specific real-time control plane.
+
+BNP does not require GitHub, a specific LLM/provider, a specific programming language, or an SSH control channel in its semantic path, and it does not require a public listener. Deployment-specific authorization policy and sensitive operational mappings remain outside the public interoperability contract.
+
+See [`babylon-project/docs/BNP_V1_PUBLIC_OVERVIEW.md`](babylon-project/docs/BNP_V1_PUBLIC_OVERVIEW.md) and [`babylon-project/docs/BNP_V1_PROTOCOL_SPEC.md`](babylon-project/docs/BNP_V1_PROTOCOL_SPEC.md).
+
 ## Components
 
 - `babylon-project/backend/`: Node.js 24, TypeScript, Fastify, SimpleWebAuthn, and PostgreSQL 17.

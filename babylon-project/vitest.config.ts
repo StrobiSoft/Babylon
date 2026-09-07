@@ -2,13 +2,13 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['backend/test/**/*.test.ts'],
+    include: ['backend/test/**/*.test.ts', 'node-core/test/**/*.test.ts'],
     fileParallelism: false,
     testTimeout: 15_000,
     hookTimeout: 20_000,
     coverage: {
       provider: 'v8',
-      include: ['backend/src/**/*.ts'],
+      include: ['backend/src/**/*.ts', 'node-core/src/**/*.ts'],
       exclude: ['backend/src/main.ts', 'backend/src/migrate-cli.ts'],
       reporter: ['text', 'json-summary'],
     },
