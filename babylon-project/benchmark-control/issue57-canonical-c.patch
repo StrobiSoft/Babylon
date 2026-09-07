@@ -1,0 +1,880 @@
+diff --git a/babylon-project/backend/test/soft-chat-canonical-c-config.test.ts b/babylon-project/backend/test/soft-chat-canonical-c-config.test.ts
+new file mode 100644
+index 0000000..24e44b6
+--- /dev/null
++++ b/babylon-project/backend/test/soft-chat-canonical-c-config.test.ts
+@@ -0,0 +1,38 @@
++import { describe, expect, it } from 'vitest';
++import { assertCanonicalCConfiguration } from './soft-chat-canonical-c-config.js';
++
++const canonical = {
++  stages: [500],
++  modes: ['independent-streaming'],
++  poolMax: 20,
++  pollIntervalMs: 500,
++  pendingSchedule: 'fixed-grid',
++  clientRampMs: 5000,
++  warmupMs: 2000,
++  separateServerProcess: true,
++  comparisonRun: true,
++  pendingAuthIsolation: 'none',
++};
++
++describe('canonical C configuration guard', () => {
++  it('accepts the exact issue #57 C workload', () => {
++    expect(() => assertCanonicalCConfiguration(canonical)).not.toThrow();
++  });
++
++  it.each([
++    ['client count', { stages: [499] }],
++    ['mode', { modes: ['shared-phased'] }],
++    ['pool max', { poolMax: 40 }],
++    ['poll interval', { pollIntervalMs: 750 }],
++    ['scheduler', { pendingSchedule: 'completion-relative' }],
++    ['ramp', { clientRampMs: 0 }],
++    ['warmup', { warmupMs: 0 }],
++    ['server topology', { separateServerProcess: false }],
++    ['comparison mode', { comparisonRun: false }],
++    ['pending auth behavior', { pendingAuthIsolation: 'prevalidated-handle' }],
++  ])('refuses a changed %s', (_label, change) => {
++    expect(() => assertCanonicalCConfiguration({ ...canonical, ...change })).toThrow(
++      'Canonical C configuration refused',
++    );
++  });
++});
+diff --git a/babylon-project/backend/test/soft-chat-canonical-c-config.ts b/babylon-project/backend/test/soft-chat-canonical-c-config.ts
+new file mode 100644
+index 0000000..008c183
+--- /dev/null
++++ b/babylon-project/backend/test/soft-chat-canonical-c-config.ts
+@@ -0,0 +1,42 @@
++export interface CanonicalCConfiguration {
++  stages: number[];
++  modes: string[];
++  poolMax: number;
++  pollIntervalMs: number;
++  pendingSchedule: string;
++  clientRampMs: number;
++  warmupMs: number;
++  separateServerProcess: boolean;
++  comparisonRun: boolean;
++  pendingAuthIsolation: string;
++}
++
++export function assertCanonicalCConfiguration(configuration: CanonicalCConfiguration): void {
++  const violations = [
++    configuration.stages.length === 1 && configuration.stages[0] === 500
++      ? undefined
++      : 'SOFT_CHAT_LOAD_STAGES must be exactly 500',
++    configuration.modes.length === 1 && configuration.modes[0] === 'independent-streaming'
++      ? undefined
++      : 'SOFT_CHAT_LOAD_MODES must be exactly independent-streaming',
++    configuration.poolMax === 20 ? undefined : 'SOFT_CHAT_LOAD_POOL_MAX must be 20',
++    configuration.pollIntervalMs === 500
++      ? undefined
++      : 'SOFT_CHAT_LOAD_POLL_INTERVAL_MS must be 500',
++    configuration.pendingSchedule === 'fixed-grid'
++      ? undefined
++      : 'SOFT_CHAT_LOAD_PENDING_SCHEDULE must be fixed-grid',
++    configuration.clientRampMs === 5000 ? undefined : 'SOFT_CHAT_LOAD_CLIENT_RAMP_MS must be 5000',
++    configuration.warmupMs === 2000 ? undefined : 'SOFT_CHAT_LOAD_WARMUP_MS must be 2000',
++    configuration.separateServerProcess
++      ? undefined
++      : 'SOFT_CHAT_LOAD_SEPARATE_SERVER must be enabled',
++    configuration.comparisonRun ? undefined : 'SOFT_CHAT_LOAD_COMPARISON must be enabled',
++    configuration.pendingAuthIsolation === 'none'
++      ? undefined
++      : 'SOFT_CHAT_LOAD_PENDING_AUTH_ISOLATION must preserve the Delta 1.1 default (none)',
++  ].filter((value): value is string => value !== undefined);
++  if (violations.length > 0) {
++    throw new Error(`Canonical C configuration refused: ${violations.join('; ')}`);
++  }
++}
+diff --git a/babylon-project/backend/test/soft-chat-load-server-process.ts b/babylon-project/backend/test/soft-chat-load-server-process.ts
+index c3900f2..3cf90c7 100644
+--- a/babylon-project/backend/test/soft-chat-load-server-process.ts
++++ b/babylon-project/backend/test/soft-chat-load-server-process.ts
+@@ -19,15 +19,31 @@ interface ServiceTimings {
+   pendingFetch: number[];
+   acknowledge: number[];
+   connectionAcquisition: Record<AcquisitionStage, number[]>;
++  connectionAcquisitionEvents: ConnectionAcquisitionEvent[];
++}
++
++interface ConnectionAcquisitionEvent {
++  stage: AcquisitionStage;
++  startedAtMonotonicMs: number;
++  finishedAtMonotonicMs: number;
++  waitMs: number;
+ }
+ 
+ interface PoolSample {
+   at: string;
++  atMonotonicMs: number;
+   totalCount: number;
+   idleCount: number;
+   waitingCount: number;
+ }
+ 
++interface RuntimeSample {
++  atMonotonicMs: number;
++  cpuPercent: number;
++  eventLoopUtilizationPercent: number;
++  eventLoopDelayP99Ms: number;
++}
++
+ interface RuntimeDiagnostics {
+   cpuPercent: number;
+   eventLoopUtilizationPercent: number;
+@@ -57,8 +73,11 @@ const emptyServiceTimings = (): ServiceTimings => ({
+     pendingFetch: [],
+     acknowledge: [],
+   },
++  connectionAcquisitionEvents: [],
+ });
+ 
++const monotonicNow = () => performance.timeOrigin + performance.now();
++
+ let activeTimings: ServiceTimings | undefined;
+ const acquisitionStage = new AsyncLocalStorage<{
+   stage: AcquisitionStage;
+@@ -66,10 +85,18 @@ const acquisitionStage = new AsyncLocalStorage<{
+ }>();
+ 
+ class InstrumentedPostgresDatabase extends PostgresDatabase {
+-  private recordConnectionAcquisition(started: number) {
++  private recordConnectionAcquisition(startedAtMonotonicMs: number) {
+     const context = acquisitionStage.getStore();
+     if (context) {
+-      context.timings?.connectionAcquisition[context.stage].push(performance.now() - started);
++      const finishedAtMonotonicMs = monotonicNow();
++      const waitMs = finishedAtMonotonicMs - startedAtMonotonicMs;
++      context.timings?.connectionAcquisition[context.stage].push(waitMs);
++      context.timings?.connectionAcquisitionEvents.push({
++        stage: context.stage,
++        startedAtMonotonicMs,
++        finishedAtMonotonicMs,
++        waitMs,
++      });
+     }
+   }
+ 
+@@ -77,7 +104,7 @@ class InstrumentedPostgresDatabase extends PostgresDatabase {
+     text: string,
+     values?: unknown[],
+   ): Promise<QueryResult<R>> {
+-    const started = performance.now();
++    const started = monotonicNow();
+     const client = await this.pool.connect();
+     this.recordConnectionAcquisition(started);
+     try {
+@@ -88,7 +115,7 @@ class InstrumentedPostgresDatabase extends PostgresDatabase {
+   }
+ 
+   override async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+-    const started = performance.now();
++    const started = monotonicNow();
+     const client = await this.pool.connect();
+     this.recordConnectionAcquisition(started);
+     try {
+@@ -157,23 +184,50 @@ class InstrumentedDeliveryService extends MessageDeliveryService {
+ 
+ function startWindowDiagnostics(database: InstrumentedPostgresDatabase) {
+   const poolSamples: PoolSample[] = [];
++  const runtimeSamples: RuntimeSample[] = [];
+   const runtimeStartedAt = performance.now();
+   const cpuStarted = process.cpuUsage();
+   const eventLoopStarted = performance.eventLoopUtilization();
+   const eventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
++  const sampleEventLoopDelay = monitorEventLoopDelay({ resolution: 10 });
+   eventLoopDelay.enable();
++  sampleEventLoopDelay.enable();
++  let intervalStartedAt = performance.now();
++  let intervalCpuStarted = process.cpuUsage();
++  let intervalEventLoopStarted = performance.eventLoopUtilization();
+   const poolTimer = setInterval(() => {
++    const atMonotonicMs = monotonicNow();
++    const intervalFinishedAt = performance.now();
++    const intervalDurationMs = intervalFinishedAt - intervalStartedAt;
++    const intervalCpu = process.cpuUsage(intervalCpuStarted);
++    const intervalEventLoop = performance.eventLoopUtilization(intervalEventLoopStarted);
+     poolSamples.push({
+       at: new Date().toISOString(),
++      atMonotonicMs,
+       totalCount: database.pool.totalCount,
+       idleCount: database.pool.idleCount,
+       waitingCount: database.pool.waitingCount,
+     });
+-  }, 25);
++    runtimeSamples.push({
++      atMonotonicMs,
++      cpuPercent:
++        intervalDurationMs === 0
++          ? 0
++          : ((intervalCpu.user + intervalCpu.system) / 1000 / intervalDurationMs) * 100,
++      eventLoopUtilizationPercent: intervalEventLoop.utilization * 100,
++      eventLoopDelayP99Ms:
++        sampleEventLoopDelay.count === 0 ? 0 : sampleEventLoopDelay.percentile(99) / 1_000_000,
++    });
++    intervalStartedAt = intervalFinishedAt;
++    intervalCpuStarted = process.cpuUsage();
++    intervalEventLoopStarted = performance.eventLoopUtilization();
++    sampleEventLoopDelay.reset();
++  }, 50);
+ 
+   return () => {
+     clearInterval(poolTimer);
+     eventLoopDelay.disable();
++    sampleEventLoopDelay.disable();
+     const runtimeDurationMs = performance.now() - runtimeStartedAt;
+     const cpu = process.cpuUsage(cpuStarted);
+     const eventLoop = performance.eventLoopUtilization(eventLoopStarted);
+@@ -194,7 +248,7 @@ function startWindowDiagnostics(database: InstrumentedPostgresDatabase) {
+               max: milliseconds(eventLoopDelay.max),
+             },
+     };
+-    return { poolSamples, runtime };
++    return { poolSamples, runtimeSamples, runtime };
+   };
+ }
+ 
+@@ -243,7 +297,13 @@ async function main() {
+       : undefined;
+   await app.listen({ host: '127.0.0.1', port: backendPort });
+ 
+-  let stopWindow: (() => { poolSamples: PoolSample[]; runtime: RuntimeDiagnostics }) | undefined;
++  let stopWindow:
++    | (() => {
++        poolSamples: PoolSample[];
++        runtimeSamples: RuntimeSample[];
++        runtime: RuntimeDiagnostics;
++      })
++    | undefined;
+   let shuttingDown = false;
+   const send = (message: unknown) => process.send?.(message);
+ 
+@@ -268,6 +328,7 @@ async function main() {
+             id: request.id,
+             value: {
+               at: new Date().toISOString(),
++              atMonotonicMs: monotonicNow(),
+               totalCount: database.pool.totalCount,
+               idleCount: database.pool.idleCount,
+               waitingCount: database.pool.waitingCount,
+@@ -275,6 +336,10 @@ async function main() {
+           });
+           return;
+         }
++        if (request.type === 'clock-sample') {
++          send({ id: request.id, value: monotonicNow() });
++          return;
++        }
+         if (request.type === 'stop-window') {
+           if (!stopWindow || !activeTimings) throw new Error('No diagnostics window is active.');
+           const timings = activeTimings;
+diff --git a/babylon-project/backend/test/soft-chat-load.e2e.test.ts b/babylon-project/backend/test/soft-chat-load.e2e.test.ts
+index 38eeb53..4d1e860 100644
+--- a/babylon-project/backend/test/soft-chat-load.e2e.test.ts
++++ b/babylon-project/backend/test/soft-chat-load.e2e.test.ts
+@@ -20,6 +20,7 @@ import { runMigrations } from '../src/migrations.js';
+ import { buildServer } from '../src/server.js';
+ import { SimpleWebAuthnProvider } from '../src/webauthn.js';
+ import { testConfig } from './helpers.js';
++import { assertCanonicalCConfiguration } from './soft-chat-canonical-c-config.js';
+ import { nextFixedGridPoll, type SoftChatPendingSchedule } from './soft-chat-poll-scheduler.js';
+ 
+ const enabled = process.env.RUN_SOFT_CHAT_LOAD === '1';
+@@ -38,11 +39,27 @@ const requestedPoolMax = Number(process.env.SOFT_CHAT_LOAD_POOL_MAX ?? '20');
+ const clientRampMs = Number(process.env.SOFT_CHAT_LOAD_CLIENT_RAMP_MS ?? '0');
+ const warmupMs = Number(process.env.SOFT_CHAT_LOAD_WARMUP_MS ?? '0');
+ const separateServerProcess = process.env.SOFT_CHAT_LOAD_SEPARATE_SERVER === '1';
++const canonicalCDiagnostic = process.env.SOFT_CHAT_LOAD_CANONICAL_C === '1';
+ const pendingAuthIsolation = process.env.SOFT_CHAT_LOAD_PENDING_AUTH_ISOLATION ?? 'none';
+ const requestedModes = (process.env.SOFT_CHAT_LOAD_MODES ?? 'shared-phased,independent-streaming')
+   .split(',')
+   .map((value) => value.trim()) as LoadMode[];
+ 
++if (canonicalCDiagnostic) {
++  assertCanonicalCConfiguration({
++    stages: requestedStages,
++    modes: requestedModes,
++    poolMax: requestedPoolMax,
++    pollIntervalMs,
++    pendingSchedule,
++    clientRampMs,
++    warmupMs,
++    separateServerProcess,
++    comparisonRun,
++    pendingAuthIsolation,
++  });
++}
++
+ type LoadMode = 'shared-phased' | 'independent-streaming';
+ interface LatencySummary {
+   count: number;
+@@ -53,10 +70,47 @@ interface LatencySummary {
+ }
+ interface PoolSample {
+   at: string;
++  atMonotonicMs: number;
+   totalCount: number;
+   idleCount: number;
+   waitingCount: number;
+ }
++interface ConnectionAcquisitionEvent {
++  stage: AcquisitionStage;
++  startedAtMonotonicMs: number;
++  finishedAtMonotonicMs: number;
++  waitMs: number;
++}
++interface RuntimeSample {
++  atMonotonicMs: number;
++  cpuPercent: number;
++  eventLoopUtilizationPercent: number;
++  eventLoopDelayP99Ms: number;
++}
++interface DriverConcurrencySample {
++  atMonotonicMs: number;
++  inFlightSends: number;
++  sendsStarted: number;
++  sendsCompleted: number;
++  pendingFetchInFlight: number;
++  pendingFetchRequests: number;
++}
++interface MessageTrace {
++  requestId: string;
++  sendRank: number;
++  clientIndex: number;
++  senderUserId: string;
++  recipientUserId: string;
++  sendTsMonotonicMs: number;
++  acceptTsMonotonicMs: number | null;
++  visibleTsMonotonicMs: number | null;
++  ackTsMonotonicMs: number | null;
++  sendToAcceptMs: number | null;
++  acceptToVisibleMs: number | null;
++  sendToVisibleMs: number | null;
++  visibleToAckMs: number | null;
++  sendToAckMs: number | null;
++}
+ interface PostgresDiagnostics {
+   activityAvailable: boolean;
+   activityError?: string;
+@@ -131,6 +185,16 @@ interface StageResult {
+   postgres: PostgresDiagnostics;
+   runtime: RuntimeDiagnostics;
+   driverRuntime: RuntimeDiagnostics;
++  canonicalCDiagnostic: {
++    clock: 'driver performance.timeOrigin+performance.now';
++    serverClockAlignment: ServerClockAlignment;
++    messageTraces: MessageTrace[];
++    driverConcurrencySamples: DriverConcurrencySample[];
++    serverRuntimeSamples: RuntimeSample[];
++    connectionAcquisitionEvents: (ConnectionAcquisitionEvent & {
++      window: 'reconnect' | 'steady';
++    })[];
++  } | null;
+   pendingFetchRequests: number;
+   pendingSchedule: SoftChatPendingSchedule;
+   pendingScheduleSkippedTicks: number;
+@@ -190,6 +254,7 @@ interface ServiceTimings {
+   pendingFetch: number[];
+   acknowledge: number[];
+   connectionAcquisition: Record<AcquisitionStage, number[]>;
++  connectionAcquisitionEvents: ConnectionAcquisitionEvent[];
+ }
+ 
+ let activeTimings: ServiceTimings | undefined;
+@@ -209,8 +274,11 @@ const emptyServiceTimings = (): ServiceTimings => ({
+     pendingFetch: [],
+     acknowledge: [],
+   },
++  connectionAcquisitionEvents: [],
+ });
+ 
++const monotonicNow = () => performance.timeOrigin + performance.now();
++
+ const summarizeAcquisition = (timings: ServiceTimings): AcquisitionSummaries => ({
+   authentication: summarize(timings.connectionAcquisition.authentication),
+   accept: summarize(timings.connectionAcquisition.accept),
+@@ -219,10 +287,18 @@ const summarizeAcquisition = (timings: ServiceTimings): AcquisitionSummaries =>
+ });
+ 
+ class InstrumentedPostgresDatabase extends PostgresDatabase {
+-  private recordConnectionAcquisition(started: number) {
++  private recordConnectionAcquisition(startedAtMonotonicMs: number) {
+     const context = acquisitionStage.getStore();
+     if (context) {
+-      context.timings?.connectionAcquisition[context.stage].push(performance.now() - started);
++      const finishedAtMonotonicMs = monotonicNow();
++      const waitMs = finishedAtMonotonicMs - startedAtMonotonicMs;
++      context.timings?.connectionAcquisition[context.stage].push(waitMs);
++      context.timings?.connectionAcquisitionEvents.push({
++        stage: context.stage,
++        startedAtMonotonicMs,
++        finishedAtMonotonicMs,
++        waitMs,
++      });
+     }
+   }
+ 
+@@ -230,7 +306,7 @@ class InstrumentedPostgresDatabase extends PostgresDatabase {
+     text: string,
+     values?: unknown[],
+   ): Promise<QueryResult<R>> {
+-    const started = performance.now();
++    const started = monotonicNow();
+     const client = await this.pool.connect();
+     this.recordConnectionAcquisition(started);
+     try {
+@@ -241,7 +317,7 @@ class InstrumentedPostgresDatabase extends PostgresDatabase {
+   }
+ 
+   override async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+-    const started = performance.now();
++    const started = monotonicNow();
+     const client = await this.pool.connect();
+     this.recordConnectionAcquisition(started);
+     try {
+@@ -321,15 +397,25 @@ interface IndependentClient {
+ interface RemoteWindowResult {
+   timings: ServiceTimings;
+   poolSamples: PoolSample[];
++  runtimeSamples: RuntimeSample[];
+   runtime: RuntimeDiagnostics;
+ }
+ 
+ interface ServerProcessController {
+   process: ChildProcess;
+-  request<T>(type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample'): Promise<T>;
++  clockAlignment: ServerClockAlignment;
++  request<T>(
++    type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample' | 'clock-sample',
++  ): Promise<T>;
+   close(): Promise<void>;
+ }
+ 
++interface ServerClockAlignment {
++  offsetMs: number;
++  roundTripMs: number;
++  samples: number;
++}
++
+ async function startServerProcess(input: {
+   databaseUrl: string;
+   backendPort: number;
+@@ -384,7 +470,13 @@ async function startServerProcess(input: {
+   await ready;
+ 
+   const request = <T>(
+-    type: 'start-window' | 'stop-window' | 'snapshot-timings' | 'pool-sample' | 'shutdown',
++    type:
++      | 'start-window'
++      | 'stop-window'
++      | 'snapshot-timings'
++      | 'pool-sample'
++      | 'clock-sample'
++      | 'shutdown',
+   ) =>
+     new Promise<T>((resolveRequest, rejectRequest) => {
+       const id = ++sequence;
+@@ -399,8 +491,24 @@ async function startServerProcess(input: {
+       });
+     });
+ 
++  let bestClockSample = { offsetMs: 0, roundTripMs: Number.POSITIVE_INFINITY };
++  const clockSamples = 7;
++  for (let index = 0; index < clockSamples; index += 1) {
++    const requestStartedAt = monotonicNow();
++    const childAt = await request<number>('clock-sample');
++    const requestFinishedAt = monotonicNow();
++    const roundTripMs = requestFinishedAt - requestStartedAt;
++    if (roundTripMs < bestClockSample.roundTripMs) {
++      bestClockSample = {
++        offsetMs: (requestStartedAt + requestFinishedAt) / 2 - childAt,
++        roundTripMs,
++      };
++    }
++  }
++
+   return {
+     process: child,
++    clockAlignment: { ...bestClockSample, samples: clockSamples },
+     request,
+     async close() {
+       if (child.exitCode !== null || child.signalCode !== null) return;
+@@ -756,6 +864,7 @@ suite('Soft Chat production-path capacity', () => {
+       : setInterval(() => {
+           poolSamples.push({
+             at: new Date().toISOString(),
++            atMonotonicMs: monotonicNow(),
+             totalCount: database.pool.totalCount,
+             idleCount: database.pool.idleCount,
+             waitingCount: database.pool.waitingCount,
+@@ -835,6 +944,16 @@ suite('Soft Chat production-path capacity', () => {
+       const remoteDiagnostics = serverProcess
+         ? await serverProcess.request<RemoteWindowResult>('stop-window')
+         : undefined;
++      const serverClockOffsetMs = serverProcess?.clockAlignment.offsetMs ?? 0;
++      const alignedRemoteTimings = remoteDiagnostics?.timings;
++      if (alignedRemoteTimings) {
++        alignedRemoteTimings.connectionAcquisitionEvents =
++          alignedRemoteTimings.connectionAcquisitionEvents.map((event) => ({
++            ...event,
++            startedAtMonotonicMs: event.startedAtMonotonicMs + serverClockOffsetMs,
++            finishedAtMonotonicMs: event.finishedAtMonotonicMs + serverClockOffsetMs,
++          }));
++      }
+       while (sampling) await delay(10);
+       let topQueries: PostgresDiagnostics['topQueries'] = [];
+       if (!statementsError) {
+@@ -874,10 +993,19 @@ suite('Soft Chat production-path capacity', () => {
+         return { waitEventType, waitEvent, samples };
+       });
+       return {
+-        poolSamples: remoteDiagnostics?.poolSamples ?? poolSamples,
++        poolSamples:
++          remoteDiagnostics?.poolSamples.map((sample) => ({
++            ...sample,
++            atMonotonicMs: sample.atMonotonicMs + serverClockOffsetMs,
++          })) ?? poolSamples,
++        runtimeSamples:
++          remoteDiagnostics?.runtimeSamples.map((sample) => ({
++            ...sample,
++            atMonotonicMs: sample.atMonotonicMs + serverClockOffsetMs,
++          })) ?? [],
+         runtime: remoteDiagnostics?.runtime ?? driverRuntime,
+         driverRuntime,
+-        serviceTimings: remoteDiagnostics?.timings,
++        serviceTimings: alignedRemoteTimings,
+         postgres: {
+           activityAvailable: !activityError,
+           ...(activityError ? { activityError } : {}),
+@@ -905,9 +1033,13 @@ suite('Soft Chat production-path capacity', () => {
+ 
+   const currentPoolSample = async (): Promise<PoolSample> =>
+     serverProcess
+-      ? serverProcess.request<PoolSample>('pool-sample')
++      ? serverProcess.request<PoolSample>('pool-sample').then((sample) => ({
++          ...sample,
++          atMonotonicMs: sample.atMonotonicMs + serverProcess!.clockAlignment.offsetMs,
++        }))
+       : {
+           at: new Date().toISOString(),
++          atMonotonicMs: monotonicNow(),
+           totalCount: database.pool.totalCount,
+           idleCount: database.pool.idleCount,
+           waitingCount: database.pool.waitingCount,
+@@ -920,6 +1052,7 @@ suite('Soft Chat production-path capacity', () => {
+   ): Promise<StageResult> {
+     const errors: ErrorCounts = {};
+     const startedMessages = new Map<string, number>();
++    const acceptedMessages = new Map<string, number>();
+     const visibleMessages = new Map<string, number>();
+     const acknowledgedMessages = new Map<string, number>();
+     const expectedPayloads = new Map<string, string>();
+@@ -931,6 +1064,10 @@ suite('Soft Chat production-path capacity', () => {
+     let duplicateDeliveries = 0;
+     let contentViolations = 0;
+     let pendingFetchRequests = 0;
++    let pendingFetchInFlight = 0;
++    let inFlightSends = 0;
++    let sendsStarted = 0;
++    let sendsCompleted = 0;
+     let pendingScheduleSkippedTicks = 0;
+     let pendingOverlapViolations = 0;
+     let pendingAuthContextCreations = 0;
+@@ -940,6 +1077,9 @@ suite('Soft Chat production-path capacity', () => {
+     const workerPromises: Promise<void>[] = [];
+     const pendingAuthHandles = new Map<number, string>();
+     const initialAuthenticationLatencies: number[] = [];
++    const sendRanks = new Map<string, number>();
++    const clientIndices = new Map<string, number>();
++    const driverConcurrencySamples: DriverConcurrencySample[] = [];
+     const independent =
+       mode === 'independent-streaming'
+         ? await seedIndependentClients(count, `${Date.now()}-${count}`)
+@@ -953,7 +1093,6 @@ suite('Soft Chat production-path capacity', () => {
+         .catch(() => (unhealthy = true));
+     }, 1000);
+     const prepareMessage = (requestId: string, index: number) => {
+-      startedMessages.set(requestId, performance.now());
+       const text =
+         index % 3 === 0
+           ? 'Pepper load ordinary text'
+@@ -964,6 +1103,11 @@ suite('Soft Chat production-path capacity', () => {
+       expectedPayloads.set(requestId, payload);
+       return payload;
+     };
++    const recordSendStart = (requestId: string, index: number) => {
++      startedMessages.set(requestId, monotonicNow());
++      sendRanks.set(requestId, sendRanks.size + 1);
++      clientIndices.set(requestId, index);
++    };
+     const acknowledgeItem = async (
+       item: Record<string, unknown>,
+       recipient: LoadIdentity,
+@@ -972,7 +1116,7 @@ suite('Soft Chat production-path capacity', () => {
+       const requestId = item.requestId as string;
+       if (seen.has(requestId)) duplicateDeliveries += 1;
+       seen.add(requestId);
+-      visibleMessages.set(requestId, visibleMessages.get(requestId) ?? performance.now());
++      visibleMessages.set(requestId, visibleMessages.get(requestId) ?? monotonicNow());
+       if (item.payload !== expectedPayloads.get(requestId)) {
+         increment(errors, 'receive:PAYLOAD_ALTERED');
+         contentViolations += 1;
+@@ -984,7 +1128,7 @@ suite('Soft Chat production-path capacity', () => {
+         });
+         if (!acknowledgedMessages.has(requestId)) {
+           ackSucceeded += 1;
+-          acknowledgedMessages.set(requestId, performance.now());
++          acknowledgedMessages.set(requestId, monotonicNow());
+         }
+       } catch (error) {
+         increment(errors, `ack:${String(error)}`);
+@@ -1002,6 +1146,7 @@ suite('Soft Chat production-path capacity', () => {
+             try {
+               if (pendingInFlight) pendingOverlapViolations += 1;
+               pendingInFlight = true;
++              pendingFetchInFlight += 1;
+               pendingFetchRequests += 1;
+               const handle = pendingAuthHandles.get(index);
+               const pending = handle
+@@ -1024,6 +1169,7 @@ suite('Soft Chat production-path capacity', () => {
+               return;
+             } finally {
+               pendingInFlight = false;
++              pendingFetchInFlight -= 1;
+             }
+             if (pendingSchedule === 'completion-relative') {
+               await delay(pollIntervalMs);
+@@ -1126,12 +1272,27 @@ suite('Soft Chat production-path capacity', () => {
+     const stopSteadyDiagnostics = await startDiagnostics();
+     const started = new Date();
+     const requests = authenticatedIndices.map((index) => ({ index, requestId: randomUUID() }));
++    const concurrencyTimer = canonicalCDiagnostic
++      ? setInterval(() => {
++          driverConcurrencySamples.push({
++            atMonotonicMs: monotonicNow(),
++            inFlightSends,
++            sendsStarted,
++            sendsCompleted,
++            pendingFetchInFlight,
++            pendingFetchRequests,
++          });
++        }, 25)
++      : undefined;
+ 
+     if (independent) {
+       await Promise.all(
+         requests.map(async ({ requestId, index }) => {
+           const client = independent[index]!;
+           const payload = prepareMessage(requestId, index);
++          inFlightSends += 1;
++          sendsStarted += 1;
++          recordSendStart(requestId, index);
+           try {
+             await authorized('/api/v1/messages', client.sender.accessToken, {
+               method: 'POST',
+@@ -1142,9 +1303,13 @@ suite('Soft Chat production-path capacity', () => {
+                 payload,
+               }),
+             });
++            acceptedMessages.set(requestId, monotonicNow());
+             messagesSucceeded += 1;
+           } catch (error) {
+             increment(errors, `send:${String(error)}`);
++          } finally {
++            inFlightSends -= 1;
++            sendsCompleted += 1;
+           }
+         }),
+       );
+@@ -1157,6 +1322,9 @@ suite('Soft Chat production-path capacity', () => {
+       await Promise.all(
+         requests.map(async ({ requestId, index }) => {
+           const payload = prepareMessage(requestId, index);
++          inFlightSends += 1;
++          sendsStarted += 1;
++          recordSendStart(requestId, index);
+           try {
+             await authorized('/api/v1/messages', shared!.sender.accessToken, {
+               method: 'POST',
+@@ -1167,15 +1335,20 @@ suite('Soft Chat production-path capacity', () => {
+                 payload,
+               }),
+             });
++            acceptedMessages.set(requestId, monotonicNow());
+             messagesSucceeded += 1;
+           } catch (error) {
+             increment(errors, `send:${String(error)}`);
++          } finally {
++            inFlightSends -= 1;
++            sendsCompleted += 1;
+           }
+         }),
+       );
+       while (ackSucceeded < messagesSucceeded && !unhealthy) {
+         let items: Record<string, unknown>[];
+         try {
++          pendingFetchInFlight += 1;
+           pendingFetchRequests += 1;
+           const pending = await authorized(
+             '/api/v1/messages/pending?limit=100',
+@@ -1185,6 +1358,8 @@ suite('Soft Chat production-path capacity', () => {
+         } catch (error) {
+           increment(errors, `receive:${String(error)}`);
+           break;
++        } finally {
++          pendingFetchInFlight -= 1;
+         }
+         if (items.length === 0) break;
+         await Promise.all(
+@@ -1196,6 +1371,17 @@ suite('Soft Chat production-path capacity', () => {
+     const durationMs = finished.getTime() - started.getTime();
+     workersRunning = false;
+     await Promise.all(workerPromises);
++    if (canonicalCDiagnostic) {
++      driverConcurrencySamples.push({
++        atMonotonicMs: monotonicNow(),
++        inFlightSends,
++        sendsStarted,
++        sendsCompleted,
++        pendingFetchInFlight,
++        pendingFetchRequests,
++      });
++    }
++    if (concurrencyTimer) clearInterval(concurrencyTimer);
+     clearInterval(healthTimer);
+     activeTimings = undefined;
+     const diagnostics = await stopSteadyDiagnostics();
+@@ -1219,6 +1405,31 @@ suite('Soft Chat production-path capacity', () => {
+       sendToAck: summarize(sendToAck),
+     };
+     const pool = summarizePool(diagnostics.poolSamples);
++    const messageTraces = requests.map(({ requestId, index }) => {
++      const sendTsMonotonicMs = startedMessages.get(requestId)!;
++      const acceptTsMonotonicMs = acceptedMessages.get(requestId) ?? null;
++      const visibleTsMonotonicMs = visibleMessages.get(requestId) ?? null;
++      const ackTsMonotonicMs = acknowledgedMessages.get(requestId) ?? null;
++      const difference = (finishedAt: number | null, startedAt: number | null) =>
++        finishedAt === null || startedAt === null ? null : finishedAt - startedAt;
++      const client = independent?.[index];
++      return {
++        requestId,
++        sendRank: sendRanks.get(requestId)!,
++        clientIndex: clientIndices.get(requestId)!,
++        senderUserId: client?.sender.userId ?? shared!.sender.userId,
++        recipientUserId: client?.recipient.userId ?? shared!.recipient.userId,
++        sendTsMonotonicMs,
++        acceptTsMonotonicMs,
++        visibleTsMonotonicMs,
++        ackTsMonotonicMs,
++        sendToAcceptMs: difference(acceptTsMonotonicMs, sendTsMonotonicMs),
++        acceptToVisibleMs: difference(visibleTsMonotonicMs, acceptTsMonotonicMs),
++        sendToVisibleMs: difference(visibleTsMonotonicMs, sendTsMonotonicMs),
++        visibleToAckMs: difference(ackTsMonotonicMs, visibleTsMonotonicMs),
++        sendToAckMs: difference(ackTsMonotonicMs, sendTsMonotonicMs),
++      } satisfies MessageTrace;
++    });
+     const messagesFailed = authenticatedClients - messagesSucceeded;
+     const ackFailed = messagesSucceeded - ackSucceeded;
+     const errorRate =
+@@ -1258,6 +1469,29 @@ suite('Soft Chat production-path capacity', () => {
+       postgres: diagnostics.postgres,
+       runtime: diagnostics.runtime,
+       driverRuntime: diagnostics.driverRuntime,
++      canonicalCDiagnostic: canonicalCDiagnostic
++        ? {
++            clock: 'driver performance.timeOrigin+performance.now',
++            serverClockAlignment: serverProcess?.clockAlignment ?? {
++              offsetMs: 0,
++              roundTripMs: 0,
++              samples: 0,
++            },
++            messageTraces,
++            driverConcurrencySamples,
++            serverRuntimeSamples: diagnostics.runtimeSamples,
++            connectionAcquisitionEvents: [
++              ...effectiveReconnectTimings.connectionAcquisitionEvents.map((event) => ({
++                ...event,
++                window: 'reconnect' as const,
++              })),
++              ...effectiveTimings.connectionAcquisitionEvents.map((event) => ({
++                ...event,
++                window: 'steady' as const,
++              })),
++            ],
++          }
++        : null,
+       pendingFetchRequests,
+       pendingSchedule,
+       pendingScheduleSkippedTicks,
+@@ -1333,6 +1567,7 @@ suite('Soft Chat production-path capacity', () => {
+         requestedStages,
+         requestedModes,
+         comparisonRun,
++        canonicalCDiagnostic,
+         separateServerProcess,
+         pollIntervalMs,
+         pendingSchedule,
+@@ -1350,6 +1585,59 @@ suite('Soft Chat production-path capacity', () => {
+       await mkdir(outputRoot, { recursive: true });
+       const base = resolve(outputRoot, `soft-chat-load-${runId}`);
+       await writeFile(`${base}.json`, `${JSON.stringify(report, null, 2)}\n`);
++      if (canonicalCDiagnostic) {
++        const diagnostic = stages[0]?.canonicalCDiagnostic;
++        if (!diagnostic) throw new Error('Canonical C diagnostic artifacts are missing.');
++        const messageJsonl = diagnostic.messageTraces
++          .map((trace) => JSON.stringify(trace))
++          .join('\n');
++        await writeFile(`${base}.canonical-c-messages.jsonl`, `${messageJsonl}\n`);
++        const timeline = [
++          ...diagnostic.driverConcurrencySamples.map((sample) => ({
++            kind: 'driver-concurrency',
++            ...sample,
++          })),
++          ...stages[0]!.pool.samples.map((sample) => ({
++            kind: 'db-pool',
++            ...sample,
++          })),
++          ...diagnostic.serverRuntimeSamples.map((sample) => ({
++            kind: 'server-runtime',
++            ...sample,
++          })),
++          ...diagnostic.connectionAcquisitionEvents.map((event) => ({
++            kind: 'connection-acquisition',
++            atMonotonicMs: event.startedAtMonotonicMs,
++            ...event,
++          })),
++        ].sort((left, right) => left.atMonotonicMs - right.atMonotonicMs);
++        await writeFile(
++          `${base}.canonical-c-timeline.jsonl`,
++          `${timeline.map((sample) => JSON.stringify(sample)).join('\n')}\n`,
++        );
++        await writeFile(
++          `${base}.canonical-c-schema.json`,
++          `${JSON.stringify(
++            {
++              schemaVersion: 1,
++              clock: diagnostic.clock,
++              serverClockAlignment: diagnostic.serverClockAlignment,
++              latencyUnit: 'milliseconds',
++              messageArtifact: `${base}.canonical-c-messages.jsonl`,
++              timelineArtifact: `${base}.canonical-c-timeline.jsonl`,
++              messageFields: Object.keys(diagnostic.messageTraces[0] ?? {}),
++              timelineKinds: [
++                'driver-concurrency',
++                'db-pool',
++                'server-runtime',
++                'connection-acquisition',
++              ],
++            },
++            null,
++            2,
++          )}\n`,
++        );
++      }
+       const header =
+         'mode,started_at,finished_at,requested_clients,authenticated_clients,messages_attempted,messages_succeeded,messages_failed,ack_succeeded,ack_failed,throughput_messages_per_second,pending_fetch_requests,reconnect_authentication_p99_ms,reconnect_pool_max_waiting,reconnect_postgres_max_connections,reconnect_server_cpu_percent,reconnect_server_event_loop_utilization_percent,reconnect_server_event_loop_delay_p99_ms,reconnect_driver_cpu_percent,reconnect_driver_event_loop_utilization_percent,reconnect_driver_event_loop_delay_p99_ms,authentication_p99_ms,accept_p99_ms,pending_fetch_p99_ms,acknowledge_p99_ms,send_to_visible_p99_ms,visible_to_ack_p99_ms,send_to_ack_p99_ms,send_to_ack_max_ms,auth_connection_wait_p99_ms,accept_connection_wait_p99_ms,pending_connection_wait_p99_ms,ack_connection_wait_p99_ms,pool_max_total,pool_min_idle,pool_max_waiting,postgres_max_connections,postgres_max_lock_waiting,server_cpu_percent,server_event_loop_utilization_percent,server_event_loop_delay_p99_ms,driver_cpu_percent,driver_event_loop_utilization_percent,driver_event_loop_delay_p99_ms,duplicates,exactly_once_violations,pending_schedule,pending_schedule_skipped_ticks,pending_overlap_violations,pending_auth_isolation,pending_auth_context_creations,pending_auth_handle_requests,duration_ms,result,reason\n';
+       const csv = stages
