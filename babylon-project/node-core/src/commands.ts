@@ -9,12 +9,14 @@ export interface CommandReference {
 export interface CommandContext {
   senderNodeId: string;
   messageId: string;
+  attemptId: string;
+  executionKey: string;
 }
 
 export interface CommandDefinition extends CommandReference {
-  requiredCapability: string;
-  executionSemantics: CommandExecutionSemantics;
-  handler: (context: CommandContext) => Promise<JsonObject> | JsonObject;
+  readonly requiredCapability: string;
+  readonly executionSemantics: CommandExecutionSemantics;
+  readonly handler: (context: CommandContext) => Promise<JsonObject> | JsonObject;
 }
 
 function commandKey(reference: CommandReference): string {
@@ -49,17 +51,27 @@ export function parseCommandReference(body: JsonObject): CommandReference {
 }
 
 export class CommandRegistry {
-  readonly #commands = new Map<string, CommandDefinition>();
+  readonly #commands = new Map<string, Readonly<CommandDefinition>>();
 
   register(definition: CommandDefinition): void {
     const key = commandKey(definition);
     if (this.#commands.has(key)) {
       throw new Error('duplicate command registration');
     }
-    this.#commands.set(key, definition);
+    this.#commands.set(
+      key,
+      Object.freeze({
+        table_id: definition.table_id,
+        table_version: definition.table_version,
+        command_id: definition.command_id,
+        requiredCapability: definition.requiredCapability,
+        executionSemantics: definition.executionSemantics,
+        handler: definition.handler,
+      }),
+    );
   }
 
-  resolve(reference: CommandReference): CommandDefinition | undefined {
+  resolve(reference: CommandReference): Readonly<CommandDefinition> | undefined {
     return this.#commands.get(commandKey(reference));
   }
 }
