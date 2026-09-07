@@ -155,11 +155,19 @@ describe('BNP/1 deterministic crypto and replay vectors', () => {
   it('uses sender_node_id plus message_id as replay identity', async () => {
     const store = new InMemoryReplayStore();
     const { sender_node_id: sender, message_id: messageId } = vector.replay.identity;
-    expect(await store.claim(sender, messageId, 2_000, 1_000)).toBe(vector.replay.first_claim);
-    expect(await store.claim(sender, messageId, 2_000, 1_001)).toBe(
+    const sameDigest = 'same-envelope-digest';
+    const changedDigest = 'changed-envelope-digest';
+
+    expect(await store.claim(sender, messageId, 2_000, 1_000, sameDigest)).toBe(
+      vector.replay.first_claim,
+    );
+    expect(await store.claim(sender, messageId, 2_000, 1_001, sameDigest)).toBe(
       vector.replay.same_envelope_retry,
     );
-    expect(await store.claim('node-other-0001', messageId, 2_000, 1_001)).toBe('fresh');
+    expect(await store.claim('node-other-0001', messageId, 2_000, 1_001, sameDigest)).toBe(
+      'fresh',
+    );
+    expect(await store.claim(sender, messageId, 2_000, 1_001, changedDigest)).toBe('conflict');
     expect(vector.replay.same_identity_changed_content).toBe('replay_conflict');
   });
 
