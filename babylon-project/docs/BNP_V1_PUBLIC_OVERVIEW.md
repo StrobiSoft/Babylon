@@ -1,8 +1,10 @@
-# Bridge Node Protocol (BNP) v1 — Public Overview
+# NODE IJET — Public Overview
 
 Status: DRAFT — public-facing design summary
 
-BNP is a compact, transport-neutral control protocol for authenticated logical nodes. Its design goal is deliberately simple:
+**NODE IJET — Intelligent Junction & Entry Technology** is the public technology/project name. Its underlying interoperability and wire protocol is **BNP — Bridge Node Protocol** (`BNP/1`). Existing BNP protocol identifiers, schemas, conformance terminology, and wire names remain protocol identifiers; the public naming decision does not mechanically rename them.
+
+NODE IJET is built around a compact, transport-neutral BNP control protocol for authenticated logical nodes. Its design goal is deliberately simple:
 
 > Keep the trusted protocol core small while giving that small core strong, explicit security properties.
 
@@ -16,7 +18,7 @@ This keeps the mandatory control plane small and reduces the number of always-on
 
 ## High security density
 
-BNP aims for high **security density**: strong security guarantees relative to the size and complexity of the mandatory core.
+NODE IJET aims for high **security density**: strong security guarantees relative to the size and complexity of the mandatory BNP core.
 
 The public BNP v1 design includes or requires:
 
@@ -32,9 +34,9 @@ The public BNP v1 design includes or requires:
 
 A smaller core does not mean a weaker threat model. The intent is to remove unnecessary machinery while keeping the security checks that actually enforce identity, authority, freshness, destination binding, and execution scope.
 
-## What BNP deliberately does not claim
+## What NODE IJET deliberately does not claim
 
-BNP does not claim that a small implementation is automatically safer than every larger enterprise stack, nor that implementation size alone proves security.
+NODE IJET does not claim that a small implementation is automatically safer than every larger enterprise stack, nor that implementation size alone proves security.
 
 Security still depends on correct cryptographic implementation, key protection, durable replay handling, authorization policy, local privilege boundaries, conformance testing, and independent review.
 
@@ -42,7 +44,7 @@ The design claim is narrower: within the threat model BNP is designed to cover, 
 
 ## Public protocol versus private deployment policy
 
-The public BNP specification defines the interoperability contract and the security guarantees that independent implementations must preserve.
+The public BNP specification defines the interoperability contract and the security guarantees that independent NODE IJET implementations must preserve.
 
 Deployment-specific authorization packages, exact policy-transition rules, recovery thresholds, node-to-role assignments, local handler mappings, operational diagnostics, live endpoints, keys, and sensitive state are not required for public interoperability and may remain private.
 
@@ -52,8 +54,8 @@ Protocol security must not depend on those details remaining secret. Keeping dep
 
 Every extra daemon, proxy, token broker, provider adapter, privileged control channel, or configuration service adds code, dependencies, state, failure modes, and operational attack surface.
 
-BNP therefore follows a simple rule:
+NODE IJET therefore follows a simple rule:
 
 > Minimal core, optional capabilities.
 
-Features that are not required for authenticated node communication belong in optional adapters or deployment layers rather than in the mandatory protocol core.
+Features that are not required for authenticated node communication belong in optional adapters or deployment layers rather than in the mandatory BNP protocol core.
