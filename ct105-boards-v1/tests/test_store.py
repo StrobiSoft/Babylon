@@ -77,6 +77,11 @@ class BoardStoreTest(unittest.TestCase):
         self.assertEqual(1, len(successful))
         self.assertEqual(task_id, successful[0].task_id)
         self.assertEqual("RUNNING", self.store.tasks()[0]["state"])
+        agents = self.store.agents()
+        self.assertEqual(["IDLE", "STARTING"], sorted(agent["state"] for agent in agents))
+        idle = next(agent for agent in agents if agent["state"] == "IDLE")
+        self.assertIsNone(idle["task_id"])
+        self.assertIsNone(idle["attempt_id"])
 
     def test_working_requires_matching_task_and_attempt_binding(self) -> None:
         task_id = self.store.enqueue("bound work")
@@ -140,6 +145,19 @@ class BoardStoreTest(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 connection.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
         self.assertEqual("DONE", self.store.tasks()[0]["state"])
+
+    def test_schema_has_exactly_two_user_tables_and_is_consistent(self) -> None:
+        with sqlite3.connect(self.database) as connection:
+            tables = connection.execute(
+                """
+                SELECT name FROM sqlite_schema
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                ORDER BY name
+                """
+            ).fetchall()
+            self.assertEqual([("agent_status",), ("tasks",)], tables)
+            self.assertEqual("ok", connection.execute("PRAGMA integrity_check").fetchone()[0])
+            self.assertEqual([], connection.execute("PRAGMA foreign_key_check").fetchall())
 
     def test_terminal_task_cannot_be_finished_again(self) -> None:
         task_id = self.store.enqueue("finish once")
