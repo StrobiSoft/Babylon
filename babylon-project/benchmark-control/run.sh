@@ -3,17 +3,20 @@ set -euo pipefail
 
 LAB=/srv/noemi-babylon-lab
 BASE="$LAB/worktrees/b-exact"
-WORKTREE="$LAB/worktrees/issue57-canonical-c"
+WORKTREE="$LAB/worktrees/issue57-drainmap-500"
 DELTA=296d4c104a437475e01c7598501ae073e439461e
 CONTROL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Compatibility note: the already-validated instrumentation patch and its internal
+# artifact suffixes still use the former "canonical-c" implementation label.
+# DrainMap-500 is the canonical operator/documentation name from this checkpoint onward.
 PATCH="$CONTROL_DIR/issue57-canonical-c.patch"
 PATCH_SHA256=3c2c52a1111409600ef54e2b94db3110319dcd788f174dd16c6fc152b5f93095
-ROOT="$LAB/results/issue57-canonical-c-20260907"
-OUT="$ROOT/canonical-c"
-LOG="$LAB/logs/issue57-canonical-c-20260907.log"
+ROOT="$LAB/results/drainmap-500"
+OUT="$ROOT/primary"
+LOG="$LAB/logs/drainmap-500-primary.log"
 
 blocked() {
-  echo ISSUE57_CANONICAL_C=BLOCKED
+  echo DRAINMAP_500=BLOCKED
   echo "reason=$1"
   exit "${2:-80}"
 }
@@ -27,7 +30,7 @@ test "$(sha256sum "$PATCH" | awk '{print $1}')" = "$PATCH_SHA256" || \
 
 mkdir -p "$ROOT" "$LAB/logs" "$LAB/worktrees"
 if [ -f "$OUT/.done" ]; then
-  echo ISSUE57_CANONICAL_C=COMPLETE
+  echo DRAINMAP_500=COMPLETE
   echo "delta=$DELTA"
   echo "instrumentation_patch_sha256=$PATCH_SHA256"
   echo "artifacts=$OUT"
@@ -40,17 +43,17 @@ mkdir -p "$OUT"
 
 if [ ! -e "$WORKTREE/.git" ]; then
   if [ -e "$WORKTREE" ]; then
-    blocked canonical_c_worktree_path_occupied 87
+    blocked drainmap_500_worktree_path_occupied 87
   fi
   git -C "$BASE" worktree add --detach "$WORKTREE" "$DELTA"
 fi
 test "$(git -C "$WORKTREE" rev-parse HEAD)" = "$DELTA" || \
-  blocked canonical_c_worktree_commit_mismatch 88
+  blocked drainmap_500_worktree_commit_mismatch 88
 
 actual_patch_sha=$(git -C "$WORKTREE" diff HEAD --no-ext-diff | sha256sum | awk '{print $1}')
 if [ "$actual_patch_sha" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ]; then
   test -z "$(git -C "$WORKTREE" status --porcelain --untracked-files=all)" || \
-    blocked canonical_c_worktree_has_unknown_content_drift 89
+    blocked drainmap_500_worktree_has_unknown_content_drift 89
   git -C "$WORKTREE" apply --check "$PATCH"
   git -C "$WORKTREE" apply "$PATCH"
   git -C "$WORKTREE" add -- \
@@ -59,7 +62,7 @@ if [ "$actual_patch_sha" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495
     babylon-project/backend/test/soft-chat-load-server-process.ts \
     babylon-project/backend/test/soft-chat-load.e2e.test.ts
 elif [ "$actual_patch_sha" != "$PATCH_SHA256" ]; then
-  blocked canonical_c_worktree_has_unknown_content_drift 90
+  blocked drainmap_500_worktree_has_unknown_content_drift 90
 fi
 test "$(git -C "$WORKTREE" diff HEAD --no-ext-diff | sha256sum | awk '{print $1}')" = \
   "$PATCH_SHA256" || blocked instrumentation_patch_apply_mismatch 91
@@ -73,7 +76,7 @@ if [ ! -d "$WORKTREE/babylon-project/node_modules" ]; then
 fi
 
 exec > >(tee -a "$LOG") 2>&1
-echo ISSUE57_CANONICAL_C=STARTING
+echo DRAINMAP_500=STARTING
 echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "delta=$DELTA"
 echo "instrumentation_patch_sha256=$PATCH_SHA256"
@@ -113,6 +116,8 @@ export PLAYWRIGHT_CHROMIUM_EXECUTABLE="$CHROMIUM"
 sudo -n /usr/local/sbin/noemi-babylon-gate pg-reset
 
 export RUN_SOFT_CHAT_LOAD=1
+# Legacy internal flag consumed by the pinned instrumentation patch. Do not use
+# "canonical C" as an operator-facing name; the diagnostic is DrainMap-500.
 export SOFT_CHAT_LOAD_CANONICAL_C=1
 export SOFT_CHAT_LOAD_STAGES=500
 export SOFT_CHAT_LOAD_MODES=independent-streaming
@@ -142,16 +147,18 @@ import os
 import sys
 
 root = sys.argv[1]
+# The raw instrumentation suffix remains "canonical-c" only as a pinned
+# compatibility detail of the validated patch. The enclosing evidence set is DrainMap-500.
 csv_files = sorted(glob.glob(os.path.join(root, 'soft-chat-load-*.csv')))
 message_files = sorted(glob.glob(os.path.join(root, '*.canonical-c-messages.jsonl')))
 timeline_files = sorted(glob.glob(os.path.join(root, '*.canonical-c-timeline.jsonl')))
 schema_files = sorted(glob.glob(os.path.join(root, '*.canonical-c-schema.json')))
 if len(csv_files) != 1 or len(message_files) != 1 or len(timeline_files) != 1 or len(schema_files) != 1:
-    raise SystemExit('CANONICAL_C_ARTIFACT_SET_INVALID')
+    raise SystemExit('DRAINMAP_500_ARTIFACT_SET_INVALID')
 with open(csv_files[0], newline='', encoding='utf-8') as handle:
     rows = list(csv.DictReader(handle))
 if len(rows) != 1:
-    raise SystemExit('CANONICAL_C_RESULT_ROW_COUNT_INVALID')
+    raise SystemExit('DRAINMAP_500_RESULT_ROW_COUNT_INVALID')
 row = rows[0]
 required = {
     'requested_clients': '500',
@@ -167,34 +174,34 @@ required = {
 }
 for key, expected in required.items():
     if row.get(key) != expected:
-        raise SystemExit(f'CANONICAL_C_HARD_GATE_FAIL {key}={row.get(key)!r} expected={expected!r}')
+        raise SystemExit(f'DRAINMAP_500_HARD_GATE_FAIL {key}={row.get(key)!r} expected={expected!r}')
 with open(message_files[0], encoding='utf-8') as handle:
     messages = [json.loads(line) for line in handle if line.strip()]
 if len(messages) != 500 or sorted(message['sendRank'] for message in messages) != list(range(1, 501)):
-    raise SystemExit('CANONICAL_C_MESSAGE_TRACE_COVERAGE_INVALID')
+    raise SystemExit('DRAINMAP_500_MESSAGE_TRACE_COVERAGE_INVALID')
 required_message_fields = {
     'sendTsMonotonicMs', 'acceptTsMonotonicMs', 'visibleTsMonotonicMs',
     'ackTsMonotonicMs', 'sendToAcceptMs', 'acceptToVisibleMs', 'sendToVisibleMs',
     'visibleToAckMs', 'sendToAckMs',
 }
 if any(required_message_fields - message.keys() for message in messages):
-    raise SystemExit('CANONICAL_C_MESSAGE_TRACE_SCHEMA_INVALID')
+    raise SystemExit('DRAINMAP_500_MESSAGE_TRACE_SCHEMA_INVALID')
 if any(message[field] is None for message in messages for field in required_message_fields):
-    raise SystemExit('CANONICAL_C_MESSAGE_TRACE_INCOMPLETE')
+    raise SystemExit('DRAINMAP_500_MESSAGE_TRACE_INCOMPLETE')
 if any(not isinstance(message[field], (int, float)) or not math.isfinite(message[field])
        for message in messages for field in required_message_fields):
-    raise SystemExit('CANONICAL_C_MESSAGE_TRACE_NONFINITE')
+    raise SystemExit('DRAINMAP_500_MESSAGE_TRACE_NONFINITE')
 nonnegative_intervals = {
     'sendToAcceptMs', 'sendToVisibleMs', 'visibleToAckMs', 'sendToAckMs',
 }
 if any(message[field] < 0 for message in messages for field in nonnegative_intervals):
-    raise SystemExit('CANONICAL_C_MESSAGE_TRACE_NEGATIVE_INTERVAL')
+    raise SystemExit('DRAINMAP_500_MESSAGE_TRACE_NEGATIVE_INTERVAL')
 with open(timeline_files[0], encoding='utf-8') as handle:
     timeline = [json.loads(line) for line in handle if line.strip()]
 kinds = {sample.get('kind') for sample in timeline}
 expected_kinds = {'driver-concurrency', 'db-pool', 'server-runtime', 'connection-acquisition'}
 if not expected_kinds.issubset(kinds):
-    raise SystemExit(f'CANONICAL_C_TIMELINE_INCOMPLETE kinds={sorted(kinds)}')
+    raise SystemExit(f'DRAINMAP_500_TIMELINE_INCOMPLETE kinds={sorted(kinds)}')
 timeline_fields = {
     'driver-concurrency': {
         'atMonotonicMs', 'inFlightSends', 'sendsStarted', 'sendsCompleted',
@@ -212,54 +219,54 @@ timeline_fields = {
 for sample in timeline:
     kind = sample.get('kind')
     if kind not in timeline_fields or timeline_fields[kind] - sample.keys():
-        raise SystemExit(f'CANONICAL_C_TIMELINE_SCHEMA_INVALID kind={kind!r}')
+        raise SystemExit(f'DRAINMAP_500_TIMELINE_SCHEMA_INVALID kind={kind!r}')
     for key, value in sample.items():
         if key == 'kind' or key == 'stage' or key == 'window' or key == 'at':
             continue
         if not isinstance(value, (int, float)) or not math.isfinite(value):
-            raise SystemExit(f'CANONICAL_C_TIMELINE_NONFINITE kind={kind!r} field={key!r}')
+            raise SystemExit(f'DRAINMAP_500_TIMELINE_NONFINITE kind={kind!r} field={key!r}')
 if any(timeline[index]['atMonotonicMs'] > timeline[index + 1]['atMonotonicMs']
        for index in range(len(timeline) - 1)):
-    raise SystemExit('CANONICAL_C_TIMELINE_NOT_SORTED')
+    raise SystemExit('DRAINMAP_500_TIMELINE_NOT_SORTED')
 driver_samples = [sample for sample in timeline if sample['kind'] == 'driver-concurrency']
 if max(sample['sendsStarted'] for sample in driver_samples) != 500:
-    raise SystemExit('CANONICAL_C_SEND_START_COUNT_INVALID')
+    raise SystemExit('DRAINMAP_500_SEND_START_COUNT_INVALID')
 if max(sample['sendsCompleted'] for sample in driver_samples) != 500:
-    raise SystemExit('CANONICAL_C_SEND_COMPLETION_COUNT_INVALID')
+    raise SystemExit('DRAINMAP_500_SEND_COMPLETION_COUNT_INVALID')
 if any(sample['inFlightSends'] < 0 or sample['pendingFetchInFlight'] < 0
        or sample['pendingFetchRequests'] < 0 for sample in driver_samples):
-    raise SystemExit('CANONICAL_C_CONCURRENCY_COUNT_INVALID')
+    raise SystemExit('DRAINMAP_500_CONCURRENCY_COUNT_INVALID')
 pool_samples = [sample for sample in timeline if sample['kind'] == 'db-pool']
 if any(sample['totalCount'] < 0 or sample['idleCount'] < 0 or sample['waitingCount'] < 0
        for sample in pool_samples):
-    raise SystemExit('CANONICAL_C_POOL_SAMPLE_INVALID')
+    raise SystemExit('DRAINMAP_500_POOL_SAMPLE_INVALID')
 runtime_samples = [sample for sample in timeline if sample['kind'] == 'server-runtime']
 if any(sample['cpuPercent'] < 0 or sample['eventLoopUtilizationPercent'] < 0
        or sample['eventLoopDelayP99Ms'] < 0 for sample in runtime_samples):
-    raise SystemExit('CANONICAL_C_RUNTIME_SAMPLE_INVALID')
+    raise SystemExit('DRAINMAP_500_RUNTIME_SAMPLE_INVALID')
 acquisition_samples = [sample for sample in timeline if sample['kind'] == 'connection-acquisition']
 acquisition_stages = {'authentication', 'accept', 'pendingFetch', 'acknowledge'}
 if any(sample['stage'] not in acquisition_stages or sample['waitMs'] < 0
        or sample['window'] not in {'reconnect', 'steady'}
        or sample['finishedAtMonotonicMs'] < sample['startedAtMonotonicMs']
        for sample in acquisition_samples):
-    raise SystemExit('CANONICAL_C_ACQUISITION_SAMPLE_INVALID')
+    raise SystemExit('DRAINMAP_500_ACQUISITION_SAMPLE_INVALID')
 if {sample['stage'] for sample in acquisition_samples} != acquisition_stages:
-    raise SystemExit('CANONICAL_C_ACQUISITION_STAGE_COVERAGE_INVALID')
+    raise SystemExit('DRAINMAP_500_ACQUISITION_STAGE_COVERAGE_INVALID')
 with open(schema_files[0], encoding='utf-8') as handle:
     schema = json.load(handle)
 if schema.get('schemaVersion') != 1:
-    raise SystemExit('CANONICAL_C_SCHEMA_VERSION_INVALID')
+    raise SystemExit('DRAINMAP_500_SCHEMA_VERSION_INVALID')
 if schema.get('clock') != 'driver performance.timeOrigin+performance.now':
-    raise SystemExit('CANONICAL_C_CLOCK_SCHEMA_INVALID')
+    raise SystemExit('DRAINMAP_500_CLOCK_SCHEMA_INVALID')
 alignment = schema.get('serverClockAlignment', {})
 if alignment.get('samples') != 7 or not math.isfinite(alignment.get('offsetMs', math.nan)) \
         or not math.isfinite(alignment.get('roundTripMs', math.nan)) \
         or alignment.get('roundTripMs', -1) < 0:
-    raise SystemExit('CANONICAL_C_CLOCK_ALIGNMENT_INVALID')
+    raise SystemExit('DRAINMAP_500_CLOCK_ALIGNMENT_INVALID')
 if set(schema.get('timelineKinds', [])) != expected_kinds:
-    raise SystemExit('CANONICAL_C_TIMELINE_KINDS_INVALID')
-print('ISSUE57_CANONICAL_C_HARD_GATE=PASS')
+    raise SystemExit('DRAINMAP_500_TIMELINE_KINDS_INVALID')
+print('DRAINMAP_500_HARD_GATE=PASS')
 print(f'message_trace_rows={len(messages)}')
 print(f'timeline_rows={len(timeline)}')
 for key in ('send_to_ack_p99_ms', 'send_to_visible_p99_ms', 'throughput_messages_per_second',
@@ -274,4 +281,4 @@ PY
 )
 touch "$OUT/.done"
 echo "finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo ISSUE57_CANONICAL_C=PASS
+echo DRAINMAP_500=PASS
