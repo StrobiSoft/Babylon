@@ -324,6 +324,16 @@ describe('NODE IJET Node Core', () => {
       core.process({ ...request, body: { event_code: 'tampered' } }),
     ).rejects.toMatchObject({ code: 'BAD_SIGNATURE' });
     await expect(core.process({ ...request, to: 'node-someone-01' })).rejects.toMatchObject({
+      code: 'BAD_SIGNATURE',
+    });
+    const wrongRecipient = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'wake',
+      from: sender.peer.nodeId,
+      to: 'node-someone-01',
+      message_id: 'wrong-recipient-00001',
+      body: { event_code: 'N18-01' },
+    });
+    await expect(core.process(wrongRecipient)).rejects.toMatchObject({
       code: 'WRONG_RECIPIENT',
     });
     await expect(
