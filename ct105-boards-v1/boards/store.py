@@ -288,7 +288,7 @@ class BoardStore:
     ) -> None:
         self._require_identifier("agent_id", agent_id)
         now = _utc_now()
-        with self._transaction() as connection:
+        with self._transaction(immediate=True) as connection:
             self._require_active_attempt(connection, task_id, attempt_id)
             current = connection.execute(
                 """
@@ -321,7 +321,7 @@ class BoardStore:
     ) -> None:
         self._require_identifier("agent_id", agent_id)
         now = _utc_now()
-        with self._transaction() as connection:
+        with self._transaction(immediate=True) as connection:
             self._require_active_attempt(connection, task_id, attempt_id)
             updated = connection.execute(
                 """
