@@ -1,37 +1,45 @@
-export type ReplayClaim = 'fresh' | 'duplicate';
+export type ReplayClaim = 'fresh' | 'duplicate' | 'conflict';
 
 export interface ReplayStore {
   readonly durable: boolean;
   claim(
     senderNodeId: string,
     messageId: string,
-    expiresAtMs: number,
+    envelopeDigest: string,
+    retainUntilMs: number,
     nowMs: number,
   ): Promise<ReplayClaim>;
 }
 
+interface ReplayEntry {
+  envelopeDigest: string;
+  retainUntilMs: number;
+}
+
 export class InMemoryReplayStore implements ReplayStore {
   readonly durable = false;
-  readonly #entries = new Map<string, number>();
+  readonly #entries = new Map<string, ReplayEntry>();
 
   claim(
     senderNodeId: string,
     messageId: string,
-    expiresAtMs: number,
+    envelopeDigest: string,
+    retainUntilMs: number,
     nowMs: number,
   ): Promise<ReplayClaim> {
     this.#purge(nowMs);
     const key = `${senderNodeId}\u0000${messageId}`;
-    if (this.#entries.has(key)) {
-      return Promise.resolve('duplicate');
+    const existing = this.#entries.get(key);
+    if (existing !== undefined) {
+      return Promise.resolve(existing.envelopeDigest === envelopeDigest ? 'duplicate' : 'conflict');
     }
-    this.#entries.set(key, expiresAtMs);
+    this.#entries.set(key, { envelopeDigest, retainUntilMs });
     return Promise.resolve('fresh');
   }
 
   #purge(nowMs: number): void {
-    for (const [key, expiresAt] of this.#entries) {
-      if (expiresAt < nowMs) {
+    for (const [key, entry] of this.#entries) {
+      if (entry.retainUntilMs < nowMs) {
         this.#entries.delete(key);
       }
     }
