@@ -481,11 +481,7 @@ export class NodeCore {
         senderNodeId: sender.nodeId,
         messageId: envelope.message_id,
         attemptId,
-        executionKey: commandExecutionKey(
-          sender.nodeId,
-          envelope.message_id,
-          entry.envelopeDigest,
-        ),
+        executionKey: commandExecutionKey(sender.nodeId, envelope.message_id, entry.envelopeDigest),
       });
       this.#trace('handler_returned', sender.nodeId, envelope.message_id, attemptId);
       this.#assertBoundedCommandResult(result, policy.maxResultBytes);
@@ -596,10 +592,7 @@ export class NodeCore {
     }
   }
 
-  #replyForJournalEntry(
-    request: SignedBnpEnvelope,
-    entry: CommandJournalEntry,
-  ): SignedBnpEnvelope {
+  #replyForJournalEntry(request: SignedBnpEnvelope, entry: CommandJournalEntry): SignedBnpEnvelope {
     let response: SignedBnpEnvelope;
     switch (entry.state) {
       case 'received':
@@ -608,7 +601,13 @@ export class NodeCore {
         response = this.#commandReply(request, entry.command, 'accepted');
         break;
       case 'indeterminate':
-        response = this.#commandReply(request, entry.command, 'blocked', undefined, 'INDETERMINATE');
+        response = this.#commandReply(
+          request,
+          entry.command,
+          'blocked',
+          undefined,
+          'INDETERMINATE',
+        );
         break;
       case 'terminal': {
         if (entry.terminal === undefined) {

@@ -119,9 +119,9 @@ describe('NODE IJET COMMAND execution journal', () => {
     await expect(fixture.core.process(fixture.request)).rejects.toMatchObject({
       code: 'COMMAND_JOURNAL_FAILURE',
     });
-    expect((await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state).toBe(
-      'received',
-    );
+    expect(
+      (await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('received');
     expect(fixture.executions()).toBe(0);
 
     const retry = await fixture.core.process(fixture.request);
@@ -137,9 +137,9 @@ describe('NODE IJET COMMAND execution journal', () => {
     const first = await fixture.core.process(fixture.request);
     expect(first.body['state']).toBe('blocked');
     expect(first.body['reason_code']).toBe('INDETERMINATE');
-    expect((await fixture.journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state).toBe(
-      'indeterminate',
-    );
+    expect(
+      (await fixture.journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('indeterminate');
 
     const duplicate = await fixture.core.process(fixture.request);
     expect(duplicate.body['state']).toBe('blocked');
@@ -222,9 +222,9 @@ describe('NODE IJET COMMAND execution journal', () => {
     const result = await fixture.core.process(fixture.request);
     expect(result.body['state']).toBe('blocked');
     expect(result.body['reason_code']).toBe('INDETERMINATE');
-    expect((await fixture.journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state).toBe(
-      'indeterminate',
-    );
+    expect(
+      (await fixture.journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('indeterminate');
   });
 
   it('keeps command instrumentation metadata-only and non-blocking', async () => {
