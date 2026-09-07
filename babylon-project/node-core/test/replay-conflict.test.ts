@@ -61,7 +61,10 @@ describe('NODE IJET replay conflict handling', () => {
       key_fingerprint: sender.fingerprint,
     };
 
-    const first = signEnvelope({ ...common, body: { event_code: 'N18-01' } }, sender.privateKey);
+    const first = signEnvelope(
+      { ...common, body: { event_code: 'N18-01' } },
+      sender.privateKey,
+    );
     const conflict = signEnvelope(
       { ...common, body: { event_code: 'N18-02' } },
       sender.privateKey,
