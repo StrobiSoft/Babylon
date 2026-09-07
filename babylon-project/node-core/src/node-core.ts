@@ -133,10 +133,6 @@ export class NodeCore {
       throw new NodeCoreError('INVALID_ENVELOPE');
     }
 
-    if (envelope.to !== this.#options.nodeId) {
-      throw new NodeCoreError('WRONG_RECIPIENT');
-    }
-
     const sender = await this.#options.resolvePeer(envelope.from);
     if (sender?.nodeId !== envelope.from) {
       throw new NodeCoreError('UNKNOWN_NODE');
@@ -157,6 +153,10 @@ export class NodeCore {
     }
     if (!signatureValid) {
       throw new NodeCoreError('BAD_SIGNATURE');
+    }
+
+    if (envelope.to !== this.#options.nodeId) {
+      throw new NodeCoreError('WRONG_RECIPIENT');
     }
 
     const nowMs = this.#now();
