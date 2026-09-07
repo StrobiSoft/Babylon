@@ -104,8 +104,8 @@ export function validateEnvelopeTime(
   const issuedAt = Date.parse(envelope.issued_at);
   const expiresAt = Date.parse(envelope.expires_at);
 
-  if (expiresAt < issuedAt) {
-    throw new TypeError('expires_at precedes issued_at');
+  if (expiresAt <= issuedAt) {
+    throw new TypeError('expires_at must be later than issued_at');
   }
   if (issuedAt > nowMs + policy.maxFutureSkewMs) {
     throw new TypeError('message issued too far in the future');
