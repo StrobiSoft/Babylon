@@ -31,9 +31,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
-  return (
-    Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
-  );
+  return Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null;
 }
 
 function assertString(
@@ -48,11 +46,7 @@ function assertString(
 }
 
 function assertUtcTimestamp(value: unknown, field: string): asserts value is string {
-  if (
-    typeof value !== 'string' ||
-    !value.endsWith('Z') ||
-    !Number.isFinite(Date.parse(value))
-  ) {
+  if (typeof value !== 'string' || !value.endsWith('Z') || !Number.isFinite(Date.parse(value))) {
     throw new TypeError(`invalid ${field}`);
   }
 }
