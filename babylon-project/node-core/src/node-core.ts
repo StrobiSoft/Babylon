@@ -1,7 +1,12 @@
 import { createPublicKey, type KeyObject } from 'node:crypto';
 
 import { CommandRegistry, parseCommandReference } from './commands.js';
-import { fingerprintPublicKey, signEnvelope, verifyEnvelopeSignature } from './crypto.js';
+import {
+  fingerprintPublicKey,
+  replayEnvelopeDigest,
+  signEnvelope,
+  verifyEnvelopeSignature,
+} from './crypto.js';
 import {
   assertSignedEnvelope,
   createMessageId,
@@ -26,6 +31,7 @@ export type NodeCoreErrorCode =
   | 'BAD_SIGNATURE'
   | 'INVALID_TIME'
   | 'REPLAY_DETECTED'
+  | 'REPLAY_CONFLICT'
   | 'DURABLE_REPLAY_REQUIRED'
   | 'CAPABILITY_DENIED'
   | 'UNKNOWN_COMMAND'
@@ -173,9 +179,13 @@ export class NodeCore {
     const replay = await this.#options.replayStore.claim(
       sender.nodeId,
       envelope.message_id,
+      replayEnvelopeDigest(envelope),
       replayRetentionUntilMs(envelope, this.#options.timePolicy),
       nowMs,
     );
+    if (replay === 'conflict') {
+      throw new NodeCoreError('REPLAY_CONFLICT');
+    }
     if (replay === 'duplicate') {
       if (envelope.kind === 'wake') {
         return this.#reply(envelope, 'ack', { status: 'duplicate' });
