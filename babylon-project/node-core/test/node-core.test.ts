@@ -17,7 +17,11 @@ import {
 
 class TestDurableReplayStore implements ReplayStore {
   readonly durable = true;
-  readonly #seen = new Set<string>();
+  readonly #seen: Set<string>;
+
+  constructor(seen = new Set<string>()) {
+    this.#seen = seen;
+  }
 
   async claim(senderNodeId: string, messageId: string): Promise<ReplayClaim> {
     const key = `${senderNodeId}\u0000${messageId}`;
@@ -26,6 +30,16 @@ class TestDurableReplayStore implements ReplayStore {
     }
     this.#seen.add(key);
     return 'fresh';
+  }
+}
+
+class RecordingReplayStore implements ReplayStore {
+  readonly durable = true;
+  retainUntilMs: number | undefined;
+
+  claim(_senderNodeId: string, _messageId: string, retainUntilMs: number): Promise<ReplayClaim> {
+    this.retainUntilMs = retainUntilMs;
+    return Promise.resolve('fresh');
   }
 }
 
@@ -42,7 +56,7 @@ function makeIdentity(nodeId: string, capabilities: string[] = []) {
   const peer: PeerIdentity = {
     nodeId,
     status: 'active',
-    publicKeys: new Map([[fingerprint, pair.publicKey]]),
+    keys: new Map([[fingerprint, { publicKey: pair.publicKey, status: 'active' as const }]]),
     capabilities: new Set(capabilities),
   };
   return { ...pair, fingerprint, peer };
@@ -92,25 +106,28 @@ describe('NODE IJET Node Core', () => {
       table_version: '1',
       command_id: 'status',
       requiredCapability: 'command.execute:core/status',
-      executionSemantics: 'idempotent',
+      executionSemantics: 'at-most-once',
       handler: () => {
         executions += 1;
         return { ok: true };
       },
     });
 
-    const core = new NodeCore({
-      nodeId: local.peer.nodeId,
-      privateKey: local.privateKey,
-      keyFingerprint: local.fingerprint,
-      replayStore: new TestDurableReplayStore(),
-      commandRegistry: registry,
-      timePolicy: TIME_POLICY,
-      responseLifetimeMs: 60_000,
-      resolvePeer: (nodeId) => (nodeId === sender.peer.nodeId ? sender.peer : null),
-      authorize: () => true,
-      now: () => NOW,
-    });
+    const persistedReplayState = new Set<string>();
+    const makeCore = () =>
+      new NodeCore({
+        nodeId: local.peer.nodeId,
+        privateKey: local.privateKey,
+        keyFingerprint: local.fingerprint,
+        replayStore: new TestDurableReplayStore(persistedReplayState),
+        commandRegistry: registry,
+        timePolicy: TIME_POLICY,
+        responseLifetimeMs: 60_000,
+        resolvePeer: (nodeId) => (nodeId === sender.peer.nodeId ? sender.peer : null),
+        authorize: () => true,
+        now: () => NOW,
+      });
+    const core = makeCore();
 
     const request = signRequest(sender.privateKey, sender.fingerprint, {
       kind: 'command',
@@ -125,6 +142,18 @@ describe('NODE IJET Node Core', () => {
     expect(executions).toBe(1);
 
     await expect(core.process(request)).rejects.toMatchObject({
+      code: 'REPLAY_DETECTED',
+    });
+    const changedContent = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'command',
+      from: sender.peer.nodeId,
+      to: local.peer.nodeId,
+      body: { table_id: 'core', table_version: '1', command_id: 'different' },
+    });
+    await expect(core.process(changedContent)).rejects.toMatchObject({
+      code: 'REPLAY_DETECTED',
+    });
+    await expect(makeCore().process(request)).rejects.toMatchObject({
       code: 'REPLAY_DETECTED',
     });
     expect(executions).toBe(1);
@@ -238,5 +267,278 @@ describe('NODE IJET Node Core', () => {
     expect(first.body['status']).toBe('accepted');
     expect(duplicate.body['status']).toBe('duplicate');
     expect(wakes).toBe(1);
+  });
+
+  it('retains replay identity through expiry plus caller-supplied late skew', async () => {
+    const sender = makeIdentity('node-sender-01');
+    const local = makeIdentity('node-local-0001');
+    const replayStore = new RecordingReplayStore();
+    const core = new NodeCore({
+      nodeId: local.peer.nodeId,
+      privateKey: local.privateKey,
+      keyFingerprint: local.fingerprint,
+      replayStore,
+      commandRegistry: new CommandRegistry(),
+      timePolicy: TIME_POLICY,
+      responseLifetimeMs: 60_000,
+      resolvePeer: () => sender.peer,
+      authorize: () => true,
+      now: () => NOW,
+    });
+    const request = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'wake',
+      from: sender.peer.nodeId,
+      to: local.peer.nodeId,
+      body: { event_code: 'N18-01' },
+    });
+
+    await core.process(request);
+    expect(replayStore.retainUntilMs).toBe(
+      Date.parse(request.expires_at) + TIME_POLICY.maxLateSkewMs,
+    );
+  });
+
+  it('rejects tampering, the wrong recipient, and malformed crypto encodings', async () => {
+    const sender = makeIdentity('node-sender-01');
+    const local = makeIdentity('node-local-0001');
+    const core = new NodeCore({
+      nodeId: local.peer.nodeId,
+      privateKey: local.privateKey,
+      keyFingerprint: local.fingerprint,
+      replayStore: new InMemoryReplayStore(),
+      commandRegistry: new CommandRegistry(),
+      timePolicy: TIME_POLICY,
+      responseLifetimeMs: 60_000,
+      resolvePeer: () => sender.peer,
+      authorize: () => true,
+      now: () => NOW,
+    });
+    const request = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'wake',
+      from: sender.peer.nodeId,
+      to: local.peer.nodeId,
+      body: { event_code: 'N18-01' },
+    });
+
+    await expect(
+      core.process({ ...request, body: { event_code: 'tampered' } }),
+    ).rejects.toMatchObject({ code: 'BAD_SIGNATURE' });
+    await expect(core.process({ ...request, to: 'node-someone-01' })).rejects.toMatchObject({
+      code: 'WRONG_RECIPIENT',
+    });
+    await expect(
+      core.process({ ...request, key_fingerprint: `${request.key_fingerprint}=` }),
+    ).rejects.toMatchObject({ code: 'INVALID_ENVELOPE' });
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const fingerprintLast = request.key_fingerprint.at(-1) ?? '';
+    const noncanonicalFingerprint = `${request.key_fingerprint.slice(0, -1)}${alphabet.charAt(alphabet.indexOf(fingerprintLast) + 1)}`;
+    expect(Buffer.from(noncanonicalFingerprint.slice('sha256:'.length), 'base64url')).toEqual(
+      Buffer.from(request.key_fingerprint.slice('sha256:'.length), 'base64url'),
+    );
+    await expect(
+      core.process({ ...request, key_fingerprint: noncanonicalFingerprint }),
+    ).rejects.toMatchObject({ code: 'INVALID_ENVELOPE' });
+    await expect(
+      core.process({ ...request, signature: `${request.signature}=` }),
+    ).rejects.toMatchObject({ code: 'INVALID_ENVELOPE' });
+  });
+
+  it('rejects unknown or inactive nodes and keys before operation handling', async () => {
+    const sender = makeIdentity('node-sender-01');
+    const local = makeIdentity('node-local-0001');
+    const request = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'wake',
+      from: sender.peer.nodeId,
+      to: local.peer.nodeId,
+      body: { event_code: 'N18-01' },
+    });
+    const makeCore = (peer: PeerIdentity | null) =>
+      new NodeCore({
+        nodeId: local.peer.nodeId,
+        privateKey: local.privateKey,
+        keyFingerprint: local.fingerprint,
+        replayStore: new InMemoryReplayStore(),
+        commandRegistry: new CommandRegistry(),
+        timePolicy: TIME_POLICY,
+        responseLifetimeMs: 60_000,
+        resolvePeer: () => peer,
+        authorize: () => true,
+        now: () => NOW,
+      });
+
+    await expect(makeCore(null).process(request)).rejects.toMatchObject({ code: 'UNKNOWN_NODE' });
+    for (const status of ['pending', 'suspended', 'revoked'] as const) {
+      await expect(makeCore({ ...sender.peer, status }).process(request)).rejects.toMatchObject({
+        code: 'NODE_NOT_ACTIVE',
+      });
+    }
+    await expect(
+      makeCore({ ...sender.peer, keys: new Map() }).process(request),
+    ).rejects.toMatchObject({ code: 'UNKNOWN_KEY' });
+    const unrelatedKey = makeIdentity('node-unrelated-01');
+    await expect(
+      makeCore({
+        ...sender.peer,
+        keys: new Map([
+          [sender.fingerprint, { publicKey: unrelatedKey.publicKey, status: 'active' as const }],
+        ]),
+      }).process(request),
+    ).rejects.toMatchObject({ code: 'UNKNOWN_KEY' });
+    for (const status of ['inactive', 'revoked'] as const) {
+      const keys = new Map([
+        [sender.fingerprint, { publicKey: sender.publicKey, status }],
+      ] as const);
+      await expect(makeCore({ ...sender.peer, keys }).process(request)).rejects.toMatchObject({
+        code: 'KEY_NOT_ACTIVE',
+      });
+    }
+  });
+
+  it('applies caller-supplied expiry, future-skew, and maximum-lifetime policy', async () => {
+    const sender = makeIdentity('node-sender-01');
+    const local = makeIdentity('node-local-0001');
+    const core = new NodeCore({
+      nodeId: local.peer.nodeId,
+      privateKey: local.privateKey,
+      keyFingerprint: local.fingerprint,
+      replayStore: new InMemoryReplayStore(),
+      commandRegistry: new CommandRegistry(),
+      timePolicy: TIME_POLICY,
+      responseLifetimeMs: 60_000,
+      resolvePeer: () => sender.peer,
+      authorize: () => true,
+      now: () => NOW,
+    });
+    const cases: Partial<UnsignedBnpEnvelope>[] = [
+      {
+        message_id: 'expired-message-0001',
+        issued_at: '2026-09-07T02:58:00.000Z',
+        expires_at: '2026-09-07T02:59:29.999Z',
+      },
+      {
+        message_id: 'future-message-00001',
+        issued_at: '2026-09-07T03:00:30.001Z',
+        expires_at: '2026-09-07T03:01:00.001Z',
+      },
+      {
+        message_id: 'lifetime-message-001',
+        issued_at: '2026-09-07T03:00:00.000Z',
+        expires_at: '2026-09-07T03:05:00.001Z',
+      },
+      {
+        message_id: 'zero-lifetime-000001',
+        issued_at: '2026-09-07T03:00:00.000Z',
+        expires_at: '2026-09-07T03:00:00.000Z',
+      },
+    ];
+
+    for (const fields of cases) {
+      const request = signRequest(sender.privateKey, sender.fingerprint, {
+        kind: 'wake',
+        from: sender.peer.nodeId,
+        to: local.peer.nodeId,
+        body: { event_code: 'N18-01' },
+        ...fields,
+      });
+      await expect(core.process(request)).rejects.toMatchObject({ code: 'INVALID_TIME' });
+    }
+  });
+
+  it('fails closed for unknown table, version, command, and command capability', async () => {
+    const sender = makeIdentity('node-sender-01');
+    const local = makeIdentity('node-local-0001');
+    const registry = new CommandRegistry();
+    let executions = 0;
+    registry.register({
+      table_id: 'core',
+      table_version: '1',
+      command_id: 'status',
+      requiredCapability: 'command.execute:core/status',
+      executionSemantics: 'idempotent',
+      handler: () => {
+        executions += 1;
+        return { ok: true };
+      },
+    });
+    const core = new NodeCore({
+      nodeId: local.peer.nodeId,
+      privateKey: local.privateKey,
+      keyFingerprint: local.fingerprint,
+      replayStore: new TestDurableReplayStore(),
+      commandRegistry: registry,
+      timePolicy: TIME_POLICY,
+      responseLifetimeMs: 60_000,
+      resolvePeer: () => sender.peer,
+      authorize: () => true,
+      now: () => NOW,
+    });
+    const unknownReferences = [
+      { table_id: 'other', table_version: '1', command_id: 'status' },
+      { table_id: 'core', table_version: '2', command_id: 'status' },
+      { table_id: 'core', table_version: '1', command_id: 'other' },
+    ];
+
+    for (const [index, body] of unknownReferences.entries()) {
+      const request = signRequest(sender.privateKey, sender.fingerprint, {
+        kind: 'command',
+        from: sender.peer.nodeId,
+        to: local.peer.nodeId,
+        message_id: `unknown-command-000${index}`,
+        body,
+      });
+      await expect(core.process(request)).rejects.toMatchObject({ code: 'UNKNOWN_COMMAND' });
+    }
+
+    const denied = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'command',
+      from: sender.peer.nodeId,
+      to: local.peer.nodeId,
+      message_id: 'capability-denied-0001',
+      body: { table_id: 'core', table_version: '1', command_id: 'status' },
+    });
+    await expect(core.process(denied)).rejects.toMatchObject({ code: 'CAPABILITY_DENIED' });
+    expect(executions).toBe(0);
+  });
+
+  it('signs result correlation and detects in_reply_to tampering', async () => {
+    const sender = makeIdentity('node-sender-01', ['command.execute:core/status']);
+    const local = makeIdentity('node-local-0001');
+    const registry = new CommandRegistry();
+    registry.register({
+      table_id: 'core',
+      table_version: '1',
+      command_id: 'status',
+      requiredCapability: 'command.execute:core/status',
+      executionSemantics: 'idempotent',
+      handler: () => ({ ok: true }),
+    });
+    const core = new NodeCore({
+      nodeId: local.peer.nodeId,
+      privateKey: local.privateKey,
+      keyFingerprint: local.fingerprint,
+      replayStore: new TestDurableReplayStore(),
+      commandRegistry: registry,
+      timePolicy: TIME_POLICY,
+      responseLifetimeMs: 60_000,
+      resolvePeer: () => sender.peer,
+      authorize: () => true,
+      now: () => NOW,
+    });
+    const request = signRequest(sender.privateKey, sender.fingerprint, {
+      kind: 'command',
+      from: sender.peer.nodeId,
+      to: local.peer.nodeId,
+      body: { table_id: 'core', table_version: '1', command_id: 'status' },
+    });
+
+    const result = await core.process(request);
+    expect(result.in_reply_to).toBe(request.message_id);
+    expect(verifyEnvelopeSignature(result, local.publicKey)).toBe(true);
+    expect(
+      verifyEnvelopeSignature(
+        { ...result, in_reply_to: 'different-request-0001' },
+        local.publicKey,
+      ),
+    ).toBe(false);
   });
 });

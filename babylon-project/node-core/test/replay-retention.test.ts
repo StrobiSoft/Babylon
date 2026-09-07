@@ -25,7 +25,7 @@ function identity(nodeId: string) {
   const peer: PeerIdentity = {
     nodeId,
     status: 'active',
-    publicKeys: new Map([[fingerprint, pair.publicKey]]),
+    keys: new Map([[fingerprint, { publicKey: pair.publicKey, status: 'active' as const }]]),
     capabilities: new Set(),
   };
   return { ...pair, fingerprint, peer };
