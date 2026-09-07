@@ -1,6 +1,7 @@
 import { createHash, type KeyObject, sign, verify } from 'node:crypto';
 
 import { canonicalizeJcs } from './jcs.js';
+import { assertUnsignedEnvelope } from './envelope.js';
 import type { SignedBnpEnvelope, UnsignedBnpEnvelope } from './types.js';
 
 const SIGNATURE_DOMAIN = Buffer.from('BNP/1\n', 'ascii');
@@ -20,6 +21,7 @@ export function fingerprintPublicKey(publicKey: KeyObject): string {
 }
 
 export function signatureTranscript(envelope: UnsignedBnpEnvelope): Buffer {
+  assertUnsignedEnvelope(envelope);
   const canonical = Buffer.from(canonicalizeJcs(envelope), 'utf8');
   return Buffer.concat([SIGNATURE_DOMAIN, canonical]);
 }
@@ -48,10 +50,20 @@ export function verifyEnvelopeSignature(
   }
 
   const encoded = signature.slice(SIGNATURE_PREFIX.length);
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) {
+  if (!/^[A-Za-z0-9_-]{85}[AQgw]$/.test(encoded)) {
     return false;
   }
 
   const signatureBytes = Buffer.from(encoded, 'base64url');
-  return verify(null, signatureTranscript(unsigned), publicKey, signatureBytes);
+  if (signatureBytes.length !== 64) {
+    return false;
+  }
+  if (signatureBytes.toString('base64url') !== encoded) {
+    return false;
+  }
+  try {
+    return verify(null, signatureTranscript(unsigned), publicKey, signatureBytes);
+  } catch {
+    return false;
+  }
 }

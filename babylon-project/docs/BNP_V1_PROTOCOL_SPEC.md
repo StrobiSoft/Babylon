@@ -83,17 +83,18 @@ A public-key fingerprint identifies a key; it is not proof of identity by itself
 
 Every authenticated BNP operation MUST prove possession of a currently enrolled private key.
 
-### 4.1 Proposed v1 signing profile
+### 4.1 Normative v1 signing profile
 
-The first implementation SHOULD use:
+BNP/1 implementations MUST use:
 
 - Ed25519 node keys;
-- SHA-256 public-key fingerprints;
+- `sha256:<base64url-no-padding(SHA-256(DER Ed25519 SPKI))>` public-key fingerprints;
 - UTF-8 JSON messages;
-- deterministic JSON canonicalization before signing;
-- base64url encoding for binary signature material.
+- RFC 8785 JCS canonicalization of the validated envelope without `signature`;
+- the signature transcript `ASCII("BNP/1\n") || JCS_UTF8(envelope_without_signature)`;
+- `ed25519:<base64url-no-padding(signature_64_bytes)>` signature text.
 
-This signing profile remains a draft until explicitly frozen.
+The algorithm and encodings are fixed BNP/1 wire identity, not peer-negotiated inputs.
 
 ### 4.2 Signed binding
 
@@ -128,9 +129,14 @@ Logical v1 envelope:
   "expires_at": "<UTC timestamp>",
   "key_fingerprint": "<fingerprint>",
   "body": {},
+  "in_reply_to": "<originating message_id; responses only>",
   "signature": "<signature>"
 }
 ```
+
+`read_result`, `command_result`, `ack`, and `error` response envelopes MUST contain top-level
+`in_reply_to`. It MUST equal the originating request's `message_id` and is covered by the response
+signature. Request kinds (`wake`, `read`, and `command`) MUST NOT contain `in_reply_to`.
 
 Opaque node IDs and message IDs MUST NOT carry business semantics.
 
@@ -196,12 +202,15 @@ The network command references semantics; it MUST NOT contain arbitrary shell, e
 
 The receiving node resolves the command to a local allowlisted handler only after:
 
-1. signature validation;
-2. sender identity validation;
+1. sender node/key resolution and lifecycle eligibility;
+2. key-fingerprint binding and signature/private-key-possession validation;
 3. recipient validation;
-4. replay validation;
-5. capability authorization;
-6. command-table/version validation.
+4. timestamp/expiry validation;
+5. replay validation;
+6. capability authorization;
+7. command-table/version validation.
+
+Recipient mismatch SHOULD NOT be exposed as a pre-authentication destination oracle. Resolving a sender record or enrolled key for signature verification does not by itself authorize the operation or release state.
 
 Knowing a command ID MUST NOT be sufficient to execute it.
 
@@ -232,14 +241,26 @@ Rules:
 ## 8. Replay and idempotency
 
 Every signed request MUST include a unique `message_id`, bounded lifetime, sender, and recipient.
+The sender MUST generate each new logical request ID from at least 128 bits of cryptographically
+random input. A transport retry of the same logical request MUST preserve the ID; a new logical
+request MUST use a new ID. String length alone does not prove this semantic generation property,
+and BNP/1 does not mandate one textual presentation encoding for message IDs.
 
 Receiver requirements:
 
 - reject expired messages outside the configured clock-skew allowance;
-- remember accepted message IDs for at least the effective replay window;
+- use `(sender_node_id, message_id)` as the durable replay identity;
+- remember accepted message IDs for at least the receiver-effective expiry plus allowed late skew;
 - reject or idempotently acknowledge duplicates according to message kind;
 - never execute the same non-idempotent command twice because of transport retry;
 - bind result/ACK messages to the originating message ID.
+
+COMMAND handling MUST use replay state that survives ordinary receiver process restart. It MUST
+fail closed if no durable replay boundary is available. BNP/1 does not mandate a production replay
+store technology.
+
+BNP/1 core does not require a sequence counter. An optional future ordered-stream profile may add
+one without weakening the core random-ID and durable-replay requirements.
 
 WAKE duplicates SHOULD be harmless.
 
@@ -384,13 +405,11 @@ Optional extensions may provide:
 
 The following remain explicit review items:
 
-- exact deterministic JSON canonicalization profile;
-- final Ed25519/SHA-256 fingerprint encoding text form;
 - default message TTL and clock-skew window;
 - exact registry persistence model;
 - table-version negotiation rules;
-- whether signed sequence counters are optional or required in addition to message IDs;
+- production durable replay-store technology;
 - final public repository name and license;
-- minimum mandatory conformance test set.
+- the complete public-v1 release test gate beyond the normative minimum in the conformance matrix.
 
 No implementation should silently invent incompatible answers to these open decisions.

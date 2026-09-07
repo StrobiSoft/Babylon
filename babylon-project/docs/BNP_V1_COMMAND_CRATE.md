@@ -178,19 +178,20 @@ A receiver MUST perform the following sequence before executing a handler:
 
 1. parse envelope;
 2. validate protocol version;
-3. validate recipient;
-4. validate sender key and signature;
-5. reject revoked/suspended identity;
-6. validate timestamp/expiry;
-7. apply replay/duplicate rules;
-8. resolve table and command version;
-9. evaluate required capability;
-10. evaluate handler preconditions;
-11. execute local allowlisted handler;
-12. persist execution/result state as required by idempotency class;
-13. return signed result/ACK.
+3. resolve the sender node and presented enrolled key;
+4. reject ineligible/revoked node or key lifecycle state;
+5. validate key-fingerprint binding and signature/private-key possession;
+6. validate recipient;
+7. validate timestamp/expiry;
+8. apply replay/duplicate rules;
+9. resolve table and command version;
+10. evaluate required capability;
+11. evaluate handler preconditions;
+12. execute local allowlisted handler;
+13. persist execution/result state as required by idempotency class;
+14. return signed result/ACK.
 
-A command key by itself is never authorization.
+Recipient mismatch is therefore not used as a pre-authentication destination oracle. A command key by itself is never authorization.
 
 ## 10. Versioning
 
@@ -253,7 +254,8 @@ Privacy of a private crate may reduce information disclosure, but MUST NOT be re
 
 ## 14. Result contract
 
-A COMMAND result MUST bind to the originating `message_id`.
+A COMMAND result MUST carry top-level `in_reply_to` equal to the originating `message_id`. The
+field is part of the validated result envelope and MUST be covered by its BNP/1 signature.
 
 Minimum result states:
 

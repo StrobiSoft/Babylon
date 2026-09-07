@@ -28,6 +28,7 @@ export type NodeCoreErrorCode =
   | 'UNKNOWN_NODE'
   | 'NODE_NOT_ACTIVE'
   | 'UNKNOWN_KEY'
+  | 'KEY_NOT_ACTIVE'
   | 'BAD_SIGNATURE'
   | 'INVALID_TIME'
   | 'REPLAY_DETECTED'
@@ -45,10 +46,15 @@ export class NodeCoreError extends Error {
   }
 }
 
+export interface PeerKey {
+  publicKey: KeyObject;
+  status: 'active' | 'rotating' | 'inactive' | 'revoked';
+}
+
 export interface PeerIdentity {
   nodeId: string;
   status: NodeLifecycleStatus;
-  publicKeys: ReadonlyMap<string, KeyObject>;
+  keys: ReadonlyMap<string, PeerKey>;
   capabilities: ReadonlySet<string>;
 }
 
@@ -105,8 +111,7 @@ function assertOnlyKeys(body: JsonObject, allowed: readonly string[]): void {
 }
 
 function replayRetentionUntilMs(envelope: SignedBnpEnvelope, policy: TimePolicy): number {
-  const expiresAtMs = Date.parse(envelope.expires_at);
-  return Math.min(Number.MAX_SAFE_INTEGER, expiresAtMs + policy.maxLateSkewMs);
+  return Math.min(Number.MAX_SAFE_INTEGER, Date.parse(envelope.expires_at) + policy.maxLateSkewMs);
 }
 
 export class NodeCore {
@@ -147,13 +152,27 @@ export class NodeCore {
       throw new NodeCoreError('NODE_NOT_ACTIVE');
     }
 
-    const publicKey = sender.publicKeys.get(envelope.key_fingerprint);
-    if (publicKey === undefined) {
+    const key = sender.keys.get(envelope.key_fingerprint);
+    if (key === undefined) {
       throw new NodeCoreError('UNKNOWN_KEY');
     }
+    if (key.status !== 'active' && key.status !== 'rotating') {
+      throw new NodeCoreError('KEY_NOT_ACTIVE');
+    }
+
+    let fingerprintMatches = false;
+    try {
+      fingerprintMatches = fingerprintPublicKey(key.publicKey) === envelope.key_fingerprint;
+    } catch {
+      fingerprintMatches = false;
+    }
+    if (!fingerprintMatches) {
+      throw new NodeCoreError('UNKNOWN_KEY');
+    }
+
     let signatureValid = false;
     try {
-      signatureValid = verifyEnvelopeSignature(envelope, publicKey);
+      signatureValid = verifyEnvelopeSignature(envelope, key.publicKey);
     } catch {
       signatureValid = false;
     }
@@ -179,12 +198,15 @@ export class NodeCore {
     const replay = await this.#options.replayStore.claim(
       sender.nodeId,
       envelope.message_id,
-      replayEnvelopeDigest(envelope),
       replayRetentionUntilMs(envelope, this.#options.timePolicy),
       nowMs,
+      replayEnvelopeDigest(envelope),
     );
     if (replay === 'conflict') {
-      throw new NodeCoreError('REPLAY_CONFLICT');
+      if (envelope.kind === 'wake') {
+        throw new NodeCoreError('REPLAY_CONFLICT');
+      }
+      throw new NodeCoreError('REPLAY_DETECTED');
     }
     if (replay === 'duplicate') {
       if (envelope.kind === 'wake') {

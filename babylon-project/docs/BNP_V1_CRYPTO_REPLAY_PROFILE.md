@@ -1,8 +1,10 @@
 # BNP v1 Cryptographic and Replay Profile
 
-Status: DRAFT — freeze candidate, not yet normative
+Status: NORMATIVE BNP/1 profile; deployment time values remain open
 
-This document narrows the remaining BNP v1 security choices into one interoperable candidate profile. It does not silently freeze them. Any item marked `PROPOSED` remains subject to explicit owner freeze before it becomes a v1 compatibility requirement.
+This document defines the owner-approved BNP/1 cryptographic and replay invariants. Concrete
+default/max TTL, clock-skew values, registry persistence, command-table negotiation, and production
+replay-store technology remain open and are identified explicitly rather than invented here.
 
 ## 1. Goals
 
@@ -22,7 +24,7 @@ The profile should stay small enough to implement consistently in lightweight cl
 
 ### 2.1 Node signing key
 
-**PROPOSED:** BNP v1 uses Ed25519 for node message signatures.
+BNP v1 MUST use Ed25519 for node message signatures.
 
 Reasons:
 
@@ -36,7 +38,7 @@ BNP v1 should not expose a peer-controlled generic `alg` field. A node profile s
 
 ### 2.2 Fingerprint hash
 
-**PROPOSED:** SHA-256.
+BNP v1 fingerprints MUST use SHA-256.
 
 A fingerprint is a stable key identifier only. It is not proof of private-key possession and does not replace signature verification.
 
@@ -47,7 +49,7 @@ Two interoperable representations were considered for fingerprint input:
 1. raw 32-byte Ed25519 public key;
 2. DER-encoded SubjectPublicKeyInfo (SPKI) carrying the Ed25519 algorithm identifier and key.
 
-**PROPOSED v1 choice:** hash the DER-encoded Ed25519 SubjectPublicKeyInfo as defined by the standard Ed25519 SPKI representation.
+BNP v1 MUST hash the DER-encoded Ed25519 SubjectPublicKeyInfo as defined by the standard Ed25519 SPKI representation.
 
 Rationale:
 
@@ -60,7 +62,7 @@ The fingerprint input MUST NOT be PEM text. Whitespace, PEM headers, line wrappi
 
 ## 4. Fingerprint text form
 
-**PROPOSED:**
+The normative fingerprint text form is:
 
 ```text
 sha256:<base64url-no-padding(SHA256(spki_der))>
@@ -71,6 +73,8 @@ Properties:
 - ASCII only;
 - explicit hash family;
 - no Base64 padding;
+- canonical base64url spelling: decoding and unpadded base64url re-encoding MUST produce identical
+  text;
 - no case-normalization step;
 - exact byte-for-byte comparison after schema validation.
 
@@ -80,7 +84,7 @@ A registry entry binds the fingerprint to a logical `node_id` and key lifecycle 
 
 ### 5.1 Canonical JSON
 
-**PROPOSED:** RFC 8785 JSON Canonicalization Scheme (JCS) over UTF-8 JSON.
+BNP v1 MUST use RFC 8785 JSON Canonicalization Scheme (JCS) over UTF-8 JSON.
 
 Before signing:
 
@@ -95,7 +99,7 @@ Implementations MUST NOT sign a locally serialized object whose key order, numbe
 
 ### 5.2 Signature-domain separation
 
-**PROPOSED:** the actual signature input is:
+The normative signature input is:
 
 ```text
 ASCII("BNP/1\n") || JCS_UTF8(envelope_without_signature)
@@ -107,7 +111,7 @@ If a future incompatible signing transcript is introduced, it requires a new pro
 
 ## 6. Signature text form
 
-**PROPOSED:**
+The normative signature text form is:
 
 ```text
 ed25519:<base64url-no-padding(signature_64_bytes)>
@@ -119,6 +123,7 @@ The verifier must reject:
 
 - padding where the v1 encoding forbids it;
 - malformed Base64url;
+- a non-canonical terminal-pad-bit spelling even if it decodes to the same bytes;
 - decoded signatures of any length other than 64 bytes;
 - an unknown/future signature prefix unless that profile is explicitly supported.
 
@@ -167,7 +172,9 @@ The order is designed so that unauthenticated input cannot use body parsing, com
 
 `message_id` is opaque and carries no semantic content.
 
-**PROPOSED requirement:** at least 128 bits of cryptographically random entropy before textual encoding.
+Each new logical request `message_id` MUST be generated from at least 128 bits of cryptographically
+random input before textual encoding. This is a sender-generation and conformance requirement;
+schema `minLength` alone cannot establish entropy.
 
 BNP does not require a specific presentation format such as UUID or ULID as long as the schema and entropy requirement are met. Time-sortable identifiers are permitted only if they do not reduce the random uniqueness requirement or leak deployment-sensitive meaning beyond what the deployment accepts.
 
@@ -189,7 +196,7 @@ The following are mandatory semantics even before concrete defaults are frozen:
 
 ### 10.1 Default lifetime
 
-**OPEN OWNER FREEZE:** concrete v1 default TTL and allowed clock skew.
+**BLOCKED-OPEN-DECISION:** concrete v1 default/max TTL and allowed clock skew.
 
 Recommendation for discussion:
 
@@ -259,9 +266,10 @@ These classes describe execution semantics. They do not grant permission.
 
 ## 14. Result correlation
 
-A `command_result`, `read_result`, `ack`, or `error` responding to another message includes a bounded correlation identifier in its kind-specific body.
+A `command_result`, `read_result`, `ack`, or `error` response MUST include a bounded, top-level
+correlation identifier covered by the response signature. Request kinds MUST NOT contain it.
 
-**PROPOSED field:**
+Normative field:
 
 ```json
 {
@@ -306,11 +314,12 @@ A duplicate lookup for a command that was conclusively completed before revocati
 
 A signed monotonic sequence number can detect some forms of reordering and make gap analysis easier, but it creates persistent per-sender synchronization state and complicates multi-process senders.
 
-**PROPOSED v1 core:** do not require a sequence counter for security. Use cryptographically random `message_id` + bounded lifetime + durable replay store as the mandatory replay mechanism.
+BNP v1 core does not require a sequence counter for security. It MUST use cryptographically random
+`message_id` + bounded lifetime + durable replay state for COMMAND as the replay mechanism.
 
 A future optional ordered-stream profile may add signed sequence semantics without changing the core replay guarantee.
 
-This remains subject to owner freeze because it is a wire-compatibility choice.
+No implementation may require a sequence counter as a condition of BNP/1 core interoperability.
 
 ## 18. Error behavior
 
@@ -326,9 +335,12 @@ Recommended external distinctions:
 
 Detailed internal audit reason codes may be richer than the external response.
 
-## 19. Conformance vectors required before freeze
+## 19. Deterministic conformance vectors
 
-The final v1 profile must ship deterministic test vectors containing no real deployment secrets:
+The public machine-readable vector and its executable validator are
+[`bnp/vectors/crypto-replay-v1.json`](bnp/vectors/crypto-replay-v1.json). Its fixed seed/private key
+is conspicuously test-only and MUST NOT be used outside conformance testing. Together with
+`node-core/test/conformance-vectors.test.ts` and `node-core/test/node-core.test.ts`, they cover:
 
 1. fixed Ed25519 test private/public key pair dedicated only to conformance;
 2. exact DER SPKI bytes;
@@ -341,11 +353,13 @@ The final v1 profile must ship deterministic test vectors containing no real dep
 9. one vector for every signed-field mutation showing verification failure;
 10. replay vectors for first accept, duplicate same content, same ID/different content, expired message, revoked key, and restart-preserved replay state.
 
-At least two independent implementations/languages should reproduce the vectors before the cryptographic profile is called stable.
+At least two independent implementations/languages SHOULD reproduce the vectors before the full
+public protocol is called stable. This interoperability release gate does not make the approved
+cryptographic choices provisional.
 
-## 20. Freeze checklist
+## 20. Decision status
 
-Before this profile becomes normative BNP v1, explicitly freeze:
+Owner-approved and normative for BNP/1:
 
 - RFC 8785 JCS as canonicalization;
 - Ed25519 as the v1 signing algorithm;
@@ -353,10 +367,14 @@ Before this profile becomes normative BNP v1, explicitly freeze:
 - fingerprint and signature text encodings;
 - `BNP/1\n` signature-domain prefix;
 - minimum message-ID entropy;
-- default/max TTL and clock-skew values;
 - replay retention rule;
-- whether sequence numbers remain non-core;
+- sequence numbers remain non-core;
 - `in_reply_to` result-correlation field;
-- cross-language conformance vectors.
+- a public deterministic conformance vector and executable reference validation.
 
-Until then, this document is the implementation candidate and review target, not permission to silently lock these choices into production.
+Still **BLOCKED-OPEN-DECISION** and intentionally not selected by this profile:
+
+- concrete default/max TTL and clock-skew values;
+- registry persistence model;
+- command-table negotiation/downgrade rules;
+- production durable replay-store technology.

@@ -5,9 +5,9 @@ export interface ReplayStore {
   claim(
     senderNodeId: string,
     messageId: string,
-    envelopeDigest: string,
     retainUntilMs: number,
     nowMs: number,
+    envelopeDigest: string,
   ): Promise<ReplayClaim>;
 }
 
@@ -23,9 +23,9 @@ export class InMemoryReplayStore implements ReplayStore {
   claim(
     senderNodeId: string,
     messageId: string,
-    envelopeDigest: string,
     retainUntilMs: number,
     nowMs: number,
+    envelopeDigest: string,
   ): Promise<ReplayClaim> {
     this.#purge(nowMs);
     const key = `${senderNodeId}\u0000${messageId}`;
