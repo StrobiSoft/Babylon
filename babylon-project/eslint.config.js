@@ -19,7 +19,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['backend/test/**/*.ts'],
+    files: ['backend/test/**/*.ts', 'node-core/test/**/*.ts'],
     rules: {
       '@typescript-eslint/no-confusing-void-expression': 'off',
       '@typescript-eslint/no-dynamic-delete': 'off',

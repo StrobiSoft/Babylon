@@ -62,6 +62,11 @@
     "body": {
       "type": "object"
     },
+    "in_reply_to": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128
+    },
     "signature": {
       "type": "string",
       "minLength": 16,
