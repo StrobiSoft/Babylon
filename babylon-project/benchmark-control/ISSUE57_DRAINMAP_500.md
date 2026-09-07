@@ -91,6 +91,12 @@ Historical VM103 evidence before reconciliation must remain in the handoff:
 - content SHA-256: `70d6baeda865d474d8bf8eead48147afd0a1e909653a25c7989d0c9c27d25757`
 - adjudication: accepted mode-only, non-semantic drift; the temporary B1/A/B readback content is not carried forward
 
-Before reconciliation, repeat the read-only HEAD, status, mode, diff-stat and SHA-256 checks. Any content drift is a hard stop. If the evidence remains mode-only, use the allowlisted control-repository maintenance reconciliation, then sync the reviewed checkpoint branch. Do not force-reset VM103 directly.
+Before reconciliation, repeat the read-only HEAD, status, mode, diff-stat and SHA-256 checks. Any content drift is a hard stop. Install `bbb1-enable-drainmap-control-actions.sh` through the existing host-root maintenance deployment procedure, then use these no-argument allowlisted actions in order:
+
+1. `babylon-bench-control-status` records the current branch, HEAD, index/working mode, blob, SHA-256, status, numstat and mode summary.
+2. `babylon-bench-control-normalize-run-mode` accepts only the adjudicated `65d2de2f3ba2fa7f35a4004c8564ca45cc6ea618` mode-only drift with the recorded blob and SHA-256, and normalizes it to the tracked `0644` mode.
+3. `babylon-bench-control-sync-drainmap-500` accepts only that now-clean checkpoint and syncs it to reviewed PR #66 head `ced87ef48486a47ecc3404689ceb139fc26b1be1`. The action verifies the new runner blob, content hash and `0755` mode.
+
+All three actions reject arguments. The mutating actions are idempotent and reject an unexpected branch, HEAD, content identity, worktree status or remote source head. Do not force-reset VM103 directly.
 
 Rollback is the current remote control checkpoint `4ca023f49fd82a7345436b32abb2aa733a2e3cc2`. Re-pointing the control checkout to that checkpoint restores the auxiliary reference-triplicate runner; it must not be invoked as DrainMap-500.
