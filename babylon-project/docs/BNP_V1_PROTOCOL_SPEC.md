@@ -202,12 +202,15 @@ The network command references semantics; it MUST NOT contain arbitrary shell, e
 
 The receiving node resolves the command to a local allowlisted handler only after:
 
-1. signature validation;
-2. sender identity validation;
+1. sender node/key resolution and lifecycle eligibility;
+2. key-fingerprint binding and signature/private-key-possession validation;
 3. recipient validation;
-4. replay validation;
-5. capability authorization;
-6. command-table/version validation.
+4. timestamp/expiry validation;
+5. replay validation;
+6. capability authorization;
+7. command-table/version validation.
+
+Recipient mismatch SHOULD NOT be exposed as a pre-authentication destination oracle. Resolving a sender record or enrolled key for signature verification does not by itself authorize the operation or release state.
 
 Knowing a command ID MUST NOT be sufficient to execute it.
 
