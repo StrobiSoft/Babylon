@@ -50,16 +50,13 @@
         "properties": {
           "fingerprint": {
             "type": "string",
-            "minLength": 16,
-            "maxLength": 256
+            "pattern": "^sha256:[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
           },
           "algorithm": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
+            "const": "Ed25519"
           },
           "state": {
-            "enum": ["active", "rotating", "revoked"]
+            "enum": ["active", "rotating", "inactive", "revoked"]
           }
         }
       }

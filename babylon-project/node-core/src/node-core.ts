@@ -23,6 +23,7 @@ export type NodeCoreErrorCode =
   | 'UNKNOWN_NODE'
   | 'NODE_NOT_ACTIVE'
   | 'UNKNOWN_KEY'
+  | 'KEY_NOT_ACTIVE'
   | 'BAD_SIGNATURE'
   | 'INVALID_TIME'
   | 'REPLAY_DETECTED'
@@ -42,8 +43,13 @@ export class NodeCoreError extends Error {
 export interface PeerIdentity {
   nodeId: string;
   status: NodeLifecycleStatus;
-  publicKeys: ReadonlyMap<string, KeyObject>;
+  keys: ReadonlyMap<string, PeerKey>;
   capabilities: ReadonlySet<string>;
+}
+
+export interface PeerKey {
+  publicKey: KeyObject;
+  status: 'active' | 'rotating' | 'inactive' | 'revoked';
 }
 
 export interface AuthorizationContext {
@@ -140,13 +146,25 @@ export class NodeCore {
       throw new NodeCoreError('NODE_NOT_ACTIVE');
     }
 
-    const publicKey = sender.publicKeys.get(envelope.key_fingerprint);
-    if (publicKey === undefined) {
+    const key = sender.keys.get(envelope.key_fingerprint);
+    if (key === undefined) {
+      throw new NodeCoreError('UNKNOWN_KEY');
+    }
+    if (key.status !== 'active' && key.status !== 'rotating') {
+      throw new NodeCoreError('KEY_NOT_ACTIVE');
+    }
+    let fingerprintMatches = false;
+    try {
+      fingerprintMatches = fingerprintPublicKey(key.publicKey) === envelope.key_fingerprint;
+    } catch {
+      fingerprintMatches = false;
+    }
+    if (!fingerprintMatches) {
       throw new NodeCoreError('UNKNOWN_KEY');
     }
     let signatureValid = false;
     try {
-      signatureValid = verifyEnvelopeSignature(envelope, publicKey);
+      signatureValid = verifyEnvelopeSignature(envelope, key.publicKey);
     } catch {
       signatureValid = false;
     }
@@ -168,7 +186,7 @@ export class NodeCore {
     const replay = await this.#options.replayStore.claim(
       sender.nodeId,
       envelope.message_id,
-      Date.parse(envelope.expires_at),
+      Date.parse(envelope.expires_at) + this.#options.timePolicy.maxLateSkewMs,
       nowMs,
     );
     if (replay === 'duplicate') {

@@ -12,7 +12,7 @@ The core does not open sockets and does not depend on Bridge, GitHub, SSH, Tails
 
 Current slice:
 
-- RFC 8785-style canonical JSON serialization for already-parsed JSON values;
+- RFC 8785 canonical JSON serialization for already-parsed I-JSON values;
 - Ed25519 signing and verification with the `BNP/1\n` signature domain;
 - SHA-256 fingerprinting over DER Ed25519 SPKI;
 - structural envelope validation and caller-supplied time policy;
@@ -21,6 +21,9 @@ Current slice:
 - versioned local command registry with no sender-selected executable surface;
 - local authorization callback as an independent policy boundary;
 - WAKE, READ, and COMMAND receive paths with signed correlated replies.
+
+Reply correlation is the signed top-level `in_reply_to` field. The bundled deterministic public
+test vector is at `docs/bnp/vectors/crypto-replay-v1.json`; its fixed key is unsafe for non-test use.
 
 The in-memory replay store is suitable for WAKE/READ development only. The Node Core deliberately refuses COMMAND execution when the injected replay store is not durable. A production durable replay adapter remains a separate implementation slice.
 

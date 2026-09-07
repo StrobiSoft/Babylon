@@ -5,7 +5,7 @@ export interface ReplayStore {
   claim(
     senderNodeId: string,
     messageId: string,
-    expiresAtMs: number,
+    retainUntilMs: number,
     nowMs: number,
   ): Promise<ReplayClaim>;
 }
@@ -17,7 +17,7 @@ export class InMemoryReplayStore implements ReplayStore {
   claim(
     senderNodeId: string,
     messageId: string,
-    expiresAtMs: number,
+    retainUntilMs: number,
     nowMs: number,
   ): Promise<ReplayClaim> {
     this.#purge(nowMs);
@@ -25,7 +25,7 @@ export class InMemoryReplayStore implements ReplayStore {
     if (this.#entries.has(key)) {
       return Promise.resolve('duplicate');
     }
-    this.#entries.set(key, expiresAtMs);
+    this.#entries.set(key, retainUntilMs);
     return Promise.resolve('fresh');
   }
 

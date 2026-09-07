@@ -56,8 +56,7 @@
     },
     "key_fingerprint": {
       "type": "string",
-      "minLength": 16,
-      "maxLength": 256
+      "pattern": "^sha256:[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
     },
     "body": {
       "type": "object"
@@ -69,8 +68,27 @@
     },
     "signature": {
       "type": "string",
-      "minLength": 16,
-      "maxLength": 512
+      "pattern": "^ed25519:[A-Za-z0-9_-]{85}[AQgw]$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": ["read_result", "command_result", "ack", "error"]
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "required": ["in_reply_to"]
+      },
+      "else": {
+        "not": {
+          "required": ["in_reply_to"]
+        }
+      }
+    }
+  ]
 }

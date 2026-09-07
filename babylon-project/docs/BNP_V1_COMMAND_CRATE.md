@@ -253,7 +253,8 @@ Privacy of a private crate may reduce information disclosure, but MUST NOT be re
 
 ## 14. Result contract
 
-A COMMAND result MUST bind to the originating `message_id`.
+A COMMAND result MUST carry top-level `in_reply_to` equal to the originating `message_id`. The
+field is part of the validated result envelope and MUST be covered by its BNP/1 signature.
 
 Minimum result states:
 

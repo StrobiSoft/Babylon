@@ -1,6 +1,6 @@
 # BNP v1 Conformance Matrix
 
-Status: DRAFT
+Status: NORMATIVE MINIMUM for BNP/1
 
 A BNP implementation is not conformant merely because it can parse messages. Conformance requires identity, authorization, replay, versioning, and command-safety behavior to match the protocol contract.
 
@@ -14,9 +14,20 @@ Required checks:
 - unsupported protocol version rejected;
 - missing required bound field rejected;
 - altered signed field invalidates signature;
+- fingerprint must match `sha256:<43 base64url-no-padding characters>` and decode to a 32-byte
+  SHA-256 digest identifier;
+- signature must match `ed25519:<86 base64url-no-padding characters>` and decode to 64 bytes;
+- fingerprint and signature payloads must decode and re-encode to the identical canonical base64url
+  text, rejecting alternate terminal-pad-bit spellings;
 - malformed timestamp rejected;
 - recipient mismatch rejected;
+- response kinds require signed top-level `in_reply_to`; request kinds reject it;
 - oversized body rejected according to implementation limits.
+
+Sender conformance MUST demonstrate that new logical request IDs are generated from at least 128
+cryptographically random bits. Schema length checks do not prove this property. A transport retry
+MUST retain the same ID and a new logical request MUST generate a new one; the textual message-ID
+encoding is not fixed by BNP/1.
 
 ### C2 — Identity and key lifecycle
 
@@ -47,12 +58,15 @@ Required checks:
 Required checks:
 
 - first valid message ID accepted;
+- replay identity is the pair `(sender_node_id, message_id)`;
 - duplicate WAKE is harmless;
 - expired message rejected;
+- not-yet-valid and excessive-lifetime messages are rejected under caller-supplied policy;
 - same message ID with altered content rejected;
 - non-idempotent command transport retry does not duplicate the effect;
-- `at-most-once` command remains protected across receiver restart if the implementation claims durable replay protection;
-- result/ACK references the originating message ID.
+- every COMMAND receiver fails closed without a durable replay boundary;
+- every COMMAND remains replay-protected across ordinary receiver process restart;
+- result/ACK carries signed top-level `in_reply_to` equal to the originating message ID.
 
 ### C5 — Command crate safety
 
@@ -106,10 +120,14 @@ The following MUST fail closed:
 
 ```text
 forged signature
+malformed fingerprint/signature encoding
 revoked key
+inactive key
 unknown node
 wrong recipient
 expired message
+message issued beyond allowed future skew
+message lifetime above caller policy
 replayed unsafe command
 capability mismatch
 unknown command table
@@ -153,6 +171,9 @@ A minimal BNP v1 implementation MUST provide:
 - COMMAND table resolution;
 - replay protection;
 - signed ACK/result;
+- RFC 8785 JCS and the `BNP/1\n` domain-separated Ed25519 transcript;
+- SHA-256-over-DER-SPKI fingerprint and fixed base64url-no-padding text forms;
+- signed top-level `in_reply_to` response correlation;
 - machine-readable bounded errors.
 
 Registry federation, public discovery, hosted services, observability backends, provider adapters, and execution sandboxes are optional.
@@ -162,10 +183,10 @@ Registry federation, public discovery, hosted services, observability backends, 
 Before BNP v1 is declared stable, all of the following are required:
 
 1. protocol spec frozen;
-2. signing/canonicalization profile frozen;
-3. node fingerprint encoding frozen;
+2. deterministic vectors reproduced by an independent implementation/language;
+3. exact deployment TTL/skew profile selected without changing the BNP/1 transcript;
 4. command-crate schema frozen;
-5. replay window and duplicate semantics frozen;
+5. production durable replay boundary selected and validated;
 6. at least one reference Bridge and one reference Node implementation pass all mandatory C1–C7 tests;
 7. negative security suite passes;
 8. one independent review of the security-sensitive contract is completed;
