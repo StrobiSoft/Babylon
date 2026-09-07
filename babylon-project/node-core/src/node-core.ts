@@ -133,7 +133,7 @@ export class NodeCore {
     }
 
     const sender = await this.#options.resolvePeer(envelope.from);
-    if (sender === null || sender.nodeId !== envelope.from) {
+    if (sender?.nodeId !== envelope.from) {
       throw new NodeCoreError('UNKNOWN_NODE');
     }
     if (!activeLifecycle(sender.status)) {

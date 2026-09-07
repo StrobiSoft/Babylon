@@ -38,16 +38,16 @@ export function verifyEnvelopeSignature(
   publicKey: KeyObject,
 ): boolean {
   assertEd25519(publicKey);
-  if (!envelope.signature.startsWith(SIGNATURE_PREFIX)) {
+  const { signature, ...unsigned } = envelope;
+  if (!signature.startsWith(SIGNATURE_PREFIX)) {
     return false;
   }
 
-  const encoded = envelope.signature.slice(SIGNATURE_PREFIX.length);
+  const encoded = signature.slice(SIGNATURE_PREFIX.length);
   if (!/^[A-Za-z0-9_-]+$/.test(encoded)) {
     return false;
   }
 
-  const { signature: _signature, ...unsigned } = envelope;
-  const signature = Buffer.from(encoded, 'base64url');
-  return verify(null, signatureTranscript(unsigned), publicKey, signature);
+  const signatureBytes = Buffer.from(encoded, 'base64url');
+  return verify(null, signatureTranscript(unsigned), publicKey, signatureBytes);
 }

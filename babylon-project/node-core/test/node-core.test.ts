@@ -19,12 +19,7 @@ class TestDurableReplayStore implements ReplayStore {
   readonly durable = true;
   readonly #seen = new Set<string>();
 
-  async claim(
-    senderNodeId: string,
-    messageId: string,
-    _expiresAtMs: number,
-    _nowMs: number,
-  ): Promise<ReplayClaim> {
+  async claim(senderNodeId: string, messageId: string): Promise<ReplayClaim> {
     const key = `${senderNodeId}\u0000${messageId}`;
     if (this.#seen.has(key)) {
       return 'duplicate';
@@ -82,12 +77,9 @@ describe('NODE IJET Node Core', () => {
     });
 
     expect(verifyEnvelopeSignature(envelope, sender.publicKey)).toBe(true);
-    expect(
-      verifyEnvelopeSignature(
-        { ...envelope, to: 'node-target-02' },
-        sender.publicKey,
-      ),
-    ).toBe(false);
+    expect(verifyEnvelopeSignature({ ...envelope, to: 'node-target-02' }, sender.publicKey)).toBe(
+      false,
+    );
   });
 
   it('executes an authorized command once and blocks transport replay', async () => {

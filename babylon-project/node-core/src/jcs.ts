@@ -1,14 +1,9 @@
 function isPlainObject(value: object): value is Record<string, unknown> {
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+  return Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null;
 }
 
 function serializeString(value: string): string {
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) {
-    throw new TypeError('string is not JSON serializable');
-  }
-  return serialized;
+  return JSON.stringify(value);
 }
 
 function canonicalize(value: unknown): string {
@@ -25,11 +20,7 @@ function canonicalize(value: unknown): string {
       if (!Number.isFinite(value)) {
         throw new TypeError('non-finite numbers are not valid JCS values');
       }
-      const serialized = JSON.stringify(value);
-      if (serialized === undefined) {
-        throw new TypeError('number is not JSON serializable');
-      }
-      return serialized;
+      return JSON.stringify(value);
     }
     case 'object': {
       if (Array.isArray(value)) {

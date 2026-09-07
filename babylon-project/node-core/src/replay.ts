@@ -14,7 +14,7 @@ export class InMemoryReplayStore implements ReplayStore {
   readonly durable = false;
   readonly #entries = new Map<string, number>();
 
-  async claim(
+  claim(
     senderNodeId: string,
     messageId: string,
     expiresAtMs: number,
@@ -23,10 +23,10 @@ export class InMemoryReplayStore implements ReplayStore {
     this.#purge(nowMs);
     const key = `${senderNodeId}\u0000${messageId}`;
     if (this.#entries.has(key)) {
-      return 'duplicate';
+      return Promise.resolve('duplicate');
     }
     this.#entries.set(key, expiresAtMs);
-    return 'fresh';
+    return Promise.resolve('fresh');
   }
 
   #purge(nowMs: number): void {
