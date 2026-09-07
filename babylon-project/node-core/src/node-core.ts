@@ -355,7 +355,7 @@ export class NodeCore {
     nowMs: number,
   ): Promise<SignedBnpEnvelope> {
     const journal = this.#options.commandJournal;
-    if (journal === undefined || !journal.durable) {
+    if (!journal?.durable) {
       throw new NodeCoreError('DURABLE_REPLAY_REQUIRED');
     }
     const policy = this.#options.commandExecutionPolicy;
@@ -651,7 +651,7 @@ export class NodeCore {
     return this.#reply(request, 'command_result', body);
   }
 
-  #assertBoundedCommandResult(result: JsonObject, maxBytes: number): void {
+  #assertBoundedCommandResult(result: unknown, maxBytes: number): asserts result is JsonObject {
     if (result === null || typeof result !== 'object' || Array.isArray(result)) {
       throw new TypeError('command result must be a JSON object');
     }
