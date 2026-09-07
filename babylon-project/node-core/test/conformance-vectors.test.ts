@@ -164,9 +164,7 @@ describe('BNP/1 deterministic crypto and replay vectors', () => {
     expect(await store.claim(sender, messageId, 2_000, 1_001, sameDigest)).toBe(
       vector.replay.same_envelope_retry,
     );
-    expect(await store.claim('node-other-0001', messageId, 2_000, 1_001, sameDigest)).toBe(
-      'fresh',
-    );
+    expect(await store.claim('node-other-0001', messageId, 2_000, 1_001, sameDigest)).toBe('fresh');
     expect(await store.claim(sender, messageId, 2_000, 1_001, changedDigest)).toBe('conflict');
     expect(vector.replay.same_identity_changed_content).toBe('replay_conflict');
   });
