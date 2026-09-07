@@ -457,13 +457,20 @@ export class NodeCore {
     this.#trace('authorized', sender.nodeId, envelope.message_id, entry.attemptId);
 
     const attemptId = createMessageId();
+    const startedAtMs = this.#now();
+    try {
+      validateEnvelopeTime(envelope, startedAtMs, this.#options.timePolicy);
+    } catch {
+      throw new NodeCoreError('INVALID_TIME');
+    }
+
     const started = await this.#journal(() =>
       journal.start(
         sender.nodeId,
         envelope.message_id,
         entry.envelopeDigest,
         attemptId,
-        this.#now(),
+        startedAtMs,
       ),
     );
     if (started.kind === 'conflict') {

@@ -59,6 +59,7 @@ function makeCommandFixture(options?: {
   handler?: () => Promise<Record<string, unknown>> | Record<string, unknown>;
   journal?: TestDurableCommandJournal;
   now?: () => number;
+  authorize?: () => Promise<boolean> | boolean;
   maxResultBytes?: number;
   onCommandTrace?: (event: { phase: string; atMs: number }) => void;
   monotonicNow?: () => number;
@@ -94,7 +95,7 @@ function makeCommandFixture(options?: {
     timePolicy: TIME_POLICY,
     responseLifetimeMs: 60_000,
     resolvePeer: () => sender.peer,
-    authorize: () => true,
+    authorize: options?.authorize ?? (() => true),
     now: options?.now ?? (() => NOW),
     ...(options?.onCommandTrace === undefined
       ? {}
@@ -127,6 +128,53 @@ describe('NODE IJET COMMAND execution journal', () => {
     const retry = await fixture.core.process(fixture.request);
     expect(retry.body['state']).toBe('completed');
     expect(fixture.executions()).toBe(1);
+  });
+
+  it('rejects a durable RECEIVED command retried after expiry plus skew', async () => {
+    let now = NOW;
+    const journal = new TestDurableCommandJournal();
+    journal.failNextStart = true;
+    const fixture = makeCommandFixture({ journal, now: () => now });
+
+    await expect(fixture.core.process(fixture.request)).rejects.toMatchObject({
+      code: 'COMMAND_JOURNAL_FAILURE',
+    });
+    expect(
+      (await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('received');
+
+    now = NOW + 60_000 + TIME_POLICY.maxLateSkewMs + 1;
+    await expect(fixture.core.process(fixture.request)).rejects.toMatchObject({
+      code: 'INVALID_TIME',
+    });
+    expect(
+      (await journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('received');
+    expect(fixture.executions()).toBe(0);
+  });
+
+  it('rejects a fresh command that expires in the final authorization path before START', async () => {
+    let now = NOW;
+    let authorizations = 0;
+    const fixture = makeCommandFixture({
+      now: () => now,
+      authorize: () => {
+        authorizations += 1;
+        if (authorizations === 2) {
+          now = NOW + 60_000 + TIME_POLICY.maxLateSkewMs + 1;
+        }
+        return true;
+      },
+    });
+
+    await expect(fixture.core.process(fixture.request)).rejects.toMatchObject({
+      code: 'INVALID_TIME',
+    });
+    expect(authorizations).toBe(2);
+    expect(
+      (await fixture.journal.inspect(fixture.sender.peer.nodeId, fixture.request.message_id)).state,
+    ).toBe('received');
+    expect(fixture.executions()).toBe(0);
   });
 
   it('quarantines handler failure as INDETERMINATE and does not auto-rerun it', async () => {
