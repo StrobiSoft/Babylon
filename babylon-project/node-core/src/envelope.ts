@@ -36,14 +36,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
-function assertString(value: unknown, field: string, min: number, max: number): asserts value is string {
+function assertString(
+  value: unknown,
+  field: string,
+  min: number,
+  max: number,
+): asserts value is string {
   if (typeof value !== 'string' || value.length < min || value.length > max) {
     throw new TypeError(`invalid ${field}`);
   }
 }
 
 function assertUtcTimestamp(value: unknown, field: string): asserts value is string {
-  if (typeof value !== 'string' || !value.endsWith('Z') || !Number.isFinite(Date.parse(value))) {
+  if (
+    typeof value !== 'string' ||
+    !value.endsWith('Z') ||
+    !Number.isFinite(Date.parse(value))
+  ) {
     throw new TypeError(`invalid ${field}`);
   }
 }
