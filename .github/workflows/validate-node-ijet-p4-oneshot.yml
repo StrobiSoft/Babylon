@@ -1,0 +1,33 @@
+name: validate-node-ijet-p4-oneshot
+
+on:
+  pull_request:
+    paths:
+      - 'ops/node-ijet-p4/run-node-ijet-p4-once.sh'
+      - 'ops/node-ijet-p4/README.md'
+      - '.github/workflows/validate-node-ijet-p4-oneshot.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-oneshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n ops/node-ijet-p4/run-node-ijet-p4-once.sh
+      - name: Security and scope invariants
+        run: |
+          set -euo pipefail
+          P=ops/node-ijet-p4/run-node-ijet-p4-once.sh
+          grep -F 'ROOT=/home/noemi-codex/workspace/ct105-agent-platform' "$P"
+          grep -F 'NODE_IJET_P4=PASS' "$P"
+          grep -F 'historical_benchmark_evidence_changed' "$P"
+          grep -F 'npm run check:test' "$P"
+          grep -F 'npm test' "$P"
+          grep -F -- '--runs 5' "$P"
+          grep -F 'maintenance_surface_restored=PASS' "$P"
+          grep -F 'cp -a -- "$STAGE/maint.py.pre" "$MAINT"' "$P"
+          grep -F 'cp -a -- "$STAGE/dispatch.pre" "$DISPATCH"' "$P"
+          ! grep -E 'curl|wget|ssh |scp |nc |socat|eval ' "$P"
