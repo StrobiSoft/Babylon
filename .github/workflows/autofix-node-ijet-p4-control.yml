@@ -1,0 +1,55 @@
+name: autofix-node-ijet-p4-control
+
+on:
+  pull_request:
+    paths:
+      - 'ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh'
+      - '.github/workflows/autofix-node-ijet-p4-control.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-delimiter:
+    if: github.head_ref == 'ops/node-ijet-p4-layout-fix-20260912'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/node-ijet-p4-layout-fix-20260912
+          fetch-depth: 0
+
+      - name: Replace conflicting nested Python delimiter
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh')
+          text = path.read_text(encoding='utf-8')
+          opener = "case = r'''  node-ijet-p4-layout-fix)"
+          closer = "\n'''\n\nmarker = \"  node-ijet-p4-layout-fix)\""
+
+          if opener not in text and 'case = r\"\"\"  node-ijet-p4-layout-fix)' in text:
+              raise SystemExit(0)
+          if text.count(opener) != 1 or text.count(closer) != 1:
+              raise SystemExit('reviewed delimiter preimage missing or ambiguous')
+
+          text = text.replace(opener, 'case = r\"\"\"  node-ijet-p4-layout-fix)', 1)
+          text = text.replace(closer, '\n\"\"\"\n\nmarker = \"  node-ijet-p4-layout-fix)\"', 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          bash -n ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh
+
+      - name: Commit reviewed delimiter fix
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh; then
+            exit 0
+          fi
+          git config user.name 'StrobiSoft CI'
+          git config user.email 'strobisoft-ci@users.noreply.github.com'
+          git add ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh
+          git commit -m 'fix: avoid nested Python delimiter collision'
+          git push origin HEAD:ops/node-ijet-p4-layout-fix-20260912
