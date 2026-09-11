@@ -6,4 +6,6 @@ This directory is not Babylon product code and is not intended to become a long-
 
 The companion GitHub Actions workflow builds an isolated mock CT105/NOEMI-MAINT fixture and verifies installer syntax, allowlist/dispatcher insertion, end-to-end layout repair, argument rejection, clean postconditions, and installer idempotency.
 
+Validation is intentionally exercised on every reviewed control change before any CT105 activation.
+
 After the real CT105 repair and P4 validation are complete, this temporary delivery branch/PR should be closed without merging into Babylon main.
