@@ -1,10 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Install one no-argument, fixed-target NOEMI-MAINT action that performs only
-# the NODE IJET P4 benchmark-layout migration repair inside the CT105-local
-# ct105-agent-platform repository. The action is intentionally narrow and
-# fail-closed; it does not grant arbitrary shell or broader source mutation.
+# Installs one no-argument, fixed-target NOEMI-MAINT action for the NODE IJET
+# P4 benchmark-layout migration repair inside the CT105-local agent-platform
+# repository. The action is intentionally narrow and fail-closed.
 
 MAINT=/opt/noemi-maint/maint.py
 DISPATCH=/usr/local/sbin/noemi-babylon-bench-dispatch
@@ -52,14 +51,17 @@ path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
 action = '    "node-ijet-p4-layout-fix",\n'
 if action not in text:
-    anchors = (
+    anchor = None
+    for candidate in (
         '    "babylon-bench-control-sync",\n',
         '    "sandbox-smoke",\n',
-    )
-    matches = [anchor for anchor in anchors if text.count(anchor) == 1]
-    if len(matches) != 1:
+    ):
+        if text.count(candidate) == 1:
+            anchor = candidate
+            break
+    if anchor is None:
         raise SystemExit("maint allowlist anchor missing or ambiguous")
-    text = text.replace(matches[0], action + matches[0], 1)
+    text = text.replace(anchor, action + anchor, 1)
 if text.count(action) != 1:
     raise SystemExit("maint allowlist action missing or duplicated")
 path.write_text(text, encoding="utf-8")
@@ -78,28 +80,28 @@ case = r'''  node-ijet-p4-layout-fix)
       exit 80
     fi
 
-    runuser -u noemi-codex -- bash -lc '
-      set -euo pipefail
+    runuser -u noemi-codex -- /bin/bash <<'NODEIJETP4'
+set -euo pipefail
 
-      R=/home/noemi-codex/workspace/ct105-agent-platform
-      M=$R/node-ijet
-      P=$M/benchmarks/benchmark.mjs
-      D=$M/benchmarks/README.md
+R=/home/noemi-codex/workspace/ct105-agent-platform
+M=$R/node-ijet
+P=$M/benchmarks/benchmark.mjs
+D=$M/benchmarks/README.md
 
-      block() {
-        echo NODE_IJET_P4_LAYOUT_FIX=BLOCKED
-        echo "reason=$1"
-        exit 81
-      }
+block() {
+  echo NODE_IJET_P4_LAYOUT_FIX=BLOCKED
+  echo "reason=$1"
+  exit 81
+}
 
-      test -d "$R/.git" && test ! -L "$R" || block invalid_target_repository
-      test -f "$P" && test ! -L "$P" || block invalid_benchmark_path
-      test -f "$D" && test ! -L "$D" || block invalid_benchmark_readme_path
-      test "$(git -C "$R" symbolic-ref --quiet --short HEAD)" = main || block unexpected_branch
-      test "$(git -C "$R" rev-parse --short=7 HEAD)" = c593935 || block unexpected_head
-      test -z "$(git -C "$R" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
+test -d "$R/.git" && test ! -L "$R" || block invalid_target_repository
+test -f "$P" && test ! -L "$P" || block invalid_benchmark_path
+test -f "$D" && test ! -L "$D" || block invalid_benchmark_readme_path
+test "$(git -C "$R" symbolic-ref --quiet --short HEAD)" = main || block unexpected_branch
+test "$(git -C "$R" rev-parse --short=7 HEAD)" = c593935 || block unexpected_head
+test -z "$(git -C "$R" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
 
-      python3 - "$P" "$D" <<'PYFIX'
+python3 - "$P" "$D" <<'PYFIX'
 from pathlib import Path
 import sys
 
@@ -107,7 +109,6 @@ bench = Path(sys.argv[1])
 readme = Path(sys.argv[2])
 
 b = bench.read_text(encoding="utf-8")
-
 replacements = [
     (
         'const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "../..");',
@@ -122,11 +123,10 @@ replacements = [
         '  git("cat-file", "-e", `${target}^{commit}`);\n  git("diff", "--exit-code", target, "--", "node-ijet");\n  const targetTree = git("rev-parse", `${target}:node-ijet`);',
     ),
 ]
-
 for old, new in replacements:
     count = b.count(old)
     if count != 1:
-        raise SystemExit(f"benchmark preimage mismatch for reviewed replacement: {old[:80]!r}; count={count}")
+        raise SystemExit(f"benchmark preimage mismatch: {old[:80]!r}; count={count}")
     b = b.replace(old, new, 1)
 
 for forbidden in (
@@ -137,19 +137,16 @@ for forbidden in (
     if forbidden in b:
         raise SystemExit(f"Babylon layout dependency remains in benchmark harness: {forbidden}")
 
-required = (
-    'import {',
+for required in (
     '} from "../dist/index.js";',
     'const MODULE_ROOT = resolve(dirname(SCRIPT_PATH), "..");',
     'const REPO_ROOT = resolve(MODULE_ROOT, "..");',
     'resolve(MODULE_ROOT, "benchmarks/results/raw.json")',
     'git("diff", "--exit-code", target, "--", "node-ijet")',
     'git("rev-parse", `${target}:node-ijet`)',
-)
-for needle in required:
-    if needle not in b:
-        raise SystemExit(f"benchmark postcondition missing: {needle}")
-
+):
+    if required not in b:
+        raise SystemExit(f"benchmark postcondition missing: {required}")
 bench.write_text(b, encoding="utf-8")
 
 r = readme.read_text(encoding="utf-8")
@@ -182,7 +179,7 @@ taskset -c 2 node benchmarks/node-core/benchmark.mjs \\
 ```'''
 new_run = '''```sh
 cd node-ijet
-npm ci --ignore-scripts
+npm install --ignore-scripts --no-audit --no-fund --package-lock=false
 npm run test
 npm run check
 npm run check:test
@@ -199,49 +196,49 @@ r = r.replace(old_run, new_run, 1)
 for forbidden in ("babylon-project/node-core", "benchmarks/node-core/benchmark.mjs"):
     if forbidden in r:
         raise SystemExit(f"Babylon layout dependency remains in benchmark README: {forbidden}")
-
 readme.write_text(r, encoding="utf-8")
 PYFIX
 
-      node --check "$P" || block benchmark_syntax_check_failed
+node --check "$P" || block benchmark_syntax_check_failed
 
-      changed=$(git -C "$R" status --porcelain=v1 --untracked-files=all)
-      expected1=" M node-ijet/benchmarks/README.md"
-      expected2=" M node-ijet/benchmarks/benchmark.mjs"
-      printf "%s\n" "$changed" | grep -Fx "$expected1" >/dev/null || block unexpected_change_set
-      printf "%s\n" "$changed" | grep -Fx "$expected2" >/dev/null || block unexpected_change_set
-      test "$(printf "%s\n" "$changed" | wc -l)" -eq 2 || block unexpected_change_count
+changed=$(git -C "$R" status --porcelain=v1 --untracked-files=all)
+expected1=" M node-ijet/benchmarks/README.md"
+expected2=" M node-ijet/benchmarks/benchmark.mjs"
+printf "%s\n" "$changed" | grep -Fx "$expected1" >/dev/null || block unexpected_change_set
+printf "%s\n" "$changed" | grep -Fx "$expected2" >/dev/null || block unexpected_change_set
+test "$(printf "%s\n" "$changed" | wc -l)" -eq 2 || block unexpected_change_count
 
-      git -C "$R" diff --check || block diff_check_failed
-      git -C "$R" diff -- node-ijet/benchmarks/README.md node-ijet/benchmarks/benchmark.mjs
+git -C "$R" diff --check || block diff_check_failed
+git -C "$R" add -- node-ijet/benchmarks/README.md node-ijet/benchmarks/benchmark.mjs
+git -C "$R" commit \
+  -m "fix(node-ijet): adapt benchmark harness to CT105 layout" \
+  -m "Migration-only P4 correction; benchmark scenarios and measurement semantics unchanged."
 
-      git -C "$R" add -- node-ijet/benchmarks/README.md node-ijet/benchmarks/benchmark.mjs
-      git -C "$R" commit \
-        -m "fix(node-ijet): adapt benchmark harness to CT105 layout" \
-        -m "Migration-only P4 correction; benchmark scenarios and measurement semantics unchanged."
+test -z "$(git -C "$R" status --porcelain=v1 --untracked-files=all)" || block postcondition_worktree_dirty
 
-      test -z "$(git -C "$R" status --porcelain=v1 --untracked-files=all)" || block postcondition_worktree_dirty
-
-      echo NODE_IJET_P4_LAYOUT_FIX=PASS
-      echo "head=$(git -C "$R" rev-parse HEAD)"
-      echo "subject=$(git -C "$R" log -1 --format=%s)"
-      echo "files=node-ijet/benchmarks/README.md,node-ijet/benchmarks/benchmark.mjs"
-    '
+echo NODE_IJET_P4_LAYOUT_FIX=PASS
+echo "head=$(git -C "$R" rev-parse HEAD)"
+echo "subject=$(git -C "$R" log -1 --format=%s)"
+echo "files=node-ijet/benchmarks/README.md,node-ijet/benchmarks/benchmark.mjs"
+NODEIJETP4
     ;;
 
 '''
 
-anchor_candidates = (
-    "  babylon-bench-control-sync)\n",
-    "  bridge-status)\n",
-)
-case_marker = "  node-ijet-p4-layout-fix)"
-if case_marker not in text:
-    matches = [a for a in anchor_candidates if text.count(a) == 1]
-    if len(matches) != 1:
+marker = "  node-ijet-p4-layout-fix)"
+if marker not in text:
+    anchor = None
+    for candidate in (
+        "  babylon-bench-control-sync)\n",
+        "  bridge-status)\n",
+    ):
+        if text.count(candidate) == 1:
+            anchor = candidate
+            break
+    if anchor is None:
         raise SystemExit("dispatcher insertion anchor missing or ambiguous")
-    text = text.replace(matches[0], case + matches[0], 1)
-elif text.count(case_marker) != 1:
+    text = text.replace(anchor, case + anchor, 1)
+elif text.count(marker) != 1:
     raise SystemExit("dispatcher action duplicated")
 
 path.write_text(text, encoding="utf-8")
