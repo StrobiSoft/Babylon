@@ -73,7 +73,7 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-case = r'''  node-ijet-p4-layout-fix)
+case = r"""  node-ijet-p4-layout-fix)
     if [ "$#" -ne 1 ]; then
       echo NODE_IJET_P4_LAYOUT_FIX=BLOCKED
       echo reason=arguments_not_allowed
@@ -226,7 +226,7 @@ echo "files=node-ijet/benchmarks/README.md,node-ijet/benchmarks/benchmark.mjs"
 NODEIJETP4
     ;;
 
-'''
+"""
 
 marker = "  node-ijet-p4-layout-fix)"
 if marker not in text:
