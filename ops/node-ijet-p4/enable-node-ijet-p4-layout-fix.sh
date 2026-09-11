@@ -98,8 +98,11 @@ test -d "$R/.git" && test ! -L "$R" || block invalid_target_repository
 test -f "$P" && test ! -L "$P" || block invalid_benchmark_path
 test -f "$D" && test ! -L "$D" || block invalid_benchmark_readme_path
 test "$(git -C "$R" symbolic-ref --quiet --short HEAD)" = main || block unexpected_branch
-test "$(git -C "$R" rev-parse --short=7 HEAD)" = c593935 || block unexpected_head
 test -z "$(git -C "$R" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
+
+expected_lineage=$'migrate(node-ijet): import Babylon PR #64 command journal\nmigrate(node-ijet): preserve Babylon PR #63 benchmark evidence\nmigrate(node-ijet): reconcile Babylon PR #62 hardening\nmigrate(node-ijet): import Babylon PR #60 baseline\nchore: establish authoritative CT105 agent-platform repository'
+actual_lineage=$(git -C "$R" log -5 --format=%s)
+test "$actual_lineage" = "$expected_lineage" || block unexpected_migration_lineage
 
 python3 - "$P" "$D" <<'PYFIX'
 from pathlib import Path
