@@ -11,7 +11,7 @@ INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 INSTALLER=$INSTALLER_DIR/enable-node-ijet-p4-layout-fix.sh
 MAINT=/usr/local/sbin/noemi-maint
 DISPATCH=/usr/local/sbin/noemi-babylon-bench-dispatch
-HISTORICAL_SUMS=$'d0241ac3015f65e3710ec48d98f4845130dd999dc1f77d9315436b1a62437bfb  raw.json\n9d60a2b36941c88df2811f1476e1ccda75c8de3f49e5bb822134548998b8d9d6  SUMMARY.md\n04bb71304c48d7620eabca79f3097233f3a72e2c98190a68643745a4432447df  REPORT.md'
+HISTORICAL_SUMS=$'d0241ac348c484dd0266620721d0dfdb844280f820d761f11acb442ac8da3d6a  raw.json\n9d60a2b9da0da4453a210c2ab4da2dc7fabe023625bdbbb6111952500255e77c  SUMMARY.md\n04bb71353d14b83932ee82ceb96f769ba64edbb90deaabead72d8635b5ad5655  REPORT.md'
 
 if [[ $EUID -ne 0 || $# -ne 0 ]]; then
   echo NODE_IJET_P4_ONESHOT=BLOCKED
