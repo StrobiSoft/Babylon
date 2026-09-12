@@ -5,9 +5,10 @@ set -euo pipefail
 # P4 benchmark-layout migration repair inside the CT105-local agent-platform
 # repository. The action is intentionally narrow and fail-closed.
 
-MAINT=/opt/noemi-maint/maint.py
+MAINT=/usr/local/sbin/noemi-maint
 DISPATCH=/usr/local/sbin/noemi-babylon-bench-dispatch
 ACTION=node-ijet-p4-layout-fix
+MARKER=NOEMI_NODE_IJET_P4_WRAPPER_V2
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 
 if [[ $EUID -ne 0 || $# -ne 0 ]]; then
@@ -40,32 +41,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -a -- "$MAINT" "$STAGE/maint.py"
+cp -a -- "$MAINT" "$STAGE/maint"
 cp -a -- "$DISPATCH" "$STAGE/dispatch"
-
-python3 - "$STAGE/maint.py" <<'PY'
-from pathlib import Path
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-action = '    "node-ijet-p4-layout-fix",\n'
-if action not in text:
-    anchor = None
-    for candidate in (
-        '    "babylon-bench-control-sync",\n',
-        '    "sandbox-smoke",\n',
-    ):
-        if text.count(candidate) == 1:
-            anchor = candidate
-            break
-    if anchor is None:
-        raise SystemExit("maint allowlist anchor missing or ambiguous")
-    text = text.replace(anchor, action + anchor, 1)
-if text.count(action) != 1:
-    raise SystemExit("maint allowlist action missing or duplicated")
-path.write_text(text, encoding="utf-8")
-PY
 
 python3 - "$STAGE/dispatch" <<'PY'
 from pathlib import Path
@@ -247,12 +224,42 @@ elif text.count(marker) != 1:
 path.write_text(text, encoding="utf-8")
 PY
 
-python3 -m py_compile "$STAGE/maint.py"
 bash -n "$STAGE/dispatch"
-grep -Fq '"node-ijet-p4-layout-fix"' "$STAGE/maint.py"
 grep -Fq '  node-ijet-p4-layout-fix)' "$STAGE/dispatch"
 
-if cmp -s "$STAGE/maint.py" "$MAINT" && cmp -s "$STAGE/dispatch" "$DISPATCH"; then
+if grep -Fq "$MARKER" "$STAGE/maint"; then
+  grep -Fq 'node-ijet-p4-layout-fix)' "$STAGE/maint" || {
+    echo NODE_IJET_P4_ACTION_INSTALL=BLOCKED
+    echo reason=maint_wrapper_marker_without_action
+    exit 83
+  }
+else
+  cp -a -- "$STAGE/maint" "$STAGE/maint.previous"
+  cat > "$STAGE/maint" <<EOF
+#!/bin/bash
+set -euo pipefail
+# $MARKER
+PREVIOUS_RUNNER="$BACKUP_MAINT"
+case "\${1:-}" in
+  node-ijet-p4-layout-fix)
+    if [ "\$#" -ne 1 ]; then
+      echo "ERROR: action arguments not allowed: node-ijet-p4-layout-fix" >&2
+      exit 65
+    fi
+    exec "$DISPATCH" "\$@"
+    ;;
+  *)
+    exec "\$PREVIOUS_RUNNER" "\$@"
+    ;;
+esac
+EOF
+fi
+
+bash -n "$STAGE/maint"
+grep -Fq "$MARKER" "$STAGE/maint"
+grep -Fq 'node-ijet-p4-layout-fix)' "$STAGE/maint"
+
+if cmp -s "$STAGE/maint" "$MAINT" && cmp -s "$STAGE/dispatch" "$DISPATCH"; then
   COMMITTED=1
   echo NODE_IJET_P4_ACTION_INSTALL=PASS
   echo state=already_installed
@@ -268,12 +275,12 @@ fi
 cp -a -- "$MAINT" "$BACKUP_MAINT"
 cp -a -- "$DISPATCH" "$BACKUP_DISPATCH"
 
-install -o root -g root -m 0755 "$STAGE/maint.py" "$MAINT.next-node-ijet-p4"
 install -o root -g root -m 0755 "$STAGE/dispatch" "$DISPATCH.next-node-ijet-p4"
-mv -f -- "$MAINT.next-node-ijet-p4" "$MAINT"
+install -o root -g root -m 0755 "$STAGE/maint" "$MAINT.next-node-ijet-p4"
 mv -f -- "$DISPATCH.next-node-ijet-p4" "$DISPATCH"
+mv -f -- "$MAINT.next-node-ijet-p4" "$MAINT"
 
-python3 -m py_compile "$MAINT"
+bash -n "$MAINT"
 bash -n "$DISPATCH"
 COMMITTED=1
 
