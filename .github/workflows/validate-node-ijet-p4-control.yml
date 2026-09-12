@@ -1,0 +1,196 @@
+name: validate-node-ijet-p4-control
+
+on:
+  pull_request:
+    paths:
+      - 'ops/node-ijet-p4/**'
+      - '.github/workflows/validate-node-ijet-p4-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Syntax-check control scripts
+        run: |
+          bash -n ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh
+          bash -n ops/node-ijet-p4/run-node-ijet-p4-once.sh
+
+      - name: Build isolated CT105 fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo useradd -m -s /bin/bash noemi-codex
+
+          cat > /tmp/noemi-maint <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          case "${1:-}" in
+            status)
+              echo NOEMI_MAINT_STATUS=OK
+              ;;
+            *)
+              echo "ERROR: action not allowlisted: ${1:-}" >&2
+              exit 65
+              ;;
+          esac
+          SH
+
+          cat > /tmp/dispatch <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          case "${1:-}" in
+            bridge-status)
+              echo BRIDGE_STATUS=PASS
+              ;;
+            *)
+              echo UNKNOWN_ACTION
+              exit 65
+              ;;
+          esac
+          SH
+
+          sudo install -o root -g root -m 0755 /tmp/noemi-maint /usr/local/sbin/noemi-maint
+          sudo install -o root -g root -m 0755 /tmp/dispatch /usr/local/sbin/noemi-babylon-bench-dispatch
+
+          R=/home/noemi-codex/workspace/ct105-agent-platform
+          sudo -u noemi-codex mkdir -p "$R/node-ijet/benchmarks"
+          sudo -u noemi-codex git -C /home/noemi-codex/workspace init -b main ct105-agent-platform
+          sudo -u noemi-codex git -C "$R" config user.name 'Noemi Codex workspace'
+          sudo -u noemi-codex git -C "$R" config user.email 'noemi-codex@noemi.strobel.hu'
+
+          sudo -u noemi-codex bash -c "printf '%s\n' 'CT105 agent-platform fixture' > '$R/README.md'"
+          sudo -u noemi-codex git -C "$R" add README.md
+          sudo -u noemi-codex git -C "$R" commit -m 'chore: establish authoritative CT105 agent-platform repository'
+
+          sudo -u noemi-codex bash -c "printf '%s\n' baseline > '$R/node-ijet/baseline.txt'"
+          sudo -u noemi-codex git -C "$R" add node-ijet/baseline.txt
+          sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): import Babylon PR #60 baseline'
+
+          sudo -u noemi-codex bash -c "printf '%s\n' hardening > '$R/node-ijet/hardening.txt'"
+          sudo -u noemi-codex git -C "$R" add node-ijet/hardening.txt
+          sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): reconcile Babylon PR #62 hardening'
+
+          sudo -u noemi-codex bash -c "cat > '$R/node-ijet/benchmarks/benchmark.mjs'" <<'EOF'
+          import { execFileSync } from "node:child_process";
+          import { dirname, resolve } from "node:path";
+          import { fileURLToPath } from "node:url";
+          import {
+          } from "../dist/index.js";
+
+          const SCRIPT_PATH = fileURLToPath(import.meta.url);
+          const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "../..");
+
+          function git(...args) {
+            return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+          }
+
+          async function coordinator(values) {
+            const target = values.get("target");
+            const output = resolve(
+              REPO_ROOT,
+              values.get("output") ?? "benchmarks/node-core/results/raw.json",
+            );
+
+            git("diff", "--exit-code", target, "--", "babylon-project/node-core");
+            const targetTree = git("rev-parse", `${target}^{tree}`);
+            process.stdout.write(`${output}:${targetTree}\n`);
+          }
+
+          const values = new Map([["target", "0000000000000000000000000000000000000000"]]);
+          if (process.env.NODE_IJET_FIXTURE_RUN === "1") await coordinator(values);
+          EOF
+
+          sudo -u noemi-codex bash -c "cat > '$R/node-ijet/benchmarks/README.md'" <<'EOF'
+          # NODE IJET Node Core microbenchmark
+
+          This is an isolated, transport-neutral microbenchmark harness for Node Core. It opens no listener
+          or socket and does not connect to Bridge, NOEMI, CT105, VM103, or any deployment surface.
+
+          The harness imports the compiled product code from `babylon-project/node-core/dist`. It must be run
+          from a clean checkout whose target product tree is the requested commit. The runner refuses to
+          start if `babylon-project/node-core` differs from `TARGET_SHA`.
+
+          ## Run
+
+          Requires Node.js 24 and dependencies installed from the repository lockfile.
+
+          ```sh
+          cd babylon-project
+          npm ci --ignore-scripts
+          npm run test:node-core
+          npm run check
+          npm run build
+          cd ..
+          taskset -c 2 node benchmarks/node-core/benchmark.mjs \
+            --target 76ad3817faad24b6425668f9bb4fe9e4d3dac1d5 \
+            --runs 5 --warmup-ms 1500 --throughput-ms 2500 --samples 20000 \
+            --output benchmarks/node-core/results/raw.json
+          ```
+          EOF
+
+          sudo -u noemi-codex git -C "$R" add node-ijet/benchmarks
+          sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): preserve Babylon PR #63 benchmark evidence'
+
+          sudo -u noemi-codex bash -c "printf '%s\n' 'command journal' > '$R/node-ijet/command-journal.txt'"
+          sudo -u noemi-codex git -C "$R" add node-ijet/command-journal.txt
+          sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): import Babylon PR #64 command journal'
+
+          test -z "$(sudo -u noemi-codex git -C "$R" status --porcelain=v1 --untracked-files=all)"
+
+      - name: Install bounded action through real front door
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo bash ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh | tee /tmp/install.out
+          grep -F 'NODE_IJET_P4_ACTION_INSTALL=PASS' /tmp/install.out
+          bash -n /usr/local/sbin/noemi-maint
+          bash -n /usr/local/sbin/noemi-babylon-bench-dispatch
+          grep -F 'NOEMI_NODE_IJET_P4_WRAPPER_V2' /usr/local/sbin/noemi-maint
+          grep -F 'node-ijet-p4-layout-fix)' /usr/local/sbin/noemi-maint
+          grep -F '  node-ijet-p4-layout-fix)' /usr/local/sbin/noemi-babylon-bench-dispatch
+
+      - name: Execute bounded layout repair through NOEMI-MAINT
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo /usr/local/sbin/noemi-maint node-ijet-p4-layout-fix | tee /tmp/fix.out
+          grep -F 'NODE_IJET_P4_LAYOUT_FIX=PASS' /tmp/fix.out
+
+          R=/home/noemi-codex/workspace/ct105-agent-platform
+          test "$(sudo -u noemi-codex git -C "$R" log -1 --format=%s)" = 'fix(node-ijet): adapt benchmark harness to CT105 layout'
+          test -z "$(sudo -u noemi-codex git -C "$R" status --porcelain=v1 --untracked-files=all)"
+
+          ! grep -F 'babylon-project/node-core' "$R/node-ijet/benchmarks/benchmark.mjs"
+          ! grep -F 'benchmarks/node-core/results/raw.json' "$R/node-ijet/benchmarks/benchmark.mjs"
+          grep -F 'const MODULE_ROOT = resolve(dirname(SCRIPT_PATH), "..");' "$R/node-ijet/benchmarks/benchmark.mjs"
+          grep -F 'git("diff", "--exit-code", target, "--", "node-ijet")' "$R/node-ijet/benchmarks/benchmark.mjs"
+          grep -F 'resolve(MODULE_ROOT, "benchmarks/results/raw.json")' "$R/node-ijet/benchmarks/benchmark.mjs"
+
+          ! grep -F 'babylon-project/node-core' "$R/node-ijet/benchmarks/README.md"
+          grep -F 'node node-ijet/benchmarks/benchmark.mjs' "$R/node-ijet/benchmarks/README.md"
+
+      - name: Verify denial and historical chain preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          set +e
+          sudo /usr/local/sbin/noemi-maint node-ijet-p4-layout-fix unexpected >/tmp/reject.out 2>&1
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+
+          sudo /usr/local/sbin/noemi-maint status | grep -F 'NOEMI_MAINT_STATUS=OK'
