@@ -113,7 +113,7 @@ p = Path(sys.argv[1])
 s = p.read_text()
 old = "../../docs/bnp/vectors/crypto-replay-v1.json"
 new = "../docs/bnp/vectors/crypto-replay-v1.json"
-if s.count(old) != 1 or new in s:
+if s.count(old) != 1:
     raise SystemExit("unexpected conformance-vector path preimage")
 p.write_text(s.replace(old, new))
 PY
