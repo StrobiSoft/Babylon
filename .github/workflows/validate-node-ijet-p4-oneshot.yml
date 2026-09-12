@@ -28,6 +28,7 @@ jobs:
           grep -F 'npm test' "$P"
           grep -F -- '--runs 5' "$P"
           grep -F 'maintenance_surface_restored=PASS' "$P"
-          grep -F 'cp -a -- "$STAGE/maint.py.pre" "$MAINT"' "$P"
+          grep -F 'cp -a -- "$STAGE/maint-front.pre" "$MAINT_FRONT"' "$P"
           grep -F 'cp -a -- "$STAGE/dispatch.pre" "$DISPATCH"' "$P"
+          grep -F 'MAINT_FRONT=/usr/local/sbin/noemi-maint' "$P"
           ! grep -E 'curl|wget|ssh |scp |nc |socat|eval ' "$P"
