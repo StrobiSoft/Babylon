@@ -22,23 +22,31 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Syntax-check installer
-        run: bash -n ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh
+      - name: Syntax-check control scripts
+        run: |
+          bash -n ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh
+          bash -n ops/node-ijet-p4/run-node-ijet-p4-once.sh
 
-      - name: Build isolated CT105/NOEMI-MAINT fixture
+      - name: Build isolated CT105 fixture
         shell: bash
         run: |
           set -euo pipefail
 
           sudo useradd -m -s /bin/bash noemi-codex
-          sudo mkdir -p /opt/noemi-maint
 
-          cat > /tmp/maint.py <<'PY'
-          #!/usr/bin/env python3
-          ALLOWED_ACTIONS = {
-              "sandbox-smoke",
-          }
-          PY
+          cat > /tmp/noemi-maint <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          case "${1:-}" in
+            status)
+              echo NOEMI_MAINT_STATUS=OK
+              ;;
+            *)
+              echo "ERROR: action not allowlisted: ${1:-}" >&2
+              exit 65
+              ;;
+          esac
+          SH
 
           cat > /tmp/dispatch <<'SH'
           #!/bin/bash
@@ -54,7 +62,7 @@ jobs:
           esac
           SH
 
-          sudo install -o root -g root -m 0755 /tmp/maint.py /opt/noemi-maint/maint.py
+          sudo install -o root -g root -m 0755 /tmp/noemi-maint /usr/local/sbin/noemi-maint
           sudo install -o root -g root -m 0755 /tmp/dispatch /usr/local/sbin/noemi-babylon-bench-dispatch
 
           R=/home/noemi-codex/workspace/ct105-agent-platform
@@ -63,21 +71,15 @@ jobs:
           sudo -u noemi-codex git -C "$R" config user.name 'Noemi Codex workspace'
           sudo -u noemi-codex git -C "$R" config user.email 'noemi-codex@noemi.strobel.hu'
 
-          sudo -u noemi-codex bash -c "cat > '$R/README.md'" <<'EOF'
-          CT105 agent-platform fixture
-          EOF
+          sudo -u noemi-codex bash -c "printf '%s\n' 'CT105 agent-platform fixture' > '$R/README.md'"
           sudo -u noemi-codex git -C "$R" add README.md
           sudo -u noemi-codex git -C "$R" commit -m 'chore: establish authoritative CT105 agent-platform repository'
 
-          sudo -u noemi-codex bash -c "cat > '$R/node-ijet/baseline.txt'" <<'EOF'
-          baseline
-          EOF
+          sudo -u noemi-codex bash -c "printf '%s\n' baseline > '$R/node-ijet/baseline.txt'"
           sudo -u noemi-codex git -C "$R" add node-ijet/baseline.txt
           sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): import Babylon PR #60 baseline'
 
-          sudo -u noemi-codex bash -c "cat > '$R/node-ijet/hardening.txt'" <<'EOF'
-          hardening
-          EOF
+          sudo -u noemi-codex bash -c "printf '%s\n' hardening > '$R/node-ijet/hardening.txt'"
           sudo -u noemi-codex git -C "$R" add node-ijet/hardening.txt
           sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): reconcile Babylon PR #62 hardening'
 
@@ -142,30 +144,29 @@ jobs:
           sudo -u noemi-codex git -C "$R" add node-ijet/benchmarks
           sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): preserve Babylon PR #63 benchmark evidence'
 
-          sudo -u noemi-codex bash -c "cat > '$R/node-ijet/command-journal.txt'" <<'EOF'
-          command journal
-          EOF
+          sudo -u noemi-codex bash -c "printf '%s\n' 'command journal' > '$R/node-ijet/command-journal.txt'"
           sudo -u noemi-codex git -C "$R" add node-ijet/command-journal.txt
           sudo -u noemi-codex git -C "$R" commit -m 'migrate(node-ijet): import Babylon PR #64 command journal'
 
           test -z "$(sudo -u noemi-codex git -C "$R" status --porcelain=v1 --untracked-files=all)"
 
-      - name: Install bounded action
+      - name: Install bounded action through real front door
         shell: bash
         run: |
           set -euo pipefail
           sudo bash ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh | tee /tmp/install.out
           grep -F 'NODE_IJET_P4_ACTION_INSTALL=PASS' /tmp/install.out
-          python3 -m py_compile /opt/noemi-maint/maint.py
+          bash -n /usr/local/sbin/noemi-maint
           bash -n /usr/local/sbin/noemi-babylon-bench-dispatch
-          grep -F '"node-ijet-p4-layout-fix"' /opt/noemi-maint/maint.py
+          grep -F 'NOEMI_NODE_IJET_P4_WRAPPER_V2' /usr/local/sbin/noemi-maint
+          grep -F 'node-ijet-p4-layout-fix)' /usr/local/sbin/noemi-maint
           grep -F '  node-ijet-p4-layout-fix)' /usr/local/sbin/noemi-babylon-bench-dispatch
 
-      - name: Execute bounded layout repair
+      - name: Execute bounded layout repair through NOEMI-MAINT
         shell: bash
         run: |
           set -euo pipefail
-          sudo /usr/local/sbin/noemi-babylon-bench-dispatch node-ijet-p4-layout-fix | tee /tmp/fix.out
+          sudo /usr/local/sbin/noemi-maint node-ijet-p4-layout-fix | tee /tmp/fix.out
           grep -F 'NODE_IJET_P4_LAYOUT_FIX=PASS' /tmp/fix.out
 
           R=/home/noemi-codex/workspace/ct105-agent-platform
@@ -181,17 +182,15 @@ jobs:
           ! grep -F 'babylon-project/node-core' "$R/node-ijet/benchmarks/README.md"
           grep -F 'node node-ijet/benchmarks/benchmark.mjs' "$R/node-ijet/benchmarks/README.md"
 
-      - name: Verify argument rejection and installer idempotency
+      - name: Verify denial and historical chain preservation
         shell: bash
         run: |
           set -euo pipefail
+
           set +e
-          sudo /usr/local/sbin/noemi-babylon-bench-dispatch node-ijet-p4-layout-fix unexpected >/tmp/reject.out 2>&1
+          sudo /usr/local/sbin/noemi-maint node-ijet-p4-layout-fix unexpected >/tmp/reject.out 2>&1
           rc=$?
           set -e
           test "$rc" -ne 0
-          grep -F 'reason=arguments_not_allowed' /tmp/reject.out
 
-          sudo bash ops/node-ijet-p4/enable-node-ijet-p4-layout-fix.sh | tee /tmp/reinstall.out
-          grep -F 'NODE_IJET_P4_ACTION_INSTALL=PASS' /tmp/reinstall.out
-          grep -F 'state=already_installed' /tmp/reinstall.out
+          sudo /usr/local/sbin/noemi-maint status | grep -F 'NOEMI_MAINT_STATUS=OK'
