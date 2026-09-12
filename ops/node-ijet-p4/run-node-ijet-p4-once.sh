@@ -9,7 +9,7 @@ ROOT=/home/noemi-codex/workspace/ct105-agent-platform
 MODULE=$ROOT/node-ijet
 INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 INSTALLER=$INSTALLER_DIR/enable-node-ijet-p4-layout-fix.sh
-MAINT=/opt/noemi-maint/maint.py
+MAINT=/usr/local/sbin/noemi-maint
 DISPATCH=/usr/local/sbin/noemi-babylon-bench-dispatch
 HISTORICAL_SUMS=$'d0241ac3015f65e3710ec48d98f4845130dd999dc1f77d9315436b1a62437bfb  raw.json\n9d60a2b36941c88df2811f1476e1ccda75c8de3f49e5bb822134548998b8d9d6  SUMMARY.md\n04bb71304c48d7620eabca79f3097233f3a72e2c98190a68643745a4432447df  REPORT.md'
 
@@ -28,16 +28,16 @@ for path in "$INSTALLER" "$MAINT" "$DISPATCH"; do
 done
 
 STAGE=$(mktemp -d /tmp/node-ijet-p4-once.XXXXXX)
-cp -a -- "$MAINT" "$STAGE/maint.py.pre"
+cp -a -- "$MAINT" "$STAGE/maint.pre"
 cp -a -- "$DISPATCH" "$STAGE/dispatch.pre"
 RESTORED=0
 
 restore_control_surface() {
   status=$?
   if [[ $RESTORED -eq 0 ]]; then
-    cp -a -- "$STAGE/maint.py.pre" "$MAINT"
+    cp -a -- "$STAGE/maint.pre" "$MAINT"
     cp -a -- "$STAGE/dispatch.pre" "$DISPATCH"
-    python3 -m py_compile "$MAINT" >/dev/null 2>&1 || true
+    bash -n "$MAINT" >/dev/null 2>&1 || true
     bash -n "$DISPATCH" >/dev/null 2>&1 || true
     RESTORED=1
   fi
@@ -61,7 +61,7 @@ echo "=== NODE IJET P4: install temporary bounded action ==="
 bash "$INSTALLER"
 
 echo "=== NODE IJET P4: apply benchmark layout correction ==="
-"$DISPATCH" node-ijet-p4-layout-fix
+"$MAINT" node-ijet-p4-layout-fix
 
 FIX_HEAD=$(runuser -u noemi-codex -- git -C "$ROOT" rev-parse HEAD)
 test "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "fix(node-ijet): adapt benchmark harness to CT105 layout" || block missing_layout_fix_commit
@@ -121,9 +121,9 @@ trap restore_control_surface EXIT
 test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block target_repository_dirty_after_validation
 
 # Restore the original maintenance surface before declaring PASS.
-cp -a -- "$STAGE/maint.py.pre" "$MAINT"
+cp -a -- "$STAGE/maint.pre" "$MAINT"
 cp -a -- "$STAGE/dispatch.pre" "$DISPATCH"
-python3 -m py_compile "$MAINT"
+bash -n "$MAINT"
 bash -n "$DISPATCH"
 RESTORED=1
 
