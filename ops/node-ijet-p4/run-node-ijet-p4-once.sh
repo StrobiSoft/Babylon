@@ -69,9 +69,35 @@ block() {
 
 # Pre-gates before touching either the target repository or maintenance surface.
 test "$(runuser -u noemi-codex -- git -C "$ROOT" symbolic-ref --quiet --short HEAD)" = main || block unexpected_branch
-test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
 runuser -u noemi-codex -- git -C "$SOURCE_REPO" cat-file -e "$SOURCE_COMMIT^{commit}" || block missing_historical_source_commit
 runuser -u noemi-codex -- git -C "$SOURCE_REPO" cat-file -e "$SOURCE_COMMIT:$SOURCE_VECTOR_PATH" || block missing_historical_conformance_vector
+
+# Recover only the exact fail-closed residue left by an interrupted earlier
+# vector migration attempt: one untracked vector with the authoritative bytes,
+# while HEAD is still the layout-fix commit and the test still has its old path.
+recover_interrupted_vector_stage() {
+  local dirty vector_file test_file
+  vector_file=$MODULE/docs/bnp/vectors/crypto-replay-v1.json
+  test_file=$MODULE/tests/conformance-vectors.test.ts
+  dirty=$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)
+  [[ -n "$dirty" ]] || return 0
+
+  if [[ "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "$LAYOUT_FIX_SUBJECT" \
+     && "$dirty" = "?? node-ijet/docs/bnp/vectors/crypto-replay-v1.json" \
+     && -f "$vector_file" \
+     && "$(runuser -u noemi-codex -- git -C "$ROOT" hash-object "$vector_file")" = "$SOURCE_VECTOR_BLOB" ]] \
+     && grep -Fq "../../docs/bnp/vectors/crypto-replay-v1.json" "$test_file"; then
+    echo "=== NODE IJET P4: recover interrupted conformance-vector staging ==="
+    rm -f -- "$vector_file"
+    rmdir --ignore-fail-on-non-empty "$MODULE/docs/bnp/vectors" "$MODULE/docs/bnp" "$MODULE/docs" 2>/dev/null || true
+    return 0
+  fi
+
+  block target_repository_not_clean
+}
+
+recover_interrupted_vector_stage
+test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
 
 action_changed_set() {
   runuser -u noemi-codex -- git -C "$ROOT" diff-tree --no-commit-id --name-only -r HEAD | LC_ALL=C sort
@@ -96,27 +122,33 @@ verify_layout_fix() {
 apply_vector_fix() {
   local test_file=$MODULE/tests/conformance-vectors.test.ts
   local vector_file=$MODULE/docs/bnp/vectors/crypto-replay-v1.json
+  local staged_vector=$STAGE/crypto-replay-v1.json
+  local staged_test=$STAGE/conformance-vectors.test.ts
 
   echo "=== NODE IJET P4: migrate missing conformance vector dependency ==="
   test "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "$LAYOUT_FIX_SUBJECT" || block vector_fix_unexpected_parent
   test ! -e "$vector_file" || block vector_destination_already_exists
   grep -Fq "../../docs/bnp/vectors/crypto-replay-v1.json" "$test_file" || block conformance_test_preimage_missing
 
-  runuser -u noemi-codex -- mkdir -p "$MODULE/docs/bnp/vectors"
-  runuser -u noemi-codex -- bash -lc "git -C '$SOURCE_REPO' show '$SOURCE_COMMIT:$SOURCE_VECTOR_PATH' > '$vector_file'"
-  test "$(runuser -u noemi-codex -- git -C "$ROOT" hash-object "$vector_file")" = "$SOURCE_VECTOR_BLOB" || block conformance_vector_blob_mismatch
+  runuser -u noemi-codex -- bash -lc "git -C '$SOURCE_REPO' show '$SOURCE_COMMIT:$SOURCE_VECTOR_PATH' > '$staged_vector'"
+  test "$(runuser -u noemi-codex -- git -C "$ROOT" hash-object "$staged_vector")" = "$SOURCE_VECTOR_BLOB" || block conformance_vector_blob_mismatch
 
-  runuser -u noemi-codex -- python3 - "$test_file" <<'PY'
+  runuser -u noemi-codex -- python3 - "$test_file" "$staged_test" <<'PY'
 from pathlib import Path
 import sys
-p = Path(sys.argv[1])
-s = p.read_text()
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+s = src.read_text()
 old = "../../docs/bnp/vectors/crypto-replay-v1.json"
 new = "../docs/bnp/vectors/crypto-replay-v1.json"
 if s.count(old) != 1:
     raise SystemExit("unexpected conformance-vector path preimage")
-p.write_text(s.replace(old, new))
+dst.write_text(s.replace(old, new))
 PY
+
+  runuser -u noemi-codex -- mkdir -p "$MODULE/docs/bnp/vectors"
+  install -o noemi-codex -g noemi-codex -m 0644 "$staged_vector" "$vector_file"
+  install -o noemi-codex -g noemi-codex -m 0644 "$staged_test" "$test_file"
 
   runuser -u noemi-codex -- git -C "$ROOT" add \
     node-ijet/tests/conformance-vectors.test.ts \
