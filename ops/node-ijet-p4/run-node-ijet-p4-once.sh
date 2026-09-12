@@ -42,7 +42,12 @@ for repo in "$ROOT" "$SOURCE_REPO"; do
   fi
 done
 
+# Keep root-owned maintenance backups private, and use a separate user-owned
+# staging directory for files that noemi-codex must create or rewrite.
 STAGE=$(mktemp -d /tmp/node-ijet-p4-once.XXXXXX)
+USER_STAGE=$(mktemp -d /tmp/node-ijet-p4-user.XXXXXX)
+chown noemi-codex:noemi-codex "$USER_STAGE"
+chmod 0700 "$USER_STAGE"
 cp -a -- "$MAINT" "$STAGE/maint.pre"
 cp -a -- "$DISPATCH" "$STAGE/dispatch.pre"
 RESTORED=0
@@ -56,7 +61,7 @@ restore_control_surface() {
     bash -n "$DISPATCH" >/dev/null 2>&1 || true
     RESTORED=1
   fi
-  rm -rf -- "$STAGE"
+  rm -rf -- "$USER_STAGE" "$STAGE"
   exit "$status"
 }
 trap restore_control_surface EXIT
@@ -122,8 +127,8 @@ verify_layout_fix() {
 apply_vector_fix() {
   local test_file=$MODULE/tests/conformance-vectors.test.ts
   local vector_file=$MODULE/docs/bnp/vectors/crypto-replay-v1.json
-  local staged_vector=$STAGE/crypto-replay-v1.json
-  local staged_test=$STAGE/conformance-vectors.test.ts
+  local staged_vector=$USER_STAGE/crypto-replay-v1.json
+  local staged_test=$USER_STAGE/conformance-vectors.test.ts
 
   echo "=== NODE IJET P4: migrate missing conformance vector dependency ==="
   test "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "$LAYOUT_FIX_SUBJECT" || block vector_fix_unexpected_parent
@@ -131,7 +136,7 @@ apply_vector_fix() {
   grep -Fq "../../docs/bnp/vectors/crypto-replay-v1.json" "$test_file" || block conformance_test_preimage_missing
 
   runuser -u noemi-codex -- bash -lc "git -C '$SOURCE_REPO' show '$SOURCE_COMMIT:$SOURCE_VECTOR_PATH' > '$staged_vector'"
-  test "$(runuser -u noemi-codex -- git -C "$ROOT" hash-object "$staged_vector")" = "$SOURCE_VECTOR_BLOB" || block conformance_vector_blob_mismatch
+  test "$(runuser -u noemi-codex -- git hash-object "$staged_vector")" = "$SOURCE_VECTOR_BLOB" || block conformance_vector_blob_mismatch
 
   runuser -u noemi-codex -- python3 - "$test_file" "$staged_test" <<'PY'
 from pathlib import Path
@@ -238,7 +243,7 @@ echo "=== NODE IJET P4: complete migrated test suite ==="
 runuser -u noemi-codex -- bash -lc "cd '$MODULE' && npm test"
 
 echo "=== NODE IJET P4: migrated benchmark smoke ==="
-SMOKE=$STAGE/benchmark-smoke
+SMOKE=$USER_STAGE/benchmark-smoke
 mkdir -p "$SMOKE"
 chown noemi-codex:noemi-codex "$SMOKE"
 runuser -u noemi-codex -- node "$MODULE/benchmarks/benchmark.mjs" \
