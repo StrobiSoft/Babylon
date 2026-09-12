@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'ops/node-ijet-p4/run-node-ijet-p4-once.sh'
+      - 'ops/node-ijet-p4/repair-node-ijet-p4-benchmark-durable.sh'
+      - 'ops/node-ijet-p4/resume-node-ijet-p4-after-vector.sh'
       - 'ops/node-ijet-p4/README.md'
       - '.github/workflows/validate-node-ijet-p4-oneshot.yml'
 
@@ -16,11 +18,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shell syntax
-        run: bash -n ops/node-ijet-p4/run-node-ijet-p4-once.sh
+        run: |
+          bash -n ops/node-ijet-p4/run-node-ijet-p4-once.sh
+          bash -n ops/node-ijet-p4/repair-node-ijet-p4-benchmark-durable.sh
+          bash -n ops/node-ijet-p4/resume-node-ijet-p4-after-vector.sh
       - name: Security and scope invariants
         run: |
           set -euo pipefail
           P=ops/node-ijet-p4/run-node-ijet-p4-once.sh
+          H=ops/node-ijet-p4/repair-node-ijet-p4-benchmark-durable.sh
+          R=ops/node-ijet-p4/resume-node-ijet-p4-after-vector.sh
+
           grep -F 'ROOT=/home/noemi-codex/workspace/ct105-agent-platform' "$P"
           grep -F 'SOURCE_REPO=/home/noemi-codex/workspace/babylon-project' "$P"
           grep -F 'SOURCE_COMMIT=803408b33905d96d3022310b21c1cee9edc0cdea' "$P"
@@ -39,4 +47,21 @@ jobs:
           grep -F 'cp -a -- "$STAGE/maint.pre" "$MAINT"' "$P"
           grep -F 'cp -a -- "$STAGE/dispatch.pre" "$DISPATCH"' "$P"
           grep -F '"$MAINT" node-ijet-p4-layout-fix' "$P"
-          ! grep -E 'curl|wget|ssh |scp |nc |socat|eval ' "$P"
+
+          grep -F "SUBJECT='fix(node-ijet): adapt benchmark harness to durable command journal'" "$H"
+          grep -F 'class BenchmarkCommandJournal' "$H"
+          grep -F 'commandExecutionPolicy,' "$H"
+          grep -F 'NODE_IJET_P4_BENCHMARK_FIX=PASS' "$H"
+          grep -F 'must_not_run_as_root' "$H"
+
+          grep -F 'CONTROL_REF=origin/ops/node-ijet-p4-layout-fix-20260912' "$R"
+          grep -F 'repair-node-ijet-p4-benchmark-durable.sh' "$R"
+          grep -F 'NODE_IJET_P4=PASS' "$R"
+          grep -F 'historical_benchmark_evidence_changed' "$R"
+          grep -F 'npm run check:test' "$R"
+          grep -F 'npm test' "$R"
+          grep -F -- '--runs 5' "$R"
+          grep -F 'preexisting_node_modules' "$R"
+          grep -F 'preexisting_dist' "$R"
+
+          ! grep -E 'curl|wget|ssh |scp |nc |socat|eval ' "$P" "$H" "$R"
