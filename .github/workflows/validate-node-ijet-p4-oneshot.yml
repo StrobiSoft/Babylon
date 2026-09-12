@@ -22,11 +22,18 @@ jobs:
           set -euo pipefail
           P=ops/node-ijet-p4/run-node-ijet-p4-once.sh
           grep -F 'ROOT=/home/noemi-codex/workspace/ct105-agent-platform' "$P"
+          grep -F 'SOURCE_REPO=/home/noemi-codex/workspace/babylon-project' "$P"
+          grep -F 'SOURCE_COMMIT=803408b33905d96d3022310b21c1cee9edc0cdea' "$P"
+          grep -F 'SOURCE_VECTOR_BLOB=c594645331da89e323581c24117c348b8af72ab3' "$P"
+          grep -F "VECTOR_FIX_SUBJECT='fix(node-ijet): migrate conformance vector dependency'" "$P"
+          grep -F 'node-ijet/docs/bnp/vectors/crypto-replay-v1.json' "$P"
           grep -F 'NODE_IJET_P4=PASS' "$P"
           grep -F 'historical_benchmark_evidence_changed' "$P"
           grep -F 'npm run check:test' "$P"
           grep -F 'npm test' "$P"
           grep -F -- '--runs 5' "$P"
+          grep -F 'preexisting_node_modules' "$P"
+          grep -F 'preexisting_dist' "$P"
           grep -F 'maintenance_surface_restored=PASS' "$P"
           grep -F 'MAINT=/usr/local/sbin/noemi-maint' "$P"
           grep -F 'cp -a -- "$STAGE/maint.pre" "$MAINT"' "$P"
