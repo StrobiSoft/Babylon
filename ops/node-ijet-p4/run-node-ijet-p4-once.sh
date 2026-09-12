@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# One-shot CT105 root runner. It temporarily installs the bounded maintenance
-# action, applies the migration-only benchmark layout correction, performs the
-# P4 local execution gates, and restores the pre-existing maintenance surface.
+# One-shot CT105 root runner. It applies the migration-only benchmark layout
+# correction when still needed, performs the P4 local execution gates, and
+# restores any temporary maintenance-surface change before exit.
 
 ROOT=/home/noemi-codex/workspace/ct105-agent-platform
 MODULE=$ROOT/node-ijet
@@ -11,6 +11,8 @@ INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 INSTALLER=$INSTALLER_DIR/enable-node-ijet-p4-layout-fix.sh
 MAINT=/usr/local/sbin/noemi-maint
 DISPATCH=/usr/local/sbin/noemi-babylon-bench-dispatch
+FIX_SUBJECT='fix(node-ijet): adapt benchmark harness to CT105 layout'
+P3_HEAD_SUBJECT='migrate(node-ijet): import Babylon PR #64 command journal'
 HISTORICAL_SUMS=$'d0241ac348c484dd0266620721d0dfdb844280f820d761f11acb442ac8da3d6a  raw.json\n9d60a2b9da0da4453a210c2ab4da2dc7fabe023625bdbbb6111952500255e77c  SUMMARY.md\n04bb71353d14b83932ee82ceb96f769ba64edbb90deaabead72d8635b5ad5655  REPORT.md'
 
 if [[ $EUID -ne 0 || $# -ne 0 ]]; then
@@ -57,15 +59,40 @@ test -d "$ROOT/.git" && test ! -L "$ROOT" || block invalid_target_repository
 test "$(runuser -u noemi-codex -- git -C "$ROOT" symbolic-ref --quiet --short HEAD)" = main || block unexpected_branch
 test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
 
-echo "=== NODE IJET P4: install temporary bounded action ==="
-bash "$INSTALLER"
+verify_layout_fix() {
+  local changed
+  test "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "$FIX_SUBJECT" || block missing_layout_fix_commit
+  test "$(runuser -u noemi-codex -- git -C "$ROOT" log -2 --format=%s | tail -1)" = "$P3_HEAD_SUBJECT" || block unexpected_layout_fix_parent
+  changed=$(runuser -u noemi-codex -- git -C "$ROOT" diff-tree --no-commit-id --name-only -r HEAD | sort)
+  test "$changed" = $'node-ijet/benchmarks/README.md\nnode-ijet/benchmarks/benchmark.mjs' || block unexpected_layout_fix_change_set
+  grep -Fq 'const MODULE_ROOT = resolve(dirname(SCRIPT_PATH), "..");' "$MODULE/benchmarks/benchmark.mjs" || block layout_fix_postcondition_missing
+  grep -Fq 'git("diff", "--exit-code", target, "--", "node-ijet")' "$MODULE/benchmarks/benchmark.mjs" || block layout_fix_postcondition_missing
+  grep -Fq 'resolve(MODULE_ROOT, "benchmarks/results/raw.json")' "$MODULE/benchmarks/benchmark.mjs" || block layout_fix_postcondition_missing
+  if grep -Fq 'babylon-project/node-core' "$MODULE/benchmarks/benchmark.mjs"; then
+    block layout_fix_forbidden_dependency_present
+  fi
+  test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block dirty_after_layout_fix
+}
 
-echo "=== NODE IJET P4: apply benchmark layout correction ==="
-"$MAINT" node-ijet-p4-layout-fix
+CURRENT_SUBJECT=$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)
+case "$CURRENT_SUBJECT" in
+  "$FIX_SUBJECT")
+    echo "=== NODE IJET P4: layout correction already present; verify and resume ==="
+    verify_layout_fix
+    ;;
+  "$P3_HEAD_SUBJECT")
+    echo "=== NODE IJET P4: install temporary bounded action ==="
+    bash "$INSTALLER"
+    echo "=== NODE IJET P4: apply benchmark layout correction ==="
+    "$MAINT" node-ijet-p4-layout-fix
+    verify_layout_fix
+    ;;
+  *)
+    block unexpected_head_before_layout_validation
+    ;;
+esac
 
 FIX_HEAD=$(runuser -u noemi-codex -- git -C "$ROOT" rev-parse HEAD)
-test "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "fix(node-ijet): adapt benchmark harness to CT105 layout" || block missing_layout_fix_commit
-test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block dirty_after_layout_fix
 
 echo "=== NODE IJET P4: historical benchmark evidence integrity ==="
 actual_sums=$(cd "$MODULE/benchmarks/results" && sha256sum raw.json SUMMARY.md REPORT.md)
