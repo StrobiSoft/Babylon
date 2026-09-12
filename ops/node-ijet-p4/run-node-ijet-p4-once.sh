@@ -60,11 +60,12 @@ test "$(runuser -u noemi-codex -- git -C "$ROOT" symbolic-ref --quiet --short HE
 test -z "$(runuser -u noemi-codex -- git -C "$ROOT" status --porcelain=v1 --untracked-files=all)" || block target_repository_not_clean
 
 verify_layout_fix() {
-  local changed
+  local changed expected
   test "$(runuser -u noemi-codex -- git -C "$ROOT" log -1 --format=%s)" = "$FIX_SUBJECT" || block missing_layout_fix_commit
   test "$(runuser -u noemi-codex -- git -C "$ROOT" log -2 --format=%s | tail -1)" = "$P3_HEAD_SUBJECT" || block unexpected_layout_fix_parent
-  changed=$(runuser -u noemi-codex -- git -C "$ROOT" diff-tree --no-commit-id --name-only -r HEAD | sort)
-  test "$changed" = $'node-ijet/benchmarks/README.md\nnode-ijet/benchmarks/benchmark.mjs' || block unexpected_layout_fix_change_set
+  changed=$(runuser -u noemi-codex -- git -C "$ROOT" diff-tree --no-commit-id --name-only -r HEAD | LC_ALL=C sort)
+  expected=$(printf '%s\n' 'node-ijet/benchmarks/README.md' 'node-ijet/benchmarks/benchmark.mjs' | LC_ALL=C sort)
+  test "$changed" = "$expected" || block unexpected_layout_fix_change_set
   grep -Fq 'const MODULE_ROOT = resolve(dirname(SCRIPT_PATH), "..");' "$MODULE/benchmarks/benchmark.mjs" || block layout_fix_postcondition_missing
   grep -Fq 'git("diff", "--exit-code", target, "--", "node-ijet")' "$MODULE/benchmarks/benchmark.mjs" || block layout_fix_postcondition_missing
   grep -Fq 'resolve(MODULE_ROOT, "benchmarks/results/raw.json")' "$MODULE/benchmarks/benchmark.mjs" || block layout_fix_postcondition_missing
